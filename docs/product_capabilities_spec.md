@@ -20,11 +20,11 @@ rules (§16) that are **not yet implemented**.
 | Capability | Technical description | Status in this repo |
 | --- | --- | --- |
 | User management | Registration, login, **account recovery**, body profile, goal params. | Registration/login/profile done; goal params now historized (`GoalPlan`, Phase 1.1); account recovery (forgot-password) missing. |
-| Weekly logging | **Guided** capture of weight/waist/neck/intake/steps; edit **with a change audit trail**. | CRUD done; capture is a flat form, not guided; audit trail done (Phase 1.1, `audit_log`). |
+| Weekly logging | **Guided** capture of weight/waist/neck/intake/steps; edit **with a change audit trail**. | CRUD done; capture is now a 4-step guided wizard (Phase 1.2: Date & weight → Perimeters → Energy → Review, same `POST /api/logs` contract); audit trail done (Phase 1.1, `audit_log`). |
 | Calculation engine | Auto-recompute of BMI, FFMI, fat estimators, fat/lean mass, targets and calories, with a versioned dependency order. | Done — `CompositionEngine.ENGINE_VERSION`, compute order documented. |
-| Visual tracking | Charts for weight, **perimeters (waist/neck)**, fat %, fat/lean mass, calories, **and steps**. | Weight, fat %, fat/lean mass and calories charted; waist/neck and steps charts missing. |
-| Projection | Configurable linear forecast **and a comparison between the real trajectory and the goal trajectory**, clearly marking forecast vs. measured. | Forecast + `real`/`projected` badging done; forecast runs can now be persisted and re-fetched (Phase 1.1, `Projection`/`ProjectionService`); no real-vs-goal trajectory comparison chart yet. |
-| Energy plan | BMR/NEAT/TDEE/daily-deficit/target-calories; **adherence analysis computed only over real intake**. | Estimates done, now cached per log (Phase 1.1, `MetricsCache`); `LogManager.compute_adherence` exists but isn't exposed via API/UI. |
+| Visual tracking | Charts for weight, **perimeters (waist/neck)**, fat %, fat/lean mass, calories, **and steps**. | Done (Phase 1.2): waist/neck and steps charts added to the Dashboard (`chart-perimeters`, `chart-steps`), alongside the pre-existing weight/fat%/fat-lean-mass/calories charts. |
+| Projection | Configurable linear forecast **and a comparison between the real trajectory and the goal trajectory**, clearly marking forecast vs. measured. | Forecast + `real`/`projected` badging done; forecast runs can be persisted and re-fetched (Phase 1.1). The real-vs-goal trajectory comparison is now a Dashboard chart (Phase 1.2, `chart-goal-trajectory`: actual weight vs. the weekly objective `Wobj`, `weight_objective_kg` already in `MetricsDTO`). |
+| Energy plan | BMR/NEAT/TDEE/daily-deficit/target-calories; **adherence analysis computed only over real intake**. | Estimates done, cached per log (Phase 1.1, `MetricsCache`). A **Plan adjustment** view (Phase 1.2) previews the effect of a candidate target-BF/weekly-rate on target calories and weeks-to-goal before committing (`GET /api/plan/preview`, `server/src/api/plan_routes.py`), reusing `CompositionEngine.compute_row` with no persistence. `LogManager.compute_adherence` still exists but isn't exposed via API/UI. |
 | Alerts & feedback | Warnings for incoherent measurements, **stagnation**, **excessive lean-mass loss**, or **significant deviation** from plan. | Not implemented (only a silent `warnings.warn` for an implausible weekly change). |
 | Export | **Technical reports/summaries for the user, a trainer, or a nutritionist.** | JSON export now includes goal history and the audit log (Phase 1.1) alongside profile/logs; no formatted/printable report yet. |
 
@@ -36,8 +36,11 @@ rules (§16) that are **not yet implemented**.
 4. Progress review: dashboard with evolution, deviations, and projection to goal.
 5. **Plan adjustment**: recommended target-calorie change and its expected impact on weeks remaining.
 
-Steps 1–3 exist today (Account, Log, Dashboard views). Step 4's deviation
-callouts and step 5's dedicated plan-adjustment flow do not exist yet.
+Steps 1–3 exist today (Account, Log, Dashboard views), step 3's capture is
+now the guided wizard (Phase 1.2). Step 5's dedicated plan-adjustment flow
+also exists now (Phase 1.2, the Plan view + `GET /api/plan/preview`). Step
+4's deviation callouts (flagging actual-vs-`Wobj` divergence beyond a
+margin, not just charting it) remain Phase 1.3 work — see below.
 
 ## §15. Recommended data model
 

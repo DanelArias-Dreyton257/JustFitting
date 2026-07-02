@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.2: visual tracking & UX completeness (see README's roadmap).
+  - Dashboard chart grid grew from 4 to 7 cards: waist/neck perimeters
+    (`chart-perimeters`) and daily steps (`chart-steps`) join weight, body
+    fat %, fat/lean mass and calories. A new `drawMultiLineChart(svg,
+    series, lines, opts)` in `client/.../js/charts.js` draws several
+    labelled series (solid/dashed, own color) on one `<svg>`, generalizing
+    the existing single-series `drawLineChart`. Since waist/neck/steps
+    aren't in `MetricsDTO`, `app.js`'s `refreshDashboard` merges `GET
+    /api/logs` (raw `BodyLogDTO`) with `GET /api/metrics/series` by
+    `log_id` client-side — no server/DTO changes needed for these two
+    charts.
+  - A goal-trajectory chart (`chart-goal-trajectory`) plots actual weight
+    (solid) against the weekly objective `Wobj` (dashed,
+    `weight_objective_kg` — already computed by
+    `Trajectory.compute_weight_objective` and returned in every
+    `MetricsDTO` row), making real-vs-planned progress visible at a
+    glance with no backend changes.
+  - The flat weekly-log form (`#log-form`) is now a 4-step guided wizard
+    (Date & weight → Perimeters → Energy → Review) inside one `<form>`:
+    `views.js` gained `showWizardStep`/`renderLogReview`, `app.js` gates
+    `Next` on the current step's inputs passing `reportValidity()` and
+    renders a review summary before the final submit, which still posts
+    the same payload to `POST /api/logs` — the capture UX changed, not
+    the wire contract.
+  - A new "Plan adjustment" view/nav item lets a user try a candidate
+    target-BF/weekly-rate pair and see its effect on target calories,
+    daily deficit, weeks-to-goal and goal weight *before* committing:
+    `GET /api/plan/preview?target_bf=&weekly_rate=`
+    (`server/src/api/plan_routes.py`, registered in `api/app.py`) reuses
+    `CompositionEngine.compute_row` with a candidate `ProfileParams`
+    against the latest real log, purely read-only (no persistence, no
+    cache invalidation). "Commit this plan" reuses the existing `PUT
+    /api/users/me` → `GoalPlanManager.create_goal_plan` (historized, as
+    in Phase 1.1); the preview endpoint never writes. 4 new
+    `Api_test.py` cases cover the endpoint (matches current plan with no
+    overrides, reflects a candidate weekly rate, never persists a new
+    goal, 404s with no logs yet).
+  - `docs/product_capabilities_spec.md` and the README roadmap updated to
+    mark Phase 1.2's §14/§14.1 items done, plus two additive items found
+    along the way (surfacing goal-plan history in the UI; chart
+    date-axis/tooltip affordances) folded into Phase 1.4.
 - Phase 1.1: data model & audit hardening (see README's roadmap).
   - `GoalPlan` (`goal_plans` table, `data/db/GoalPlanDAO.py`,
     `services/GoalPlanManager.py`): target-BF/weekly-rate is now a

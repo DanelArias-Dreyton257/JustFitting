@@ -225,15 +225,37 @@ full detail, status per item, and the recommended data model are in
   later without recomputing. `GET /api/projection` (no persistence) is
   unchanged for the live-preview use case.
 
-### Phase 1.2 — Visual tracking & UX completeness
+### Phase 1.2 — Visual tracking & UX completeness (done)
 
-- Add waist/neck perimeter and steps charts to the Dashboard (today only
-  weight, body fat %, fat/lean mass and calories are charted).
-- Add a goal-trajectory comparison chart: actual weight vs. the weekly
-  `Wobj` target line, so real vs. planned progress is visible at a glance.
-- Turn the flat weekly-log form into a guided, multi-step capture flow.
-- Add a dedicated "Plan adjustment" view: shows the effect of a
-  calorie-target change on weeks-to-goal before committing it.
+- The Dashboard's chart grid grew from 4 to 7 cards: waist/neck perimeters
+  and daily steps (`chart-perimeters`, `chart-steps`) join weight, body
+  fat %, fat/lean mass and calories. A new `drawMultiLineChart` in
+  `charts.js` plots several series (with a small color-dot legend) on one
+  `<svg>`, generalizing the old single-series `drawLineChart`. Waist/neck/
+  steps aren't in `MetricsDTO`, so `app.js` merges `GET /api/logs` (raw
+  `BodyLogDTO`, has them) with `GET /api/metrics/series` by `log_id`
+  client-side — no server/DTO changes needed.
+- A goal-trajectory chart (`chart-goal-trajectory`) plots actual weight
+  (solid) against the weekly objective `Wobj` (dashed, `weight_objective_kg`
+  — already computed per row by `Trajectory.compute_weight_objective` and
+  returned in `MetricsDTO`), so real vs. planned progress is visible at a
+  glance without any new backend work.
+- The flat `#log-form` is now a 4-step guided wizard (Date & weight →
+  Perimeters → Energy → Review) inside one `<form>`; `views.js`'s
+  `showWizardStep`/`renderLogReview` toggle `<fieldset>` visibility and
+  render a review summary, `app.js` gates `Next` on the current step's
+  native input validity (`reportValidity()`). The final submit still posts
+  the same payload to `POST /api/logs` — capture UX changed, not the
+  contract.
+- A new "Plan adjustment" view lets a user try a candidate target-BF/
+  weekly-rate pair and see its effect on target calories, daily deficit,
+  weeks-to-goal and goal weight *before* committing it, via a new
+  read-only `GET /api/plan/preview?target_bf=&weekly_rate=` endpoint
+  (`server/src/api/plan_routes.py`) that reuses
+  `CompositionEngine.compute_row` with a candidate `ProfileParams` against
+  the latest real log — no persistence, no cache invalidation. "Commit
+  this plan" reuses the existing `PUT /api/users/me` (`GoalPlanManager`,
+  historized as in Phase 1.1); the preview endpoint never writes.
 
 ### Phase 1.3 — Alerts & feedback engine
 
@@ -257,6 +279,15 @@ full detail, status per item, and the recommended data model are in
 - Add exportable technical reports/summaries for the user, a trainer, or
   a nutritionist (e.g. a printable/PDF report), beyond today's raw JSON
   export/import.
+- Surface the historized goal-plan timeline (`GET /api/users/me/goals`,
+  implemented in Phase 1.1 but still unused by the client) in the UI —
+  e.g. mark plan-change dates on the new goal-trajectory chart (Phase 1.2)
+  or list past plans in the Account/Plan view — so a user can see *when*
+  and *why* their target calories shifted, not just the current plan.
+- Basic chart affordances noticed while building Phase 1.2's charts:
+  `charts.js` still has no date-axis labels, gridlines or hover tooltips
+  (points are index-spaced, not date-spaced); worth a pass once there are
+  more chart types than screen real estate for a 4-week-old account.
 
 ### Phase 1.5 — Account & model completeness
 
