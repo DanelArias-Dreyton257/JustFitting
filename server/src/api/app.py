@@ -1,9 +1,4 @@
-"""Flask application factory: wires DB, DAOs, services and blueprints.
-
-``JUSTFITTING_SERVE_CLIENT=true`` additionally serves the static web client
-from this same process (see client/src/webapp), so an Android WebView can
-point at one port for both the API and the page (Phase 2, docs §13).
-"""
+"""Flask application factory: wires DB, DAOs, services and blueprints."""
 
 from __future__ import annotations
 
@@ -65,16 +60,4 @@ def create_app(config: Optional[dict] = None) -> Flask:
     if seed_demo:
         DemoSeeder.seed_if_empty(user_manager, log_manager)
 
-    if app.config.get(
-        "SERVE_CLIENT",
-        os.environ.get("JUSTFITTING_SERVE_CLIENT", "false").lower() == "true",
-    ):
-        _register_client_blueprint(app)
-
     return app
-
-
-def _register_client_blueprint(app: Flask) -> None:
-    from client.src.Client import client_bp
-
-    app.register_blueprint(client_bp)

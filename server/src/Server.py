@@ -1,7 +1,7 @@
 """Dev entry point: ``python -m server.src.Server`` (run from repo root).
 
-Pure-Flask dev server on purpose (no gunicorn on this path) so the exact
-same code runs unmodified inside the future Android/Chaquopy wrapper.
+Pure-Flask dev server on purpose (no gunicorn on this path); prod uses
+``server/wsgi.py`` instead (see README's Deployment section).
 """
 
 from __future__ import annotations
