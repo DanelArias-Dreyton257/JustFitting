@@ -23,6 +23,30 @@ class ClientSmokeTest(unittest.TestCase):
         response = self.client.get("/static/css/style.css")
         self.assertEqual(response.status_code, 200)
 
+    def test_manifest_is_served_at_root_with_correct_mimetype(self):
+        response = self.client.get("/manifest.json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/manifest+json")
+        payload = response.get_json()
+        self.assertEqual(payload["name"], "JustFitting")
+        self.assertEqual(payload["start_url"], "/")
+
+    def test_service_worker_is_served_at_root_with_full_scope(self):
+        response = self.client.get("/sw.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/javascript")
+        self.assertEqual(response.headers.get("Service-Worker-Allowed"), "/")
+
+    def test_index_references_manifest_and_service_worker(self):
+        response = self.client.get("/")
+        self.assertIn(b'rel="manifest"', response.data)
+        self.assertIn(b"serviceWorker", response.data)
+
+    def test_icons_are_served(self):
+        for filename in ("icon-192.png", "icon-512.png", "favicon-32.png"):
+            response = self.client.get(f"/static/icons/{filename}")
+            self.assertEqual(response.status_code, 200, f"{filename} was not served")
+
 
 if __name__ == "__main__":
     unittest.main()

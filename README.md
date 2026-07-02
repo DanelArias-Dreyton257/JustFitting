@@ -117,7 +117,7 @@ JustFitting/
 ├── client/
 │   ├── src/
 │   │   ├── Client.py            # Flask entry point (port 5500)
-│   │   └── webapp/{templates,static/{css,js}}
+│   │   └── webapp/{templates,static/{css,js,icons,manifest.json,sw.js}}
 │   └── test/
 └── server/
     ├── wsgi.py
@@ -256,24 +256,67 @@ full detail, status per item, and the recommended data model are in
 - Make the projection's activity assumption configurable (today steps
   are always carried forward as a constant).
 
-### Phase 1.6 — Testing & native-client groundwork
+### Phase 1.6 — Testing groundwork
 
 - Weighted or non-linear projection models beyond OLS.
 - Playwright JS unit tests for `views.js`/`api.js`.
-- Native Android client using the `remote/RemoteFacade` seam directly
-  (no WebView) — an alternative to Phase 2 below for a fully-native UI.
+- A fully-native client using the `remote/RemoteFacade` seam directly, as
+  a longer-term alternative to the PWA/TWA Android app below — not
+  planned, just kept possible.
 
 ## Android app
 
-Phase 2 (not yet built): package the Phase-1 server + client into an
-Android app via **Chaquopy**, launching Flask on a background thread bound
-to `127.0.0.1`, with SQLite in the app's private storage
-(`JUSTFITTING_DB_PATH`), and a full-screen **WebView** pointed at the local
-server once `GET /api/health` returns 200. Phase 1 is already shaped for
-this: host/port/DB path are env-configurable, the dev path has no
-gunicorn dependency, and `JUSTFITTING_SERVE_CLIENT=true` makes the server
-serve the client from the same process. See `docs/composition_spec.md`
-and the project's original scaffolding brief for the full roadmap.
+Phase 2 (not yet built): ship the existing hosted web client as an
+installable Android app via a **Trusted Web Activity (TWA)**, built with
+Google's **Bubblewrap** CLI. No on-device Flask, no WebView, no native
+HTTP client — the Android app is a thin wrapper that opens the same
+hosted PWA in Chrome, with the browser UI hidden once the domain is
+verified:
+
+```
+Flask backend + HTML/CSS/JS
+        |
+Hosted at https://yourdomain.com  (client on GitHub Pages, API on Render
+        |                          -- both already set up, see Deployment)
+PWA manifest + service worker
+        |
+Bubblewrap generates Android project
+        |
+Android app opens your Flask PWA as a TWA
+```
+
+Steps:
+
+1. **PWA groundwork** (done) — `client/src/webapp/static/manifest.json`
+   (name, icons, `start_url: "/"`, `display: standalone`, theme/background
+   color, `scope: "/"`) and an app-shell service worker (`static/sw.js`,
+   stale-while-revalidate for this site's own static assets; API calls to
+   a different origin are left untouched). Both are served at the site
+   *root* — `GET /manifest.json` and `GET /sw.js` in `Client.py`, not
+   under `/static/`, since a service worker's default scope is the
+   directory it's served from and Bubblewrap wants a stable
+   `/manifest.json` URL — and linked/registered from `index.html`.
+   `scripts/build_static_site.py` resolves the same `url_for(...)` calls
+   and copies both files to the built site's root for GitHub Pages, which
+   has no Flask routes to serve them dynamically. This already makes the
+   client installable and usable offline, independent of Android.
+2. **HTTPS hosting + Digital Asset Links** (not started): the client must
+   be served over HTTPS at a stable domain (the existing GitHub Pages
+   deploy in `release.yml` already qualifies, or any custom domain
+   pointed at it). Add `/.well-known/assetlinks.json` at that origin,
+   declaring the Android app's package name and signing-key fingerprint,
+   so Android can verify the app owns the site and hide the address bar
+   (this is what makes it a TWA rather than just "a browser bookmark").
+   Can't be filled in until step 3 produces a package name + keystore.
+3. **Generate the Android project** (not started): `npx @bubblewrap/cli
+   init --manifest=https://yourdomain.com/manifest.json` scaffolds an
+   Android Studio project pointed at the hosted PWA; `bubblewrap build`
+   produces a signed APK/AAB ready for internal testing or the Play
+   Store.
+
+Because the client and API are already deployed as two independently
+hosted HTTPS services (Deployment, above), no server-side changes are
+needed for this — the same production deployment *is* the PWA.
 
 ## The Team
 

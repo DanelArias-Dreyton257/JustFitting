@@ -32,6 +32,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spec and cataloguing the product capabilities (§14–§16) it defines beyond
   the calculation engine — audit trail, historized goals, alerts/feedback,
   adherence reporting, sex-specific formula variants, and more.
+- PWA groundwork for the Phase 2 Android app — step 1 of the 3-step plan
+  described under "Changed" below is now implemented, not just planned:
+  - `client/src/webapp/static/manifest.json` (name, icons, `start_url:
+    "/"`, `display: standalone`, theme/background color, `scope: "/"`).
+  - An app-shell service worker (`static/sw.js`): stale-while-revalidate
+    for this site's own static assets; requests to a different origin
+    (the API) are left untouched.
+  - Placeholder icons generated with Pillow, matching the client's dark
+    theme (`static/icons/icon-192.png`, `icon-512.png`, `favicon-32.png`,
+    "any" + "maskable" purposes) — meant to be swapped for real branding.
+  - `Client.py` serves both `manifest.json` and `sw.js` at the site
+    *root* (`GET /manifest.json`, `GET /sw.js`, not under `/static/`),
+    since a service worker's default scope is the directory it's served
+    from and Bubblewrap needs a stable `/manifest.json` URL; `sw.js`
+    also gets a `Service-Worker-Allowed: /` header. `index.html` links
+    the manifest/icons (plus a `theme-color` meta tag) and registers the
+    service worker on load.
+  - `scripts/build_static_site.py`'s two hardcoded string replacements
+    were generalized into a regex over every
+    `url_for('client.static', filename=...)` call, plus explicit
+    handling for `client.manifest`/`client.service_worker`, and it now
+    copies `manifest.json`/`sw.js` to the built site's root — GitHub
+    Pages has no Flask routes to serve them dynamically.
+  - `Client_test.py`: 5 new cases covering the manifest's content and
+    mimetype, the service worker's mimetype and `Service-Worker-Allowed`
+    header, that the icons are served, and that `index.html` actually
+    references the manifest and registers the service worker.
 
 ### Changed
 
@@ -79,3 +106,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the IDE's test explorer uses `unittest` instead of pytest.
 - Moved `JustFitting_Documento_Final.pdf` into `docs/` and updated the
   references to it in `README.md` and `docs/product_capabilities_spec.md`.
+- Repointed the Phase 2 Android plan from Chaquopy + on-device Flask +
+  WebView to a **PWA wrapped in a Trusted Web Activity**, built with
+  Google's Bubblewrap CLI against the already-hosted web client (GitHub
+  Pages) and API (Render) — no server-side changes needed, since the
+  existing production deployment already is the PWA origin. README's
+  "Android app" section now describes 3 steps: (1) PWA manifest +
+  service worker — done, see "Added" above; (2) HTTPS hosting + Digital
+  Asset Links, and (3) generating the Android project with Bubblewrap —
+  both not started, and (2) can't be filled in until (3) produces a
+  package name and signing key. Removed the `JUSTFITTING_SERVE_CLIENT`
+  merged-process feature from `api/app.py` and `.env.example` (it existed
+  only to let an on-device Flask serve the client to a WebView, which the
+  TWA approach doesn't need), and updated the
+  `Server.py`/`Client.py`/`remote/RemoteFacade.py` docstrings that
+  referenced the old plan.

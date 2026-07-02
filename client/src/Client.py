@@ -1,9 +1,4 @@
-"""Flask entry point serving the static web client (port 5500).
-
-Also exposed as ``client_bp`` so ``server/src/api/app.py`` can mount it
-directly when ``JUSTFITTING_SERVE_CLIENT=true`` (Phase 2 Android wrapper:
-one process answering both the API and the page).
-"""
+"""Flask entry point serving the static web client (port 5500)."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from flask import Blueprint, Flask, render_template
+from flask import Blueprint, Flask, render_template, send_from_directory
 
 WEBAPP_DIR = Path(__file__).resolve().parent / "webapp"
 
@@ -28,6 +23,30 @@ client_bp = Blueprint(
 def index():
     api_base_url = os.environ.get("JUSTFITTING_API_BASE_URL", "http://127.0.0.1:5000")
     return render_template("index.html", api_base_url=api_base_url)
+
+
+@client_bp.get("/manifest.json")
+def manifest():
+    # Served at the root (not /static/manifest.json) so Bubblewrap and
+    # browsers can point at a clean, stable https://<domain>/manifest.json.
+    return send_from_directory(
+        str(WEBAPP_DIR / "static"),
+        "manifest.json",
+        mimetype="application/manifest+json",
+    )
+
+
+@client_bp.get("/sw.js")
+def service_worker():
+    # A service worker's default scope is the directory it's served from,
+    # so this must live at the root -- /static/js/sw.js could only ever
+    # control pages under /static/js/. Service-Worker-Allowed is a
+    # belt-and-suspenders confirmation of that root scope.
+    response = send_from_directory(
+        str(WEBAPP_DIR / "static"), "sw.js", mimetype="text/javascript"
+    )
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
 
 
 def create_client_app(config: Optional[dict] = None) -> Flask:

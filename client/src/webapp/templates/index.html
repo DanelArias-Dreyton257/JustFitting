@@ -4,11 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JustFitting</title>
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="description" content="Weekly body-composition tracking, done at home." />
+  <link rel="manifest" href="{{ url_for('client.manifest') }}" />
+  <link rel="icon" href="{{ url_for('client.static', filename='icons/favicon-32.png') }}" />
+  <link rel="apple-touch-icon" href="{{ url_for('client.static', filename='icons/icon-192.png') }}" />
   <link rel="stylesheet" href="{{ url_for('client.static', filename='css/style.css') }}" />
 </head>
 <body>
   <script>
     window.JUSTFITTING_API_BASE_URL = "{{ api_base_url }}";
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("{{ url_for('client.service_worker') }}");
+      });
+    }
   </script>
 
   <header class="topbar">
