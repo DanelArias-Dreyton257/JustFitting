@@ -43,6 +43,45 @@ export function drawLineChart(svg, series, { color = "#5eb3ff" } = {}) {
   });
 }
 
+export function drawMultiLineChart(svg, series, lines, { isProjected = () => false } = {}) {
+  svg.innerHTML = "";
+  if (!series.length) return;
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  const padding = 24;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const allValues = lines.flatMap((line) => series.map((row) => line.accessor(row)));
+  const xScale = scaleLinear([0, series.length - 1], [padding, width - padding]);
+  const yScale = scaleLinear(
+    [Math.min(...allValues), Math.max(...allValues) || 1],
+    [height - padding, padding]
+  );
+
+  lines.forEach((line) => {
+    const points = series.map((row, i) => [xScale(i), yScale(line.accessor(row))]);
+    const path = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+
+    const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    pathEl.setAttribute("d", path);
+    pathEl.setAttribute("fill", "none");
+    pathEl.setAttribute("stroke", line.color);
+    pathEl.setAttribute("stroke-width", "2");
+    if (line.dashed) pathEl.setAttribute("stroke-dasharray", "5,4");
+    svg.appendChild(pathEl);
+
+    points.forEach(([x, y], i) => {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", isProjected(series[i]) ? 2 : 3);
+      circle.setAttribute("fill", line.color);
+      svg.appendChild(circle);
+    });
+  });
+}
+
 export function drawStackedBars(svg, series) {
   svg.innerHTML = "";
   if (!series.length) return;

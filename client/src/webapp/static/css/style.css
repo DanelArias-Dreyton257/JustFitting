@@ -205,6 +205,31 @@ button#projection-refresh:hover {
   display: block;
 }
 
+.chart-legend {
+  display: flex;
+  gap: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.legend-dot--dashed {
+  border-radius: 2px;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
