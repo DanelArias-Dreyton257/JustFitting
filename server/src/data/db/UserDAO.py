@@ -20,8 +20,6 @@ class UserDAO:
         height_cm: float,
         sex: int,
         birthdate: date,
-        target_bf: float,
-        weekly_rate: float,
         units: str = "metric",
     ) -> UserProfile:
         created_at = datetime.now(timezone.utc).isoformat()
@@ -29,8 +27,8 @@ class UserDAO:
             """
             INSERT INTO users
                 (username, email, password_hash, height_cm, sex, birthdate,
-                 target_bf, weekly_rate, units, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 units, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 username,
@@ -39,8 +37,6 @@ class UserDAO:
                 height_cm,
                 sex,
                 birthdate.isoformat(),
-                target_bf,
-                weekly_rate,
                 units,
                 created_at,
             ),
