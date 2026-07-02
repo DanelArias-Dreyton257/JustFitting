@@ -49,4 +49,7 @@ export const api = {
   metricsSeries: () => request("GET", "/api/metrics/series"),
 
   projection: (weeks, base) => request("GET", `/api/projection?weeks=${weeks}&base=${base}`),
+
+  planPreview: (params) =>
+    request("GET", `/api/plan/preview?${new URLSearchParams(params).toString()}`),
 };

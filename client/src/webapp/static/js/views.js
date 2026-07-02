@@ -107,3 +107,25 @@ export function renderLogReview(container, values) {
     .map(([label, value]) => `<dt>${label}</dt><dd>${value || "—"}</dd>`)
     .join("");
 }
+
+export function renderPlanStats(container, metrics) {
+  if (!metrics) {
+    container.innerHTML = `<p class="disclaimer">Log a week to preview a plan.</p>`;
+    return;
+  }
+  const tiles = [
+    ["Target calories", `${metrics.target_calories.toFixed(0)} kcal`],
+    ["Daily deficit", `${metrics.daily_deficit_kcal.toFixed(0)} kcal`],
+    ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
+    ["Goal weight", `${metrics.final_weight_kg.toFixed(1)} kg`],
+  ];
+  container.innerHTML = tiles
+    .map(
+      ([label, value]) => `
+      <div class="stat-tile">
+        <div class="label">${label}</div>
+        <div class="value">${value}</div>
+      </div>`
+    )
+    .join("");
+}
