@@ -26,8 +26,6 @@ class AuthServiceTest(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
 
     def test_issue_and_resolve_token(self):

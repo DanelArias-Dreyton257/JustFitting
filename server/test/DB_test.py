@@ -1,9 +1,13 @@
+import os
+import tempfile
 import threading
 import unittest
 from datetime import date, datetime, timedelta, timezone
 
+import server.src.data.db.DB as DBModule
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.DB import DB
+from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.SessionDAO import SessionDAO
 from server.src.data.db.UserDAO import UserDAO
 
@@ -31,8 +35,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         self.assertIsNotNone(profile.user_id)
 
@@ -57,8 +59,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         with self.assertRaises(Exception):
             dao.create(
@@ -68,8 +68,6 @@ class DBTestCase(unittest.TestCase):
                 height_cm=176,
                 sex=1,
                 birthdate=date(2001, 8, 22),
-                target_bf=0.15,
-                weekly_rate=-0.005,
             )
 
     def test_session_dao_lifecycle(self):
@@ -82,8 +80,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
         session_dao.create("token-123", profile.user_id, expires_at)
@@ -104,8 +100,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         session_dao.create(
             "expired", profile.user_id, datetime.now(timezone.utc) - timedelta(days=1)
@@ -129,8 +123,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         log = log_dao.create(
             user_id=profile.user_id,
@@ -178,8 +170,6 @@ class DBTestCase(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         )
         log_dao.create(
             user_id=profile.user_id,
@@ -193,6 +183,94 @@ class DBTestCase(unittest.TestCase):
         )
         user_dao.delete(profile.user_id)
         self.assertEqual(log_dao.list_for_user(profile.user_id), [])
+
+    def test_goal_plan_dao_history_and_deactivate(self):
+        user_dao = UserDAO(self.db)
+        goal_dao = GoalPlanDAO(self.db)
+        profile = user_dao.create(
+            username="danel",
+            email="danel@example.com",
+            password_hash="hash",
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+        )
+        first = goal_dao.create(
+            user_id=profile.user_id,
+            target_bf=0.15,
+            weekly_rate=-0.005,
+            start_date=date(2026, 1, 1),
+        )
+        self.assertTrue(goal_dao.get_active(profile.user_id).goal_id == first.goal_id)
+
+        goal_dao.deactivate(first.goal_id)
+        second = goal_dao.create(
+            user_id=profile.user_id,
+            target_bf=0.18,
+            weekly_rate=-0.004,
+            start_date=date(2026, 2, 1),
+        )
+        active = goal_dao.get_active(profile.user_id)
+        self.assertEqual(active.goal_id, second.goal_id)
+
+        history = goal_dao.list_for_user(profile.user_id)
+        self.assertEqual([g.goal_id for g in history], [second.goal_id, first.goal_id])
+
+
+class MigrationBackfillTest(unittest.TestCase):
+    """Verifies the v4 migration: existing users' target_bf/weekly_rate are
+    backfilled into an active goal_plans row, then dropped from users."""
+
+    def setUp(self):
+        self.original_migrations = DBModule.MIGRATIONS
+        self.path = tempfile.mktemp(suffix=".db")
+
+    def tearDown(self):
+        DBModule.MIGRATIONS = self.original_migrations
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
+    def test_v4_backfills_goal_plans_and_drops_columns(self):
+        DBModule.MIGRATIONS = self.original_migrations[:3]
+        legacy_db = DB(self.path)
+        legacy_db.execute(
+            """
+            INSERT INTO users
+                (username, email, password_hash, height_cm, sex, birthdate,
+                 target_bf, weekly_rate, units, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy",
+                "legacy@example.com",
+                "hash",
+                176,
+                1,
+                "2001-08-22",
+                0.15,
+                -0.005,
+                "metric",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        legacy_db.close()
+
+        DBModule.MIGRATIONS = self.original_migrations
+        upgraded = DB(self.path)
+        try:
+            user_row = upgraded.query_one(
+                "SELECT * FROM users WHERE username = ?", ("legacy",)
+            )
+            self.assertNotIn("target_bf", user_row.keys())
+            self.assertNotIn("weekly_rate", user_row.keys())
+
+            active = GoalPlanDAO(upgraded).get_active(user_row["user_id"])
+            self.assertIsNotNone(active)
+            self.assertAlmostEqual(active.target_bf, 0.15)
+            self.assertAlmostEqual(active.weekly_rate, -0.005)
+            self.assertEqual(active.start_date, date(2026, 1, 1))
+        finally:
+            upgraded.close()
 
 
 class DBConcurrencyTest(unittest.TestCase):
@@ -215,8 +293,6 @@ class DBConcurrencyTest(unittest.TestCase):
                         height_cm=176,
                         sex=1,
                         birthdate=date(2001, 8, 22),
-                        target_bf=0.15,
-                        weekly_rate=-0.005,
                     )
                 except Exception as exc:  # pragma: no cover - failure path
                     errors.append(exc)

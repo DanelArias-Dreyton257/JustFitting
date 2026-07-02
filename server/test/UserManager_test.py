@@ -2,7 +2,9 @@ import unittest
 from datetime import date
 
 from server.src.data.db.DB import DB
+from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.UserDAO import UserDAO
+from server.src.services.GoalPlanManager import GoalPlanManager
 from server.src.services.UserManager import (
     UserManager,
     UserManagerError,
@@ -14,7 +16,8 @@ from server.src.services.UserManager import (
 class UserManagerTest(unittest.TestCase):
     def setUp(self):
         self.db = DB(":memory:")
-        self.manager = UserManager(UserDAO(self.db))
+        self.goal_plan_manager = GoalPlanManager(GoalPlanDAO(self.db))
+        self.manager = UserManager(UserDAO(self.db), self.goal_plan_manager)
 
     def tearDown(self):
         self.db.close()
@@ -102,6 +105,30 @@ class UserManagerTest(unittest.TestCase):
         profile = self._register()
         self.manager.delete_user(profile.user_id)
         self.assertIsNone(self.manager.get_profile(profile.user_id))
+
+    def test_register_creates_an_active_goal_plan(self):
+        profile = self._register()
+        active = self.goal_plan_manager.get_active(profile.user_id)
+        self.assertIsNotNone(active)
+        self.assertAlmostEqual(active.target_bf, 0.15)
+        self.assertAlmostEqual(active.weekly_rate, -0.005)
+
+    def test_update_profile_with_goal_fields_historizes_the_goal(self):
+        profile = self._register()
+        first_goal = self.goal_plan_manager.get_active(profile.user_id)
+
+        self.manager.update_profile(profile.user_id, target_bf=0.2, weekly_rate=-0.01)
+
+        second_goal = self.goal_plan_manager.get_active(profile.user_id)
+        self.assertNotEqual(second_goal.goal_id, first_goal.goal_id)
+        self.assertAlmostEqual(second_goal.target_bf, 0.2)
+        self.assertAlmostEqual(second_goal.weekly_rate, -0.01)
+
+        history = self.goal_plan_manager.list_history(profile.user_id)
+        self.assertEqual(len(history), 2)
+        self.assertFalse(
+            next(g for g in history if g.goal_id == first_goal.goal_id).active
+        )
 
 
 if __name__ == "__main__":

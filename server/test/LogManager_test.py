@@ -1,6 +1,7 @@
 import unittest
 from datetime import date
 
+from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.UserDAO import UserDAO
@@ -20,8 +21,6 @@ class LogManagerTest(unittest.TestCase):
             height_cm=176,
             sex=1,
             birthdate=date(2001, 8, 22),
-            target_bf=0.15,
-            weekly_rate=-0.005,
         ).user_id
 
     def tearDown(self):
@@ -132,6 +131,28 @@ class LogManagerTest(unittest.TestCase):
 
         second_call = self.manager.seed_reference_series(self.user_id)
         self.assertEqual(second_call, [])
+
+    def test_update_log_records_audit_entries_for_changed_fields(self):
+        audit_log_dao = AuditLogDAO(self.db)
+        manager = LogManager(BodyLogDAO(self.db), audit_log_dao=audit_log_dao)
+        log = manager.create_log(
+            user_id=self.user_id,
+            log_date=date(2026, 6, 26),
+            weight_kg=90.7,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2014.30,
+            steps=5000,
+        )
+
+        manager.update_log(log.log_id, weight_kg=90.2, steps=5000)
+
+        entries = audit_log_dao.list_for_user(self.user_id)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].entity_type, "body_log")
+        self.assertEqual(entries[0].field, "weight_kg")
+        self.assertEqual(entries[0].previous_value, "90.7")
+        self.assertEqual(entries[0].new_value, "90.2")
 
 
 if __name__ == "__main__":

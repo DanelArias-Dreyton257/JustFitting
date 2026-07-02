@@ -243,6 +243,108 @@ class ApiTestCase(unittest.TestCase):
         me_response = self.client.get("/api/users/me", headers=headers)
         self.assertEqual(me_response.status_code, 401)
 
+    def test_register_reflects_the_active_goal_plan(self):
+        response = self._register()
+        profile = response.get_json()["profile"]
+        self.assertAlmostEqual(profile["target_bf"], 0.15)
+        self.assertAlmostEqual(profile["weekly_rate"], -0.005)
+
+    def test_update_profile_goal_fields_historizes_the_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        update_response = self.client.put(
+            "/api/users/me",
+            json={"target_bf": 0.2, "weekly_rate": -0.01},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        profile = update_response.get_json()
+        self.assertAlmostEqual(profile["target_bf"], 0.2)
+        self.assertAlmostEqual(profile["weekly_rate"], -0.01)
+
+        goals_response = self.client.get("/api/users/me/goals", headers=headers)
+        self.assertEqual(goals_response.status_code, 200)
+        goals = goals_response.get_json()
+        self.assertEqual(len(goals), 2)
+        self.assertTrue(goals[0]["active"])
+        self.assertFalse(goals[1]["active"])
+
+    def test_log_edit_is_recorded_in_the_audit_log(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=headers,
+        )
+        log_id = create_response.get_json()["log_id"]
+
+        self.client.put(
+            f"/api/logs/{log_id}", json={"weight_kg": 90.2}, headers=headers
+        )
+
+        audit_response = self.client.get("/api/users/me/audit-log", headers=headers)
+        self.assertEqual(audit_response.status_code, 200)
+        entries = audit_response.get_json()
+        log_entries = [e for e in entries if e["entity_type"] == "body_log"]
+        self.assertEqual(len(log_entries), 1)
+        self.assertEqual(log_entries[0]["field"], "weight_kg")
+
+    def test_save_and_retrieve_a_projection_run(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        save_response = self.client.post(
+            "/api/projection?weeks=3", headers=headers
+        )
+        self.assertEqual(save_response.status_code, 201)
+        body = save_response.get_json()
+        run_id = body["run_id"]
+        self.assertEqual(len(body["rows"]), 3)
+
+        runs_response = self.client.get("/api/projections", headers=headers)
+        self.assertEqual(runs_response.status_code, 200)
+        runs = runs_response.get_json()
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["run_id"], run_id)
+
+        run_response = self.client.get(f"/api/projections/{run_id}", headers=headers)
+        self.assertEqual(run_response.status_code, 200)
+        self.assertEqual(len(run_response.get_json()), 3)
+
+    def test_metrics_series_is_cached_across_reads(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        first = self.client.get("/api/metrics/series", headers=headers).get_json()
+        second = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(first, second)
+        self.assertIsNotNone(first[0]["log_id"])
+        self.assertIsNotNone(first[0]["engine_version"])
+
+    def test_export_includes_goal_history_and_audit_log(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put(
+            "/api/users/me", json={"target_bf": 0.2}, headers=headers
+        )
+
+        export_response = self.client.get("/api/users/me/export", headers=headers)
+        exported = export_response.get_json()
+        self.assertEqual(len(exported["goal_history"]), 2)
+        self.assertGreaterEqual(len(exported["audit_log"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
