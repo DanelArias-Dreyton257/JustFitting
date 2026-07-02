@@ -100,14 +100,39 @@
 
     <section id="view-log" class="view" hidden>
       <h1>Weekly log</h1>
-      <form id="log-form" class="inline-form">
-        <label>Date <input name="date" type="date" required /></label>
-        <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
-        <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" required /></label>
-        <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" required /></label>
-        <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
-        <label>Steps <input name="steps" type="number" step="1" required /></label>
-        <button type="submit">Save log</button>
+      <form id="log-form" class="wizard-form">
+        <div class="wizard-progress" id="log-wizard-progress">
+          <span class="wizard-step-label" data-step="1">1. Date &amp; weight</span>
+          <span class="wizard-step-label" data-step="2">2. Perimeters</span>
+          <span class="wizard-step-label" data-step="3">3. Energy</span>
+          <span class="wizard-step-label" data-step="4">4. Review</span>
+        </div>
+
+        <fieldset class="wizard-step" data-step="1">
+          <label>Date <input name="date" type="date" required /></label>
+          <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="2" hidden>
+          <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" required /></label>
+          <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="3" hidden>
+          <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
+          <label>Steps <input name="steps" type="number" step="1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="4" hidden>
+          <p>Review before saving:</p>
+          <dl class="wizard-review" id="log-review"></dl>
+        </fieldset>
+
+        <div class="wizard-nav">
+          <button type="button" id="log-back" hidden>Back</button>
+          <button type="button" id="log-next">Next</button>
+          <button type="submit" id="log-save" hidden>Save log</button>
+        </div>
         <p class="form-error" data-for="log-form"></p>
       </form>
       <table class="data-table" id="log-table">
