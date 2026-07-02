@@ -192,23 +192,38 @@ independently, in roughly the order that unlocks the most value first;
 full detail, status per item, and the recommended data model are in
 `docs/product_capabilities_spec.md`.
 
-### Phase 1.1 — Data model & audit hardening
+### Phase 1.1 — Data model & audit hardening (done)
 
-- Split `GoalPlan` out of `UserProfile` into its own historized entity
-  (`goal_id, user_id, target_bf, weekly_rate, start_date, active`), so a
-  user's goal history survives across changes instead of being
-  overwritten in place.
-- Add an audit trail for `BodyLog`/profile/goal edits: timestamp, user,
-  field, previous value, new value, and the engine version active at the
-  time — the spec's "every update must retain date, user, previous value,
-  new value, and the calculation-engine version" requirement.
-- Persist `CalculatedMetrics`/`EnergyPlan` snapshots per log (cached,
-  keyed by `log_id` + engine version) instead of always recomputing on
-  read, so historical results stay reproducible if the engine changes.
-- Add a persisted `Projection` entity (`projection_id, user_id,
-  projected_date, estimated_weight, estimated_waist, estimated_neck,
-  source_model, base_regression`) so a saved forecast run can be
-  inspected later without recomputing, with its regression base recorded.
+- `GoalPlan` is split out of `UserProfile` into its own historized entity
+  (`goal_plans`: `goal_id, user_id, target_bf, weekly_rate, start_date,
+  active, created_at`, `data/db/GoalPlanDAO.py`, `services/GoalPlanManager.py`).
+  Every target-BF/weekly-rate change deactivates the previous row and
+  inserts a new one instead of overwriting in place; `GET
+  /api/users/me/goals` returns the full history, newest first. The
+  `users` table's old `target_bf`/`weekly_rate` columns are gone (backfilled
+  into an initial active goal plan by migration v4); `GET`/`PUT
+  /api/users/me` keep returning `target_bf`/`weekly_rate` by joining in the
+  active goal, so existing clients are unaffected.
+- An audit trail (`audit_log` table, `data/db/AuditLogDAO.py`) records
+  every profile field edit, goal-plan change, and body-log field edit:
+  user, entity, field, previous value, new value, timestamp, and the
+  engine version where applicable. `GET /api/users/me/audit-log` exposes
+  it; it's also folded into `GET /api/users/me/export`.
+- `CalculatedMetrics`/`EnergyPlan` results are cached per log, keyed by
+  `(log_id, engine_version)` (`metrics_snapshots` table,
+  `data/db/MetricsSnapshotDAO.py`, `services/MetricsCache.py`). A read
+  recomputes only when a log is missing its snapshot at the current
+  `CompositionEngine.ENGINE_VERSION`; any log create/update/delete or
+  goal-plan change invalidates the affected user's cache so the next read
+  repopulates it. `MetricsDTO` now carries `log_id`/`engine_version`.
+- Forecast runs can be persisted (`projections` table,
+  `data/db/ProjectionDAO.py`, `services/ProjectionService.py`):
+  `POST /api/projection` saves the current forecast under a `run_id` (with
+  `estimated_weight/waist/neck`, `source_model`, `base_regression`);
+  `GET /api/projections` lists saved runs and `GET
+  /api/projections/<run_id>` retrieves one, so a forecast can be inspected
+  later without recomputing. `GET /api/projection` (no persistence) is
+  unchanged for the live-preview use case.
 
 ### Phase 1.2 — Visual tracking & UX completeness
 

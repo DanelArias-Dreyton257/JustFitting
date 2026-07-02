@@ -19,14 +19,14 @@ rules (§16) that are **not yet implemented**.
 
 | Capability | Technical description | Status in this repo |
 | --- | --- | --- |
-| User management | Registration, login, **account recovery**, body profile, goal params. | Registration/login/profile done; account recovery (forgot-password) missing. |
-| Weekly logging | **Guided** capture of weight/waist/neck/intake/steps; edit **with a change audit trail**. | CRUD done; capture is a flat form, not guided; no audit trail. |
+| User management | Registration, login, **account recovery**, body profile, goal params. | Registration/login/profile done; goal params now historized (`GoalPlan`, Phase 1.1); account recovery (forgot-password) missing. |
+| Weekly logging | **Guided** capture of weight/waist/neck/intake/steps; edit **with a change audit trail**. | CRUD done; capture is a flat form, not guided; audit trail done (Phase 1.1, `audit_log`). |
 | Calculation engine | Auto-recompute of BMI, FFMI, fat estimators, fat/lean mass, targets and calories, with a versioned dependency order. | Done — `CompositionEngine.ENGINE_VERSION`, compute order documented. |
 | Visual tracking | Charts for weight, **perimeters (waist/neck)**, fat %, fat/lean mass, calories, **and steps**. | Weight, fat %, fat/lean mass and calories charted; waist/neck and steps charts missing. |
-| Projection | Configurable linear forecast **and a comparison between the real trajectory and the goal trajectory**, clearly marking forecast vs. measured. | Forecast + `real`/`projected` badging done; no real-vs-goal trajectory comparison chart. |
-| Energy plan | BMR/NEAT/TDEE/daily-deficit/target-calories; **adherence analysis computed only over real intake**. | Estimates done; `LogManager.compute_adherence` exists but isn't exposed via API/UI. |
+| Projection | Configurable linear forecast **and a comparison between the real trajectory and the goal trajectory**, clearly marking forecast vs. measured. | Forecast + `real`/`projected` badging done; forecast runs can now be persisted and re-fetched (Phase 1.1, `Projection`/`ProjectionService`); no real-vs-goal trajectory comparison chart yet. |
+| Energy plan | BMR/NEAT/TDEE/daily-deficit/target-calories; **adherence analysis computed only over real intake**. | Estimates done, now cached per log (Phase 1.1, `MetricsCache`); `LogManager.compute_adherence` exists but isn't exposed via API/UI. |
 | Alerts & feedback | Warnings for incoherent measurements, **stagnation**, **excessive lean-mass loss**, or **significant deviation** from plan. | Not implemented (only a silent `warnings.warn` for an implausible weekly change). |
-| Export | **Technical reports/summaries for the user, a trainer, or a nutritionist.** | Only raw JSON export/import exists; no formatted report. |
+| Export | **Technical reports/summaries for the user, a trainer, or a nutritionist.** | JSON export now includes goal history and the audit log (Phase 1.1) alongside profile/logs; no formatted/printable report yet. |
 
 ### §14.1. Recommended user flow
 
@@ -43,18 +43,17 @@ callouts and step 5's dedicated plan-adjustment flow do not exist yet.
 
 | Entity | Key fields | Purpose | Status |
 | --- | --- | --- | --- |
-| `UserProfile` | `user_id, height_cm, sex, birthdate, units, created_at` | Stable user data. | Implemented, but `target_bf`/`weekly_rate` live on this same table. |
-| `GoalPlan` | `goal_id, user_id, target_bf, weekly_rate, start_date, active` | Goal/rate configuration, **historized** (a user can have had several goal periods). | Not implemented — today's single mutable `target_bf`/`weekly_rate` on `UserProfile` has no history. |
+| `UserProfile` | `user_id, height_cm, sex, birthdate, units, created_at` | Stable user data. | Implemented (`data/domain/UserProfile.py`); `target_bf`/`weekly_rate` moved off this table into `GoalPlan` (Phase 1.1). |
+| `GoalPlan` | `goal_id, user_id, target_bf, weekly_rate, start_date, active` | Goal/rate configuration, **historized** (a user can have had several goal periods). | Implemented (Phase 1.1: `data/db/GoalPlanDAO.py`, `services/GoalPlanManager.py`, `GET /api/users/me/goals`). |
 | `BodyLog` | `log_id, user_id, date, weight_kg, waist_cm, neck_cm, intake_kcal, intake_is_real, steps` | Raw weekly record. `intake_is_real` distinguishes logged vs. assumed intake. | Implemented (`data/db/BodyLogDAO.py`). |
-| `CalculatedMetrics` | `log_id, age, bmi, ffmi, ffmi_adj, rfm, navy, deurenberg, body_fat, fat_mass, lean_mass` | Persisted composition metrics, for audit. | Computed on read, not persisted/cached. |
-| `EnergyPlan` | `log_id, bmr, neat, tdee, weekly_target_weight, daily_deficit, target_calories, intake_diff` | Persisted energy metrics. | Computed on read, not persisted/cached. |
-| `Projection` | `projection_id, user_id, projected_date, estimated_weight, estimated_waist, estimated_neck, source_model, base_regression` | Saved forecast runs; `base_regression` records whether the fit used real-only or real+projected data. | Computed on demand (`Projection.project_series`), never persisted. |
+| `CalculatedMetrics` | `log_id, age, bmi, ffmi, ffmi_adj, rfm, navy, deurenberg, body_fat, fat_mass, lean_mass` | Persisted composition metrics, for audit. | Implemented (Phase 1.1: `metrics_snapshots` table, `data/db/MetricsSnapshotDAO.py`, `services/MetricsCache.py`), combined with `EnergyPlan` into one snapshot row per `(log_id, engine_version)` as the spec allows. |
+| `EnergyPlan` | `log_id, bmr, neat, tdee, weekly_target_weight, daily_deficit, target_calories, intake_diff` | Persisted energy metrics. | Implemented — see `CalculatedMetrics` above (same snapshot row). |
+| `Projection` | `projection_id, user_id, projected_date, estimated_weight, estimated_waist, estimated_neck, source_model, base_regression` | Saved forecast runs; `base_regression` records whether the fit used real-only or real+projected data. | Implemented (Phase 1.1: `data/db/ProjectionDAO.py`, `services/ProjectionService.py`, `POST /api/projection` to save, `GET /api/projections[/​<run_id>]` to retrieve). `GET /api/projection` (ephemeral preview) is unchanged. |
 
-The spec allows `CalculatedMetrics`/`EnergyPlan` to be cached rather than
-mandatory, as long as they stay recomputable from the raw inputs and the
-engine version — which is already true here. Persisting them (and
-`Projection`) becomes valuable once the audit trail (§16 "Auditoría") and
-historized `GoalPlan` are in place.
+`CalculatedMetrics` and `EnergyPlan` are persisted as a single
+`metrics_snapshots` row per log (as the spec explicitly allows), keyed by
+`(log_id, engine_version)` so historical values stay reproducible if the
+engine's formulas or compute order ever change.
 
 ## §16. Validations, assumptions and limitations
 
@@ -66,7 +65,7 @@ historized `GoalPlan` are in place.
 - **Activity in projection**: steps are held constant in the forecast zone; the activity assumption should be configurable. — Steps are hardcoded constant; not configurable.
 - **Calories**: the 7700 kcal/kg factor, 10% TEF, and the NEAT formula are approximations and should be parametrized. — Named in `constants.py`, but fixed at the code level, not user/admin-configurable.
 - **Health**: not a medical diagnosis; include disclaimers and refer to professionals where appropriate. — Done (client footer disclaimer).
-- **Audit**: every update must retain date, user, previous value, new value, and the calculation-engine version. — Not implemented; no audit log exists.
+- **Audit**: every update must retain date, user, previous value, new value, and the calculation-engine version. — Implemented (Phase 1.1): the `audit_log` table records profile, goal-plan, and body-log edits (`services/GoalPlanManager.py`, `UserManager.update_profile`, `LogManager.update_log`), exposed via `GET /api/users/me/audit-log`.
 
 ### §16.1. Suggested coherence rules
 
@@ -74,7 +73,7 @@ historized `GoalPlan` are in place.
 - Flag a weekly weight change above a configurable threshold as suspicious. — Exists internally (`IMPLAUSIBLE_WEEKLY_CHANGE_PCT`) but only as a Python warning, not a user-facing alert.
 - Require `waist > neck` before running the U.S. Navy formula. — Enforced.
 - Separate real measurements from projected records via a `source = real | projected` field. — Enforced.
-- Save the formula/engine version used at every recalculation, to reproduce historical results. — `ENGINE_VERSION` constant exists but isn't stored per computed row.
+- Save the formula/engine version used at every recalculation, to reproduce historical results. — Implemented (Phase 1.1): every `metrics_snapshots` row is keyed by `(log_id, engine_version)`, and `MetricsDTO` surfaces `engine_version` per row.
 
 See `README.md`'s roadmap section for how these gaps are grouped into
 implementation phases.

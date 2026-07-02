@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.1: data model & audit hardening (see README's roadmap).
+  - `GoalPlan` (`goal_plans` table, `data/db/GoalPlanDAO.py`,
+    `services/GoalPlanManager.py`): target-BF/weekly-rate is now a
+    historized entity instead of two mutable columns on `users` — every
+    change deactivates the previous goal and inserts a new one. Migration
+    v4 backfills each existing user's `target_bf`/`weekly_rate` into an
+    initial active goal, then drops those two columns from `users`.
+    `GET`/`PUT /api/users/me` still accept/return `target_bf`/`weekly_rate`
+    at the top level (joined from the active goal), so existing clients
+    are unaffected; `GET /api/users/me/goals` exposes the full history.
+  - An audit trail (`audit_log` table, `data/db/AuditLogDAO.py`) records
+    every profile-field edit (`UserManager.update_profile`), goal-plan
+    change (`GoalPlanManager.create_goal_plan`), and body-log field edit
+    (`LogManager.update_log`): user, entity, field, previous/new value,
+    timestamp, and engine version where applicable. `GET
+    /api/users/me/audit-log` exposes it; it's also folded into `GET
+    /api/users/me/export`.
+  - Composition results are now cached per log, keyed by `(log_id,
+    engine_version)` (`metrics_snapshots` table,
+    `data/db/MetricsSnapshotDAO.py`, `services/MetricsCache.py`), so
+    historical values stay reproducible if `CompositionEngine.ENGINE_VERSION`
+    ever changes, instead of always recomputing on read. A user's cache is
+    invalidated on any log create/update/delete or goal-plan change, so
+    the next read recomputes and repopulates it. `MetricsDTO` now carries
+    `log_id`/`engine_version`.
+  - Forecast runs can now be persisted (`projections` table,
+    `data/db/ProjectionDAO.py`, `services/ProjectionService.py`,
+    `Projection.project_series_with_inputs`): `POST /api/projection`
+    saves the current forecast under a `run_id`; `GET /api/projections`
+    lists saved runs and `GET /api/projections/<run_id>` retrieves one, so
+    a forecast can be inspected later without recomputing. `GET
+    /api/projection` (the live, unsaved preview) is unchanged.
+  - `docs/product_capabilities_spec.md` and the README roadmap updated to
+    mark Phase 1.1's §14/§15/§16 items done.
 - Phase 1: server-client web app.
   - Composition engine (`server/src/services/composition/`) implementing
     the verified "Danel" spec — anthropometry, body-fat estimators
