@@ -1,0 +1,16 @@
+name: justfitting
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.10,<3.13
+  - pip
+  - pip:
+      - flask>=3.0,<4.0
+      - flask-cors>=4.0,<5.0
+      - python-dotenv>=1.0,<2.0
+      - waitress>=3.0,<4.0
+      - black>=24.0
+      - isort>=5.13
+      - requests>=2.31
+      - playwright>=1.44
