@@ -79,3 +79,31 @@ export function fillProfileForm(form, profile) {
   form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
 }
+
+export function showWizardStep(form, step, totalSteps) {
+  form.querySelectorAll(".wizard-step").forEach((el) => {
+    el.hidden = Number(el.dataset.step) !== step;
+  });
+  form.querySelectorAll(".wizard-step-label").forEach((el) => {
+    const labelStep = Number(el.dataset.step);
+    el.classList.toggle("active", labelStep === step);
+    el.classList.toggle("done", labelStep < step);
+  });
+  form.querySelector("#log-back").hidden = step === 1;
+  form.querySelector("#log-next").hidden = step === totalSteps;
+  form.querySelector("#log-save").hidden = step !== totalSteps;
+}
+
+export function renderLogReview(container, values) {
+  const rows = [
+    ["Date", values.date],
+    ["Weight", values.weight_kg && `${values.weight_kg} kg`],
+    ["Waist", values.waist_cm && `${values.waist_cm} cm`],
+    ["Neck", values.neck_cm && `${values.neck_cm} cm`],
+    ["Intake", values.intake_kcal && `${values.intake_kcal} kcal`],
+    ["Steps", values.steps],
+  ];
+  container.innerHTML = rows
+    .map(([label, value]) => `<dt>${label}</dt><dd>${value || "—"}</dd>`)
+    .join("");
+}
