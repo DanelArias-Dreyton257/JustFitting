@@ -8,8 +8,11 @@ from datetime import date
 from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
+from server.src.data.dto.AuditEntryDTO import AuditEntryDTO
 from server.src.data.dto.BodyLogDTO import BodyLogDTO
+from server.src.data.dto.GoalPlanDTO import GoalPlanDTO
 from server.src.data.dto.ProfileDTO import ProfileDTO
+from server.src.services.GoalPlanManager import GoalPlanManagerError
 from server.src.services.UserManager import UserManagerError
 
 user_bp = Blueprint("users", __name__, url_prefix="/api")
@@ -27,6 +30,22 @@ def _log_manager():
     return current_app.extensions["log_manager"]
 
 
+def _goal_plan_manager():
+    return current_app.extensions["goal_plan_manager"]
+
+
+def _audit_log_dao():
+    return current_app.extensions["audit_log_dao"]
+
+
+def _profile_dto(user_id: int):
+    profile = _user_manager().get_profile(user_id)
+    if profile is None:
+        return None
+    goal = _goal_plan_manager().get_active(user_id)
+    return ProfileDTO.from_domain(profile, goal=goal)
+
+
 @user_bp.post("/users")
 def register():
     payload = request.get_json(force=True) or {}
@@ -42,14 +61,14 @@ def register():
             weekly_rate=float(payload["weekly_rate"]),
             units=payload.get("units", "metric"),
         )
-    except UserManagerError as exc:
+    except (UserManagerError, GoalPlanManagerError) as exc:
         return jsonify({"error": str(exc)}), 400
     except (KeyError, ValueError) as exc:
         return jsonify({"error": f"invalid payload: {exc}"}), 400
 
     token = _auth_service().issue_token(profile.user_id)
     return (
-        jsonify({"token": token, "profile": asdict(ProfileDTO.from_domain(profile))}),
+        jsonify({"token": token, "profile": asdict(_profile_dto(profile.user_id))}),
         201,
     )
 
@@ -65,7 +84,9 @@ def login():
     if profile is None:
         return jsonify({"error": "invalid credentials"}), 401
     token = _auth_service().issue_token(profile.user_id)
-    return jsonify({"token": token, "profile": asdict(ProfileDTO.from_domain(profile))})
+    return jsonify(
+        {"token": token, "profile": asdict(_profile_dto(profile.user_id))}
+    )
 
 
 @user_bp.post("/auth/logout")
@@ -78,10 +99,10 @@ def logout():
 @user_bp.get("/users/me")
 @require_auth
 def me():
-    profile = _user_manager().get_profile(g.user_id)
-    if profile is None:
+    dto = _profile_dto(g.user_id)
+    if dto is None:
         return jsonify({"error": "user not found"}), 404
-    return jsonify(asdict(ProfileDTO.from_domain(profile)))
+    return jsonify(asdict(dto))
 
 
 @user_bp.put("/users/me")
@@ -95,10 +116,10 @@ def update_me():
     if "birthdate" in payload:
         fields["birthdate"] = date.fromisoformat(payload["birthdate"])
     try:
-        profile = _user_manager().update_profile(g.user_id, **fields)
-    except UserManagerError as exc:
+        _user_manager().update_profile(g.user_id, **fields)
+    except (UserManagerError, GoalPlanManagerError) as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify(asdict(ProfileDTO.from_domain(profile)))
+    return jsonify(asdict(_profile_dto(g.user_id)))
 
 
 @user_bp.post("/users/me/password")
@@ -124,15 +145,37 @@ def delete_me():
     return "", 204
 
 
+@user_bp.get("/users/me/goals")
+@require_auth
+def list_goals():
+    goals = _goal_plan_manager().list_history(g.user_id)
+    return jsonify([asdict(GoalPlanDTO.from_domain(goal)) for goal in goals])
+
+
+@user_bp.get("/users/me/audit-log")
+@require_auth
+def audit_log():
+    entries = _audit_log_dao().list_for_user(g.user_id)
+    return jsonify([asdict(AuditEntryDTO.from_domain(entry)) for entry in entries])
+
+
 @user_bp.get("/users/me/export")
 @require_auth
 def export_data():
-    profile = _user_manager().get_profile(g.user_id)
+    profile_dto = _profile_dto(g.user_id)
     logs = _log_manager().list_logs(g.user_id)
+    goal_history = _goal_plan_manager().list_history(g.user_id)
+    audit_entries = _audit_log_dao().list_for_user(g.user_id)
     return jsonify(
         {
-            "profile": asdict(ProfileDTO.from_domain(profile)),
+            "profile": asdict(profile_dto),
             "logs": [asdict(BodyLogDTO.from_domain(log)) for log in logs],
+            "goal_history": [
+                asdict(GoalPlanDTO.from_domain(goal)) for goal in goal_history
+            ],
+            "audit_log": [
+                asdict(AuditEntryDTO.from_domain(entry)) for entry in audit_entries
+            ],
         }
     )
 
