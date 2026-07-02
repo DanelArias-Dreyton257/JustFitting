@@ -61,6 +61,11 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# JustFitting
+justfitting.db
+justfitting.db-journal
+dist/
+
 # Flask stuff:
 instance/
 .webassets-cache
