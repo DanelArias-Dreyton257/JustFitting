@@ -8,14 +8,21 @@ import {
   renderLogTable,
   renderProjectionTable,
   fillProfileForm,
+  showWizardStep,
+  renderLogReview,
+  renderPlanStats,
 } from "./views.js";
-import { drawLineChart, drawStackedBars } from "./charts.js";
+import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
 
 const state = {
   profile: null,
   logs: [],
   series: [],
+  planPreviewParams: null,
 };
+
+const LOG_WIZARD_STEPS = 4;
+let logWizardStep = 1;
 
 const navButtons = document.querySelectorAll(".nav-link");
 const logoutBtn = document.getElementById("logout-btn");
@@ -50,16 +57,21 @@ function navigate(viewName) {
   if (viewName === "dashboard") refreshDashboard();
   if (viewName === "log") refreshLogs();
   if (viewName === "projection") refreshProjection();
+  if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
 }
 
 async function refreshDashboard() {
-  const [latest, series] = await Promise.all([
+  const [latest, series, logs] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
+    api.listLogs().catch(() => []),
   ]);
   state.series = series;
   renderDashboardStats(document.getElementById("dashboard-stats"), latest);
+
+  const logsById = new Map(logs.map((log) => [log.log_id, log]));
+  const isProjected = (row) => row.source === "projected";
 
   drawLineChart(
     document.getElementById("chart-weight"),
@@ -80,11 +92,69 @@ async function refreshDashboard() {
     document.getElementById("chart-calories"),
     series.map((row) => ({ value: row.target_calories, projected: row.source === "projected" }))
   );
+  drawMultiLineChart(
+    document.getElementById("chart-perimeters"),
+    series,
+    [
+      { accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0, color: "#5eb3ff" },
+      { accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0, color: "#f0b94d" },
+    ],
+    { isProjected }
+  );
+  drawLineChart(
+    document.getElementById("chart-steps"),
+    series.map((row) => ({
+      value: (logsById.get(row.log_id) || {}).steps || 0,
+      projected: row.source === "projected",
+    }))
+  );
+  drawMultiLineChart(
+    document.getElementById("chart-goal-trajectory"),
+    series,
+    [
+      { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff" },
+      { accessor: (row) => row.weight_objective_kg, color: "#7ee787", dashed: true },
+    ],
+    { isProjected }
+  );
 }
 
 async function refreshLogs() {
   state.logs = await api.listLogs();
   renderLogTable(document.querySelector("#log-table tbody"), state.logs);
+  goToLogStep(1);
+}
+
+function goToLogStep(step) {
+  logWizardStep = step;
+  const form = document.getElementById("log-form");
+  showWizardStep(form, step, LOG_WIZARD_STEPS);
+  if (step === LOG_WIZARD_STEPS) {
+    renderLogReview(document.getElementById("log-review"), formToJson(form));
+  }
+}
+
+function currentLogStepIsValid() {
+  const fieldset = document.querySelector(`.wizard-step[data-step="${logWizardStep}"]`);
+  return Array.from(fieldset.querySelectorAll("input")).every((input) =>
+    input.reportValidity()
+  );
+}
+
+async function refreshPlan() {
+  const [profile, current] = await Promise.all([
+    api.me(),
+    api.metricsLatest().catch(() => null),
+  ]);
+  state.profile = profile;
+  const form = document.getElementById("plan-form");
+  form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
+  form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
+  renderPlanStats(document.getElementById("plan-current-stats"), current);
+  state.planPreviewParams = null;
+  document.getElementById("plan-preview-result").hidden = true;
+  setFormError("plan-form", "");
+  setFormError("plan-commit", "");
 }
 
 async function refreshProjection() {
@@ -160,6 +230,15 @@ document.getElementById("register-form").addEventListener("submit", async (event
   }
 });
 
+document.getElementById("log-next").addEventListener("click", () => {
+  if (!currentLogStepIsValid()) return;
+  goToLogStep(Math.min(logWizardStep + 1, LOG_WIZARD_STEPS));
+});
+
+document.getElementById("log-back").addEventListener("click", () => {
+  goToLogStep(Math.max(logWizardStep - 1, 1));
+});
+
 document.getElementById("log-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormError("log-form", "");
@@ -189,6 +268,38 @@ document.querySelector("#log-table tbody").addEventListener("click", async (even
 });
 
 document.getElementById("projection-refresh").addEventListener("click", refreshProjection);
+
+document.getElementById("plan-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("plan-form", "");
+  setFormError("plan-commit", "");
+  const raw = formToJson(event.target);
+  const params = {
+    target_bf: Number(raw.target_bf_pct) / 100,
+    weekly_rate: Number(raw.weekly_rate_pct) / 100,
+  };
+  try {
+    const proposed = await api.planPreview(params);
+    state.planPreviewParams = params;
+    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed);
+    document.getElementById("plan-preview-result").hidden = false;
+  } catch (err) {
+    state.planPreviewParams = null;
+    document.getElementById("plan-preview-result").hidden = true;
+    setFormError("plan-form", err.message);
+  }
+});
+
+document.getElementById("plan-commit-btn").addEventListener("click", async () => {
+  if (!state.planPreviewParams) return;
+  setFormError("plan-commit", "");
+  try {
+    state.profile = await api.updateProfile(state.planPreviewParams);
+    await refreshPlan();
+  } catch (err) {
+    setFormError("plan-commit", err.message);
+  }
+});
 
 document.getElementById("profile-form").addEventListener("submit", async (event) => {
   event.preventDefault();
