@@ -332,6 +332,51 @@ class ApiTestCase(unittest.TestCase):
         self.assertIsNotNone(first[0]["log_id"])
         self.assertIsNotNone(first[0]["engine_version"])
 
+    def test_plan_preview_matches_current_plan_when_no_overrides_given(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        latest = self.client.get("/api/metrics/latest", headers=headers).get_json()
+        preview = self.client.get("/api/plan/preview", headers=headers)
+        self.assertEqual(preview.status_code, 200)
+        body = preview.get_json()
+        self.assertAlmostEqual(body["target_calories"], latest["target_calories"], places=2)
+        self.assertAlmostEqual(body["weeks_to_goal"], latest["weeks_to_goal"], places=2)
+
+    def test_plan_preview_reflects_a_candidate_weekly_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        slower = self.client.get(
+            "/api/plan/preview?weekly_rate=-0.002", headers=headers
+        ).get_json()
+        faster = self.client.get(
+            "/api/plan/preview?weekly_rate=-0.01", headers=headers
+        ).get_json()
+        # A faster weekly loss rate implies a lower target-calorie intake
+        # and fewer weeks to reach the goal.
+        self.assertLess(faster["target_calories"], slower["target_calories"])
+        self.assertLess(faster["weeks_to_goal"], slower["weeks_to_goal"])
+
+    def test_plan_preview_does_not_persist_a_new_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        self.client.get("/api/plan/preview?target_bf=0.25", headers=headers)
+
+        goals_response = self.client.get("/api/users/me/goals", headers=headers)
+        self.assertEqual(len(goals_response.get_json()), 1)
+
+    def test_plan_preview_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/plan/preview", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_export_includes_goal_history_and_audit_log(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
