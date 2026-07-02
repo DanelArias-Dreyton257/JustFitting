@@ -8,9 +8,9 @@ ENV_NAME="justfitting"
 conda env update -n "${ENV_NAME}" -f environment.yml --prune
 
 echo "Applying pending database migrations..."
-conda run -n "${ENV_NAME}" python -c "
+conda run -n "${ENV_NAME}" python - <<'PY'
 import os
 from server.src.data.db.DB import DB
 DB(os.environ.get('JUSTFITTING_DB_PATH', 'justfitting.db'))
 print('Migrations applied.')
-"
+PY
