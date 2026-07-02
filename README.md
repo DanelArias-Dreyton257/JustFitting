@@ -346,6 +346,15 @@ Steps:
    and copies both files to the built site's root for GitHub Pages, which
    has no Flask routes to serve them dynamically. This already makes the
    client installable and usable offline, independent of Android.
+
+   **Cache-busting**: `sw.js` caches the app shell (`index.html`, CSS,
+   every JS module) under `CACHE_NAME`, stale-while-revalidate — a
+   browser that already has the app open keeps serving its cached shell
+   until `sw.js`'s own bytes change, which is what makes it install a
+   new worker and purge the old cache. **Bump `CACHE_NAME` (e.g.
+   `justfitting-shell-v1` -> `-v2`) on any change to the static JS/CSS/
+   HTML**, or returning users keep seeing stale assets after a deploy
+   until they manually clear site data.
 2. **HTTPS hosting + Digital Asset Links** (not started): the client must
    be served over HTTPS at a stable domain (the existing GitHub Pages
    deploy in `release.yml` already qualifies, or any custom domain

@@ -196,3 +196,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TWA approach doesn't need), and updated the
   `Server.py`/`Client.py`/`remote/RemoteFacade.py` docstrings that
   referenced the old plan.
+
+### Fixed
+
+- Bumped the PWA service worker's `CACHE_NAME`
+  (`client/src/webapp/static/sw.js`, `justfitting-shell-v1` ->
+  `-v2`) so browsers that had the app open before Phase 1.2 stop
+  serving the stale cached shell (old flat log form, no Plan tab,
+  missing charts) after an update. The service worker's
+  stale-while-revalidate strategy only refreshes its cache in the
+  background on the *next* request; a byte change to `sw.js` is what
+  makes the browser install a new worker and purge the old cache.
+  **Any future change to the static JS/CSS/HTML app shell needs the
+  same version bump**, or returning users will keep seeing stale
+  assets until they manually clear site data.
