@@ -53,6 +53,25 @@ def project_series(
     base_regression: BaseRegression = "real_only",
 ) -> List[CompositionResult]:
     """Forecast ``weeks`` future weekly rows beyond the last real log."""
+    return [
+        result
+        for _, result in project_series_with_inputs(
+            profile, real_logs, weeks, base_regression
+        )
+    ]
+
+
+def project_series_with_inputs(
+    profile: ProfileParams,
+    real_logs: Sequence[LogInput],
+    weeks: int,
+    base_regression: BaseRegression = "real_only",
+) -> List[Tuple[LogInput, CompositionResult]]:
+    """Same as ``project_series``, but also returns each forecasted row's raw
+    ``LogInput`` (estimated weight/waist/neck) alongside its ``CompositionResult``
+    -- needed to persist a saved forecast run (see ``ProjectionService``),
+    since the derived metrics alone don't carry the raw estimates back out.
+    """
     if weeks <= 0:
         return []
     if len(real_logs) < 2:
@@ -66,7 +85,7 @@ def project_series(
     prev_weight_kg = ordered_real[-1].weight_kg
     prev_target_calories = real_results[-1].target_calories
 
-    projected_results: List[CompositionResult] = []
+    projected_pairs: List[Tuple[LogInput, CompositionResult]] = []
     cursor_date = ordered_real[-1].date
 
     for _ in range(weeks):
@@ -89,10 +108,10 @@ def project_series(
         )
 
         result = CompositionEngine.compute_row(profile, projected_log, prev_weight_kg)
-        projected_results.append(result)
+        projected_pairs.append((projected_log, result))
 
         history.append(projected_log)
         prev_weight_kg = projected_log.weight_kg
         prev_target_calories = result.target_calories
 
-    return projected_results
+    return projected_pairs
