@@ -72,6 +72,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build-tools;34.0.0` via `sdkmanager`, and `gradlew.bat assembleDebug`
   produced a working `app-debug.apk`.
 
+- `npm run android:apk`: builds the debug APK and copies it to the repo
+  root as `JustFitting-debug.apk` (gitignored, a build artifact) --
+  for transferring the app to a phone without a live USB/`adb`
+  connection at build time (email, cloud drive, messaging app, plain
+  file copy). Runs `android\gradlew.bat -p android assembleDebug`
+  (`-p android` instead of `cd android &&`, since chaining `cd` before
+  the wrapper script misbehaved when invoked through npm's script
+  shell) followed by a `copy` of the resulting APK. README documents
+  enabling "Install unknown apps" on the receiving device as the last
+  step. This is a debug-signed APK, fine for sideloading onto your own
+  device, not for Play Store distribution.
+
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
   README's "Android app" section) with a real installable app that bundles

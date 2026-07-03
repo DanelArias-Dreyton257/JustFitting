@@ -546,9 +546,13 @@ with other, unrelated projects on the same machine:
    the conda `justfitting` env already has one:
    ```powershell
    $env:JAVA_HOME = "$env:LOCALAPPDATA\anaconda3\envs\justfitting\Library"   # this shell only
-   android\gradlew.bat assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
-   android\gradlew.bat installDebug    # builds AND installs onto a connected device/emulator
+   android\gradlew.bat -p android assembleDebug   # -> android/app/build/outputs/apk/debug/app-debug.apk
+   android\gradlew.bat -p android installDebug    # builds AND installs onto a connected device/emulator
    ```
+   (`-p android` tells Gradle the project directory explicitly, so this
+   works run from the repo root — `gradlew.bat`'s own directory-detection
+   only locates its wrapper jar, not the project itself. Equivalently,
+   `cd android` first and drop `-p android`.)
    `npm run android:open` (launches Android Studio, if you have it) stays
    available as a convenience, not a requirement.
 
@@ -557,15 +561,35 @@ with other, unrelated projects on the same machine:
 The Android emulator needs hardware-accelerated virtualization (Intel
 HAXM or Windows Hypervisor Platform) enabled, which **does** require
 admin rights on Windows. If that's not available, skip the emulator
-entirely and test on a real phone over USB:
+entirely and test on a real phone instead — either over USB, or without
+any cable at all:
+
+**Option A — USB + adb (installs directly, needs a working USB connection):**
 
 1. On the phone: Settings → About phone → tap "Build number" 7 times to
    unlock Developer Options, then enable **USB debugging** there.
 2. Connect via USB, accept the "Allow USB debugging?" prompt, and confirm
    it's visible: `adb devices` (`adb` ships inside `platform-tools` from
    the SDK setup above).
-3. `android\gradlew.bat installDebug` builds and installs straight onto
-   the connected device — no emulator, no virtualization, no admin.
+3. `android\gradlew.bat -p android installDebug` builds and installs
+   straight onto the connected device — no emulator, no virtualization,
+   no admin.
+
+**Option B — a standalone APK you can transfer any way you like (no USB
+connection required):**
+
+```bash
+npm run android:apk
+```
+
+Builds the debug APK and copies it to the repo root as
+`JustFitting-debug.apk` (gitignored — it's a build artifact) — one file
+you can send over email, a cloud drive, a messaging app, or a plain USB
+file copy, no `adb`/live device connection needed at build time. On the
+phone: enable **"Install unknown apps"** for whichever app you used to
+transfer it (Settings → Apps → Special app access → Install unknown
+apps), then open the file to install. This is a debug-signed APK — fine
+for sideloading onto your own device, not for Play Store distribution.
 
 ### Building the client for each target
 
