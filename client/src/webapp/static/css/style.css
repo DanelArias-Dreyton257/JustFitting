@@ -176,6 +176,24 @@ button#projection-refresh:hover {
   white-space: nowrap;
 }
 
+.alert-item .alert-message {
+  flex: 1;
+}
+
+.alert-dismiss-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.alert-dismiss-btn:hover {
+  color: var(--text);
+}
+
 .alert-warning {
   background: rgba(229, 104, 107, 0.1);
   border-color: var(--danger);
@@ -220,6 +238,7 @@ button#projection-refresh:hover {
 }
 
 .chart-card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -261,6 +280,49 @@ button#projection-refresh:hover {
 
 .legend-dot--dashed {
   border-radius: 2px;
+}
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+.chart-tooltip[hidden] {
+  display: none;
+}
+
+.chart-axis-label {
+  fill: var(--text-muted);
+  font-size: 9px;
+}
+
+.chart-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-marker-line {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3, 3;
+}
+
+.badge.active {
+  background: rgba(94, 179, 255, 0.15);
+  color: var(--accent);
+}
+
+.badge.inactive {
+  background: rgba(154, 162, 175, 0.15);
+  color: var(--text-muted);
 }
 
 .wizard-form {
@@ -438,4 +500,29 @@ button#projection-refresh:hover {
 
 .danger-zone {
   border-color: var(--danger);
+}
+
+@media print {
+  .topbar,
+  .disclaimer-footer,
+  #report-print-btn {
+    display: none !important;
+  }
+
+  .view:not(#view-report) {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .stat-tile,
+  .data-table,
+  .stacked-form,
+  .alert-item {
+    background: #fff;
+    border-color: #ccc;
+  }
 }

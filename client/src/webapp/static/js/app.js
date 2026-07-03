@@ -6,12 +6,14 @@ import {
   setFormError,
   renderDashboardStats,
   renderAlerts,
+  renderGoalHistory,
   renderLogTable,
   renderProjectionTable,
   fillProfileForm,
   showWizardStep,
   renderLogReview,
   renderPlanStats,
+  renderReport,
 } from "./views.js";
 import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
 
@@ -60,17 +62,20 @@ function navigate(viewName) {
   if (viewName === "projection") refreshProjection();
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
+  if (viewName === "report") refreshReport();
 }
 
 async function refreshDashboard() {
-  const [latest, series, logs, alerts] = await Promise.all([
+  const [latest, series, logs, alerts, adherence, goals] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.listLogs().catch(() => []),
     api.alerts().catch(() => []),
+    api.adherence().catch(() => null),
+    api.goals().catch(() => []),
   ]);
   state.series = series;
-  renderDashboardStats(document.getElementById("dashboard-stats"), latest);
+  renderDashboardStats(document.getElementById("dashboard-stats"), latest, adherence);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
 
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
@@ -79,46 +84,80 @@ async function refreshDashboard() {
   drawLineChart(
     document.getElementById("chart-weight"),
     series.map((row) => ({
+      date: row.date,
       value: row.fat_mass_kg + row.lean_mass_kg,
       projected: row.source === "projected",
-    }))
+    })),
+    { label: "Weight" }
   );
   drawLineChart(
     document.getElementById("chart-bodyfat"),
-    series.map((row) => ({ value: row.body_fat * 100, projected: row.source === "projected" }))
+    series.map((row) => ({
+      date: row.date,
+      value: row.body_fat * 100,
+      projected: row.source === "projected",
+    })),
+    { label: "Body fat %" }
   );
   drawStackedBars(
     document.getElementById("chart-mass"),
-    series.map((row) => ({ fat: row.fat_mass_kg, lean: row.lean_mass_kg }))
+    series.map((row) => ({ date: row.date, fat: row.fat_mass_kg, lean: row.lean_mass_kg }))
   );
   drawLineChart(
     document.getElementById("chart-calories"),
-    series.map((row) => ({ value: row.target_calories, projected: row.source === "projected" }))
+    series.map((row) => ({
+      date: row.date,
+      value: row.target_calories,
+      projected: row.source === "projected",
+    })),
+    { label: "Target calories" }
   );
   drawMultiLineChart(
     document.getElementById("chart-perimeters"),
     series,
     [
-      { accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0, color: "#5eb3ff" },
-      { accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0, color: "#f0b94d" },
+      {
+        accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0,
+        color: "#5eb3ff",
+        label: "Waist",
+      },
+      {
+        accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0,
+        color: "#f0b94d",
+        label: "Neck",
+      },
     ],
     { isProjected }
   );
   drawLineChart(
     document.getElementById("chart-steps"),
     series.map((row) => ({
+      date: row.date,
       value: (logsById.get(row.log_id) || {}).steps || 0,
       projected: row.source === "projected",
-    }))
+    })),
+    { label: "Steps" }
   );
+
+  const goalMarkers = goals.map((goal) => ({
+    date: goal.start_date,
+    label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
+      goal.weekly_rate * 100
+    ).toFixed(2)}%/wk`,
+  }));
   drawMultiLineChart(
     document.getElementById("chart-goal-trajectory"),
     series,
     [
-      { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff" },
-      { accessor: (row) => row.weight_objective_kg, color: "#7ee787", dashed: true },
+      { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff", label: "Actual" },
+      {
+        accessor: (row) => row.weight_objective_kg,
+        color: "#7ee787",
+        dashed: true,
+        label: "Target",
+      },
     ],
-    { isProjected }
+    { isProjected, markers: goalMarkers }
   );
 }
 
@@ -145,15 +184,17 @@ function currentLogStepIsValid() {
 }
 
 async function refreshPlan() {
-  const [profile, current] = await Promise.all([
+  const [profile, current, goals] = await Promise.all([
     api.me(),
     api.metricsLatest().catch(() => null),
+    api.goals().catch(() => []),
   ]);
   state.profile = profile;
   const form = document.getElementById("plan-form");
   form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
   renderPlanStats(document.getElementById("plan-current-stats"), current);
+  renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
   state.planPreviewParams = null;
   document.getElementById("plan-preview-result").hidden = true;
   setFormError("plan-form", "");
@@ -176,6 +217,11 @@ async function refreshAccount() {
   const profile = await api.me();
   state.profile = profile;
   fillProfileForm(document.getElementById("profile-form"), profile);
+}
+
+async function refreshReport() {
+  const report = await api.report();
+  renderReport(document.getElementById("report-content"), report);
 }
 
 function formToJson(form) {
@@ -268,6 +314,17 @@ document.querySelector("#log-table tbody").addEventListener("click", async (even
   if (!btn) return;
   await api.deleteLog(btn.dataset.logId);
   await refreshLogs();
+});
+
+document.getElementById("dashboard-alerts").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".alert-dismiss-btn");
+  if (!btn) return;
+  await api.acknowledgeAlert(btn.dataset.alertId);
+  await refreshDashboard();
+});
+
+document.getElementById("report-print-btn").addEventListener("click", () => {
+  window.print();
 });
 
 document.getElementById("projection-refresh").addEventListener("click", refreshProjection);

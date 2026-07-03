@@ -15,7 +15,15 @@ export function setFormError(formId, message) {
   if (el) el.textContent = message || "";
 }
 
-export function renderDashboardStats(container, metrics) {
+function formatAdherence(adherence) {
+  if (!adherence || adherence.mean_intake_diff_kcal == null) {
+    return "No real-intake logs yet";
+  }
+  const value = adherence.mean_intake_diff_kcal;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
+}
+
+export function renderDashboardStats(container, metrics, adherence) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
@@ -28,6 +36,9 @@ export function renderDashboardStats(container, metrics) {
     ["To target", `${(metrics.above_target * 100).toFixed(1)} pp`],
     ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
   ];
+  if (adherence) {
+    tiles.push(["Adherence", formatAdherence(adherence)]);
+  }
   container.innerHTML = tiles
     .map(
       ([label, value]) => `
@@ -52,7 +63,24 @@ export function renderAlerts(container, alerts) {
       <div class="alert-item alert-${alert.severity}" data-type="${alert.type}">
         <span class="alert-date">${alert.date}</span>
         <span class="alert-message">${alert.message}</span>
+        <button class="alert-dismiss-btn" data-alert-id="${alert.alert_id}" title="Dismiss">&times;</button>
       </div>`
+    )
+    .join("");
+}
+
+export function renderGoalHistory(tbody, goals) {
+  tbody.innerHTML = goals
+    .map(
+      (goal) => `
+      <tr>
+        <td>${goal.start_date}</td>
+        <td>${(goal.target_bf * 100).toFixed(1)}%</td>
+        <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td><span class="badge ${goal.active ? "active" : "inactive"}">${
+          goal.active ? "active" : "past"
+        }</span></td>
+      </tr>`
     )
     .join("");
 }
@@ -146,4 +174,115 @@ export function renderPlanStats(container, metrics) {
       </div>`
     )
     .join("");
+}
+
+export function renderReport(container, report) {
+  const { profile, latest_metrics, adherence, goal_history, series, alerts, generated_at } = report;
+
+  const profileRows = [
+    ["Height", `${profile.height_cm} cm`],
+    ["Sex", profile.sex === 1 ? "Male" : "Female"],
+    ["Birthdate", profile.birthdate],
+    [
+      "Target body fat",
+      profile.target_bf != null ? `${(profile.target_bf * 100).toFixed(1)}%` : "—",
+    ],
+    [
+      "Weekly rate",
+      profile.weekly_rate != null ? `${(profile.weekly_rate * 100).toFixed(2)}%` : "—",
+    ],
+  ];
+
+  const latestTiles = latest_metrics
+    ? [
+        ["Body fat", `${(latest_metrics.body_fat * 100).toFixed(1)}%`],
+        ["Fat mass", `${latest_metrics.fat_mass_kg.toFixed(1)} kg`],
+        ["Lean mass", `${latest_metrics.lean_mass_kg.toFixed(1)} kg`],
+        [
+          "Weeks to goal",
+          latest_metrics.weeks_to_goal > 0 ? latest_metrics.weeks_to_goal.toFixed(1) : "—",
+        ],
+      ]
+    : [];
+
+  const seriesRows = series
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${(row.fat_mass_kg + row.lean_mass_kg).toFixed(1)}</td>
+        <td>${(row.body_fat * 100).toFixed(1)}%</td>
+        <td>${row.target_calories.toFixed(0)}</td>
+        <td><span class="badge ${row.source}">${row.source}</span></td>
+      </tr>`
+    )
+    .join("");
+
+  const goalRows = goal_history
+    .map(
+      (goal) => `
+      <tr>
+        <td>${goal.start_date}</td>
+        <td>${(goal.target_bf * 100).toFixed(1)}%</td>
+        <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td><span class="badge ${goal.active ? "active" : "inactive"}">${
+          goal.active ? "active" : "past"
+        }</span></td>
+      </tr>`
+    )
+    .join("");
+
+  const alertRows = alerts.length
+    ? alerts
+        .map(
+          (alert) => `
+          <div class="alert-item alert-${alert.severity}">
+            <span class="alert-date">${alert.date}</span>
+            <span class="alert-message">${alert.message}</span>
+          </div>`
+        )
+        .join("")
+    : `<p class="disclaimer">No open alerts.</p>`;
+
+  container.innerHTML = `
+    <p class="disclaimer">Generated ${new Date(generated_at).toLocaleString()}</p>
+
+    <h2>Profile</h2>
+    <dl class="wizard-review">
+      ${profileRows.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("")}
+    </dl>
+
+    <h2>Latest snapshot</h2>
+    <div class="stat-row">
+      ${
+        latestTiles
+          .map(
+            ([label, value]) => `
+          <div class="stat-tile">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+          </div>`
+          )
+          .join("") || '<p class="disclaimer">No logs yet.</p>'
+      }
+    </div>
+
+    <h2>Adherence</h2>
+    <p>${formatAdherence(adherence)} (${adherence.real_log_count} real-intake logs)</p>
+
+    <h2>Goal history</h2>
+    <table class="data-table">
+      <thead><tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr></thead>
+      <tbody>${goalRows}</tbody>
+    </table>
+
+    <h2>Weekly series</h2>
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Weight</th><th>Body fat %</th><th>Target kcal</th><th>Source</th></tr></thead>
+      <tbody>${seriesRows}</tbody>
+    </table>
+
+    <h2>Open alerts</h2>
+    <div class="alerts-panel">${alertRows}</div>
+  `;
 }

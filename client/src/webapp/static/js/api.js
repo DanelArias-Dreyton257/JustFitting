@@ -47,10 +47,15 @@ export const api = {
 
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
+  adherence: () => request("GET", "/api/metrics/adherence"),
   alerts: () => request("GET", "/api/alerts"),
+  acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),
 
   projection: (weeks, base) => request("GET", `/api/projection?weeks=${weeks}&base=${base}`),
 
   planPreview: (params) =>
     request("GET", `/api/plan/preview?${new URLSearchParams(params).toString()}`),
+
+  goals: () => request("GET", "/api/users/me/goals"),
+  report: () => request("GET", "/api/users/me/report"),
 };

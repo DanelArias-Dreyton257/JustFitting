@@ -29,6 +29,7 @@
       <button class="nav-link" data-view="log">Log</button>
       <button class="nav-link" data-view="projection">Projection</button>
       <button class="nav-link" data-view="plan">Plan</button>
+      <button class="nav-link" data-view="report">Report</button>
       <button class="nav-link" data-view="account">Account</button>
     </nav>
     <button class="logout-btn" id="logout-btn" hidden>Log out</button>
@@ -191,6 +192,24 @@
         <button id="plan-commit-btn">Commit this plan</button>
         <p class="form-error" data-for="plan-commit"></p>
       </div>
+
+      <h2>Goal history</h2>
+      <table class="data-table" id="goal-history-table">
+        <thead>
+          <tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="view-report" class="view" hidden>
+      <h1>Progress report</h1>
+      <p class="disclaimer">
+        A shareable technical summary. Use the button below (or your
+        browser's Print / Save as PDF) to export it.
+      </p>
+      <button id="report-print-btn">Print / Save as PDF</button>
+      <div id="report-content"></div>
     </section>
 
     <section id="view-account" class="view" hidden>
