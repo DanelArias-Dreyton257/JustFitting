@@ -514,24 +514,38 @@ npm run android:add         # one-time: scaffolds android/ via `npx cap add andr
 ### Android SDK and building, without Android Studio
 
 Only the Android **SDK** is required to build; the Android Studio **IDE**
-is optional convenience, not a hard dependency:
+is optional convenience, not a hard dependency. This whole flow (verified
+end to end) deliberately avoids **any** global/System or User environment
+variable — everything is either project-scoped (a gitignored file inside
+`android/`) or set for a single command's duration, so it can't conflict
+with other, unrelated projects on the same machine:
 
 1. Download the **command line tools** package (not the full IDE) from
    [developer.android.com/studio#command-tools](https://developer.android.com/studio#command-tools)
-   and unzip it anywhere under your user profile (e.g.
-   `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\`).
-2. Point `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) at that `Sdk` folder as a
-   **User** environment variable (System Properties → Environment
-   Variables → *User* variables — only *System* variables need admin on
-   Windows).
-3. Install what the Gradle build needs and accept the licenses:
+   and unzip it anywhere under your user profile, e.g.
+   `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\` (the zip's own
+   top-level `cmdline-tools` folder needs renaming to `latest`).
+2. Tell Gradle where the SDK is via `android/local.properties`
+   (**not** an `ANDROID_HOME` environment variable) — this is the
+   standard file Android Studio itself always writes, and it's already in
+   `android/.gitignore` since the path is machine-specific:
+   ```properties
+   sdk.dir=C:/Users/<you>/AppData/Local/Android/Sdk
+   ```
+3. Install what the Gradle build needs, pointing `sdkmanager` at the SDK
+   directly via `--sdk_root=` (again, no environment variable):
    ```bash
-   sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-   sdkmanager --licenses
+   sdkmanager --sdk_root="%LOCALAPPDATA%\Android\Sdk" --licenses
+   sdkmanager --sdk_root="%LOCALAPPDATA%\Android\Sdk" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
    ```
 4. Build from the command line — the generated `android/` project already
-   has a Gradle wrapper, so Android Studio is never actually required:
-   ```bash
+   has a Gradle wrapper, so Android Studio is never actually required.
+   `sdkmanager`/Gradle need a JDK 17+ on `JAVA_HOME`/`PATH`; rather than
+   setting `JAVA_HOME` globally (which could fight with unrelated
+   projects expecting a different JDK), set it just for this command —
+   the conda `justfitting` env already has one:
+   ```powershell
+   $env:JAVA_HOME = "$env:LOCALAPPDATA\anaconda3\envs\justfitting\Library"   # this shell only
    android\gradlew.bat assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
    android\gradlew.bat installDebug    # builds AND installs onto a connected device/emulator
    ```
@@ -611,12 +625,14 @@ Studio's Build menu).
   `app/src/main/assets/public` (the synced `dist/` copy), the copied
   `capacitor.config.json`, and `local.properties` (machine-specific SDK
   path).
-- Not done in this repo: installing Android SDK components and actually
-  running a Gradle build / launching on a device or emulator (see the two
-  sections above). That's a multi-GB one-time download (platforms,
-  build-tools, optionally an emulator system image) and is left as a step
-  for whoever's building a release, rather than baked into this repo or
-  its CI.
+- Verified end to end on a restricted (non-admin) Windows account: conda
+  Node/JDK, the command-line SDK tools, and `gradlew.bat assembleDebug`
+  produced a real `app-debug.apk`, with zero admin rights and zero
+  global/System or User environment variables anywhere in the chain.
+- Not done in this repo: an emulator system image (needs admin for
+  HAXM/Windows Hypervisor Platform — use a real device over USB instead,
+  see above) and a signed release build (needs a keystore, out of scope
+  for this debug-build verification).
 
 ### Future: local/offline data mode (design note, not implemented)
 

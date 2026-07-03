@@ -50,15 +50,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already just run `conda env create|update -f environment.yml`) pick
   this up for free. README's "Android app" section was rewritten around
   this: conda for Node/JDK, the Android **command-line SDK tools** (not
-  the full Studio IDE) for the SDK, `ANDROID_HOME` as a User (not System)
-  environment variable, building via the generated project's Gradle
-  wrapper (`gradlew.bat assembleDebug`/`installDebug`) instead of
+  the full Studio IDE) for the SDK, building via the generated project's
+  Gradle wrapper (`gradlew.bat assembleDebug`/`installDebug`) instead of
   requiring Android Studio, and testing on a real device over USB/`adb`
   as a no-admin alternative to the emulator (which needs admin to enable
   HAXM/Windows Hypervisor Platform). `android/` has been scaffolded via
   `npx cap add android` and is now committed (Capacitor's convention);
   its own generated `.gitignore` already excludes the derived
   `assets/public` copy, `local.properties`, and build outputs.
+
+- The Android SDK setup avoids **any** global/System or User environment
+  variable, not just Docker: `android/local.properties`'s `sdk.dir=` (the
+  same file Android Studio itself writes) tells Gradle where the SDK is,
+  `sdkmanager --sdk_root=` does the same for package installs, and
+  `JAVA_HOME` is set only for the duration of a single `gradlew.bat`
+  invocation (from the conda `justfitting` env) rather than persisted
+  anywhere -- avoids fighting with unrelated projects on the same machine
+  that might expect a different SDK/JDK. Verified end to end on a
+  restricted (non-admin) Windows account: downloaded the command-line SDK
+  tools, installed `platform-tools`/`platforms;android-34`/
+  `build-tools;34.0.0` via `sdkmanager`, and `gradlew.bat assembleDebug`
+  produced a working `app-debug.apk`.
 
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
