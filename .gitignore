@@ -68,6 +68,7 @@ dist/
 
 # Node / Capacitor (Android packaging, see README's "Android app" section)
 node_modules/
+*.apk
 
 # Flask stuff:
 instance/

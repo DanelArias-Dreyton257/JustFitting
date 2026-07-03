@@ -29,9 +29,16 @@ class ProjectionService:
         base_regression: str = "real_only",
         activity_model: str = "constant",
         engine_constants: Optional[EngineConstants] = None,
+        trend_model: str = "ols",
     ) -> Tuple[str, List[ProjectionRow]]:
         pairs = Projection.project_series_with_inputs(
-            profile, real_logs, weeks, base_regression, activity_model, engine_constants
+            profile,
+            real_logs,
+            weeks,
+            base_regression,
+            activity_model,
+            engine_constants,
+            trend_model,
         )
         run_id = uuid.uuid4().hex
         generated_at = datetime.now(timezone.utc)
@@ -43,6 +50,7 @@ class ProjectionService:
             base_regression=base_regression,
             generated_at=generated_at,
             activity_model=activity_model,
+            trend_model=trend_model,
         )
         return run_id, rows
 

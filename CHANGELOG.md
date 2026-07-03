@@ -9,6 +9,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
+  `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
+  `trend_model: "ols" | "weighted_ols"` parameter threads through
+  `project_series`/`project_series_with_inputs` alongside the existing
+  `base_regression`/`activity_model`, weighting each history point by
+  `WEIGHTED_TREND_DECAY ** weeks_ago` (new `constants.py` default `0.85`)
+  when set to `"weighted_ols"` -- `"ols"` stays the default and is
+  provably unchanged (every existing golden test is byte-identical).
+  Exposed via `?trend_model=` on `GET`/`POST /api/projection`, persisted
+  per saved run (`projections.trend_model`, migration v11,
+  `ProjectionDAO`/domain `Projection`/`ProjectionDTO`). No client UI
+  selector yet -- API-only for now, same as how `activity_model` shipped
+  its backend piece first.
+
+- Phase 1.6: Python-driven Playwright browser tests for `views.js`/`api.js`
+  (`client/test/browser/`) -- not a Node.js test runner; uses the
+  `playwright` dependency `environment.yml` already had, unused, ahead of
+  this. A shared `LiveServer` (`live_server.py`, a Flask app on a
+  `werkzeug.serving.make_server` background thread) and a minimal
+  `harness_app.py` (serves the real `client/src/webapp/static/js/*` plus a
+  tiny per-suite HTML fixture) let `Views_test.py` drive `views.js`'s pure
+  DOM-rendering exports in a real headless-Chromium tab, and `Api_test.py`
+  drive `api.js`'s exports against a real, separately-booted
+  `server/src/api/app.py` instance -- an actual browser `fetch()` round
+  trip, not a mock. Registers under the existing `*_test.py` glob, so
+  `python -m unittest discover -s client/test -p "*_test.py"` picks it up
+  automatically after a one-time `python -m playwright install chromium`.
+  `.github/workflows/ci.yml` now installs Chromium
+  (`playwright install --with-deps chromium`) before the client test step.
+
+- Node.js/JDK moved into `environment.yml` as conda dependencies
+  (`nodejs>=20,<21`, `openjdk=17`), replacing the earlier
+  `Dockerfile.capacitor` isolation approach. Docker Desktop needs admin
+  rights to install (WSL2/Hyper-V) on Windows, which isn't available on
+  every machine (e.g. a restricted/non-admin account); conda envs are
+  already fully user-scoped, so installing Node/the JDK the same way
+  Python already is gives the same isolation with no elevated
+  permissions anywhere. `scripts/install.sh`/`scripts/update.sh` (which
+  already just run `conda env create|update -f environment.yml`) pick
+  this up for free. README's "Android app" section was rewritten around
+  this: conda for Node/JDK, the Android **command-line SDK tools** (not
+  the full Studio IDE) for the SDK, building via the generated project's
+  Gradle wrapper (`gradlew.bat assembleDebug`/`installDebug`) instead of
+  requiring Android Studio, and testing on a real device over USB/`adb`
+  as a no-admin alternative to the emulator (which needs admin to enable
+  HAXM/Windows Hypervisor Platform). `android/` has been scaffolded via
+  `npx cap add android` and is now committed (Capacitor's convention);
+  its own generated `.gitignore` already excludes the derived
+  `assets/public` copy, `local.properties`, and build outputs.
+
+- The Android SDK setup avoids **any** global/System or User environment
+  variable, not just Docker: `android/local.properties`'s `sdk.dir=` (the
+  same file Android Studio itself writes) tells Gradle where the SDK is,
+  `sdkmanager --sdk_root=` does the same for package installs, and
+  `JAVA_HOME` is set only for the duration of a single `gradlew.bat`
+  invocation (from the conda `justfitting` env) rather than persisted
+  anywhere -- avoids fighting with unrelated projects on the same machine
+  that might expect a different SDK/JDK. Verified end to end on a
+  restricted (non-admin) Windows account: downloaded the command-line SDK
+  tools, installed `platform-tools`/`platforms;android-34`/
+  `build-tools;34.0.0` via `sdkmanager`, and `gradlew.bat assembleDebug`
+  produced a working `app-debug.apk`.
+
+- `npm run android:apk`: builds the debug APK and copies it to the repo
+  root as `JustFitting-debug.apk` (gitignored, a build artifact) --
+  for transferring the app to a phone without a live USB/`adb`
+  connection at build time (email, cloud drive, messaging app, plain
+  file copy). Runs `android\gradlew.bat -p android assembleDebug`
+  (`-p android` instead of `cd android &&`, since chaining `cd` before
+  the wrapper script misbehaved when invoked through npm's script
+  shell) followed by a `copy` of the resulting APK. README documents
+  enabling "Install unknown apps" on the receiving device as the last
+  step. This is a debug-signed APK, fine for sideloading onto your own
+  device, not for Play Store distribution.
+
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
   README's "Android app" section) with a real installable app that bundles

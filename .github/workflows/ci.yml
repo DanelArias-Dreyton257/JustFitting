@@ -23,6 +23,10 @@ jobs:
         shell: bash -l {0}
         run: python -m unittest discover -s server/test -p "*_test.py" -v
 
+      - name: Install Playwright's Chromium browser
+        shell: bash -l {0}
+        run: python -m playwright install --with-deps chromium
+
       - name: Run client test suite
         shell: bash -l {0}
         run: python -m unittest discover -s client/test -p "*_test.py" -v

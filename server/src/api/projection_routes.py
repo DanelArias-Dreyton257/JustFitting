@@ -24,6 +24,10 @@ def _activity_model(activity: str) -> str:
     return "trend" if activity == "trend" else "constant"
 
 
+def _trend_model(trend: str) -> str:
+    return "weighted_ols" if trend == "weighted_ols" else "ols"
+
+
 def _forecast_inputs(user_id: int):
     user_manager = current_app.extensions["user_manager"]
     log_manager = current_app.extensions["log_manager"]
@@ -47,11 +51,18 @@ def projection():
     weeks = request.args.get("weeks", default=4, type=int)
     base_regression = _base_regression(request.args.get("base", default="real"))
     activity_model = _activity_model(request.args.get("activity", default="constant"))
+    trend_model = _trend_model(request.args.get("trend_model", default="ols"))
 
     profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
     try:
         results = Projection.project_series(
-            profile_params, engine_inputs, weeks, base_regression, activity_model, engine_constants
+            profile_params,
+            engine_inputs,
+            weeks,
+            base_regression,
+            activity_model,
+            engine_constants,
+            trend_model,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -69,6 +80,9 @@ def save_projection():
     activity_model = _activity_model(
         payload.get("activity", request.args.get("activity", "constant"))
     )
+    trend_model = _trend_model(
+        payload.get("trend_model", request.args.get("trend_model", "ols"))
+    )
 
     projection_service = current_app.extensions["projection_service"]
     profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
@@ -81,6 +95,7 @@ def save_projection():
             base_regression,
             activity_model,
             engine_constants,
+            trend_model,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

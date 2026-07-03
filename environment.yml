@@ -4,6 +4,11 @@ channels:
   - defaults
 dependencies:
   - python>=3.10,<3.13
+  # Node.js + JDK for Capacitor Android packaging (see README's "Android
+  # app" section) -- conda-installed so the toolchain is fully user-scoped,
+  # no admin/Docker required (conda envs live under the user profile).
+  - nodejs>=20,<21
+  - openjdk=17
   - pip
   - pip:
       - flask>=3.0,<4.0

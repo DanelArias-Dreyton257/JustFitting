@@ -55,6 +55,36 @@ class ProjectionTest(unittest.TestCase):
         self.assertTrue(any(steps != last_real_steps for steps in forecasted_steps))
         self.assertTrue(all(steps >= 0 for steps in forecasted_steps))
 
+    def test_trend_model_ols_default_is_unchanged(self):
+        default = Projection.project_series(PROFILE, REAL_LOGS, weeks=3)
+        explicit_ols = Projection.project_series(
+            PROFILE, REAL_LOGS, weeks=3, trend_model="ols"
+        )
+        for a, b in zip(default, explicit_ols):
+            self.assertEqual(a.bmi, b.bmi)
+            self.assertEqual(a.target_calories, b.target_calories)
+
+    def test_weighted_ols_leans_toward_the_recent_slope(self):
+        # A flat run followed by a sharp recent drop: plain OLS averages the
+        # whole history's slope, while weighted_ols should forecast a lower
+        # (more negative) weight trend since it leans on the recent drop.
+        logs = [
+            LogInput(date(2026, 1, 4), 100.0, 91.0, 38.5, 2400.0, 6000),
+            LogInput(date(2026, 1, 11), 100.0, 91.0, 38.5, 2400.0, 6000),
+            LogInput(date(2026, 1, 18), 100.0, 91.0, 38.5, 2400.0, 6000),
+            LogInput(date(2026, 1, 25), 98.0, 90.5, 38.4, 2350.0, 6100),
+            LogInput(date(2026, 2, 1), 96.0, 90.0, 38.3, 2320.0, 6100),
+        ]
+        ols_pairs = Projection.project_series_with_inputs(
+            PROFILE, logs, weeks=1, trend_model="ols"
+        )
+        weighted_pairs = Projection.project_series_with_inputs(
+            PROFILE, logs, weeks=1, trend_model="weighted_ols"
+        )
+        ols_weight = ols_pairs[0][0].weight_kg
+        weighted_weight = weighted_pairs[0][0].weight_kg
+        self.assertLess(weighted_weight, ols_weight)
+
     def test_real_and_projected_regression_accepts_expanding_window(self):
         real_only = Projection.project_series(
             PROFILE, REAL_LOGS, weeks=4, base_regression="real_only"

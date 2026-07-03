@@ -206,6 +206,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE projections ADD COLUMN activity_model TEXT NOT NULL DEFAULT 'constant';
         """,
     ),
+    (
+        11,
+        """
+        ALTER TABLE projections ADD COLUMN trend_model TEXT NOT NULL DEFAULT 'ols';
+        """,
+    ),
 ]
 
 

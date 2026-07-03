@@ -56,3 +56,9 @@ MAX_LEAN_MASS_LOSS_SHARE = 0.35
 #: |actual weight - weekly objective (Wobj)| beyond this many kg is a
 #: significant deviation from the goal trajectory.
 SIGNIFICANT_DEVIATION_KG = 1.0
+
+#: Per-week decay factor for the "weighted_ols" projection trend model
+#: (Phase 1.6, see services/composition/Projection.py) -- a point one week
+#: older than the most recent one in the regression window is weighted by
+#: this factor, two weeks older by its square, and so on.
+WEIGHTED_TREND_DECAY = 0.85

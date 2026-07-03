@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>api.js test harness</title>
+</head>
+<body>
+  <script>
+    window.JUSTFITTING_API_BASE_URL = "{{ api_base_url }}";
+  </script>
+  <script type="module">
+    import { api, ApiError } from "/static/js/api.js";
+    window.__api = api;
+    window.__ApiError = ApiError;
+    window.__apiReady = true;
+  </script>
+</body>
+</html>
