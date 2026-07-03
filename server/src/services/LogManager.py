@@ -8,10 +8,22 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import List, Optional
 
+from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.domain.BodyLog import BodyLog
 from server.src.services.composition.CompositionEngine import validate_log_input
 from server.src.services.composition.models import LogInput, ProfileParams
+
+LOG_EDITABLE_FIELDS = (
+    "date",
+    "weight_kg",
+    "waist_cm",
+    "neck_cm",
+    "intake_kcal",
+    "intake_is_real",
+    "steps",
+    "source",
+)
 
 
 @dataclass(frozen=True)
@@ -56,8 +68,15 @@ def _interpolate(start: float, end: float, fraction: float) -> float:
 
 
 class LogManager:
-    def __init__(self, log_dao: BodyLogDAO):
+    def __init__(
+        self,
+        log_dao: BodyLogDAO,
+        audit_log_dao: Optional[AuditLogDAO] = None,
+        metrics_cache=None,
+    ):
         self.log_dao = log_dao
+        self.audit_log_dao = audit_log_dao
+        self.metrics_cache = metrics_cache
 
     def create_log(
         self,
@@ -82,7 +101,7 @@ class LogManager:
             intake_is_real=intake_is_real,
         )
         validate_log_input(candidate)
-        return self.log_dao.create(
+        log = self.log_dao.create(
             user_id=user_id,
             date=log_date,
             weight_kg=weight_kg,
@@ -93,6 +112,9 @@ class LogManager:
             steps=steps,
             source=source,
         )
+        if self.metrics_cache is not None:
+            self.metrics_cache.invalidate_for_user(user_id)
+        return log
 
     def list_logs(self, user_id: int) -> List[BodyLog]:
         return self.log_dao.list_for_user(user_id)
@@ -114,10 +136,33 @@ class LogManager:
             intake_is_real=fields.get("intake_is_real", existing.intake_is_real),
         )
         validate_log_input(merged)
-        return self.log_dao.update(log_id, **fields)
+
+        if self.audit_log_dao is not None:
+            for field in LOG_EDITABLE_FIELDS:
+                if field not in fields:
+                    continue
+                previous_value = getattr(existing, field)
+                new_value = fields[field]
+                if previous_value != new_value:
+                    self.audit_log_dao.record(
+                        user_id=existing.user_id,
+                        entity_type="body_log",
+                        entity_id=log_id,
+                        field=field,
+                        previous_value=str(previous_value),
+                        new_value=str(new_value),
+                    )
+
+        updated = self.log_dao.update(log_id, **fields)
+        if self.metrics_cache is not None:
+            self.metrics_cache.invalidate_for_user(existing.user_id)
+        return updated
 
     def delete_log(self, log_id: int) -> None:
+        existing = self.log_dao.get_by_id(log_id)
         self.log_dao.delete(log_id)
+        if existing is not None and self.metrics_cache is not None:
+            self.metrics_cache.invalidate_for_user(existing.user_id)
 
     def to_engine_inputs(self, logs: List[BodyLog]) -> List[LogInput]:
         return [

@@ -1,4 +1,6 @@
-"""Forecast route: extrapolate future weekly rows from real logs."""
+"""Forecast routes: extrapolate future weekly rows from real logs, and
+optionally persist a run so it can be inspected later without recomputing.
+"""
 
 from __future__ import annotations
 
@@ -8,38 +10,103 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
+from server.src.data.dto.ProjectionDTO import ProjectionDTO
 from server.src.services.composition import Projection
-from server.src.services.composition.models import ProfileParams
 
 projection_bp = Blueprint("projection", __name__, url_prefix="/api")
+
+
+def _base_regression(base: str) -> str:
+    return "real_and_projected" if base == "real_projected" else "real_only"
+
+
+def _activity_model(activity: str) -> str:
+    return "trend" if activity == "trend" else "constant"
+
+
+def _forecast_inputs(user_id: int):
+    user_manager = current_app.extensions["user_manager"]
+    log_manager = current_app.extensions["log_manager"]
+    goal_plan_manager = current_app.extensions["goal_plan_manager"]
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+
+    profile = user_manager.get_profile(user_id)
+    goal = goal_plan_manager.get_active(user_id)
+    profile_params = goal_plan_manager.build_profile_params(profile, goal)
+    real_logs = [log for log in log_manager.list_logs(user_id) if log.source == "real"]
+    engine_inputs = log_manager.to_engine_inputs(real_logs)
+    engine_constants = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(user_id)
+    )
+    return profile_params, engine_inputs, engine_constants
 
 
 @projection_bp.get("/projection")
 @require_auth
 def projection():
     weeks = request.args.get("weeks", default=4, type=int)
-    base = request.args.get("base", default="real")
-    base_regression = "real_and_projected" if base == "real_projected" else "real_only"
+    base_regression = _base_regression(request.args.get("base", default="real"))
+    activity_model = _activity_model(request.args.get("activity", default="constant"))
 
-    user_manager = current_app.extensions["user_manager"]
-    log_manager = current_app.extensions["log_manager"]
-    profile = user_manager.get_profile(g.user_id)
-    real_logs = [
-        log for log in log_manager.list_logs(g.user_id) if log.source == "real"
-    ]
-    engine_inputs = log_manager.to_engine_inputs(real_logs)
-
-    profile_params = ProfileParams(
-        height_cm=profile.height_cm,
-        sex=profile.sex,
-        birthdate=profile.birthdate,
-        target_bf=profile.target_bf,
-        weekly_rate=profile.weekly_rate,
-    )
+    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
     try:
         results = Projection.project_series(
-            profile_params, engine_inputs, weeks, base_regression
+            profile_params, engine_inputs, weeks, base_regression, activity_model, engine_constants
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify([asdict(MetricsDTO.from_domain(result)) for result in results])
+
+
+@projection_bp.post("/projection")
+@require_auth
+def save_projection():
+    payload = request.get_json(silent=True) or {}
+    weeks = int(payload.get("weeks", request.args.get("weeks", 4)))
+    base_regression = _base_regression(
+        payload.get("base", request.args.get("base", "real"))
+    )
+    activity_model = _activity_model(
+        payload.get("activity", request.args.get("activity", "constant"))
+    )
+
+    projection_service = current_app.extensions["projection_service"]
+    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
+    try:
+        run_id, rows = projection_service.save_run(
+            g.user_id,
+            profile_params,
+            engine_inputs,
+            weeks,
+            base_regression,
+            activity_model,
+            engine_constants,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return (
+        jsonify(
+            {
+                "run_id": run_id,
+                "rows": [asdict(ProjectionDTO.from_domain(row)) for row in rows],
+            }
+        ),
+        201,
+    )
+
+
+@projection_bp.get("/projections")
+@require_auth
+def list_projection_runs():
+    projection_service = current_app.extensions["projection_service"]
+    return jsonify(projection_service.list_runs(g.user_id))
+
+
+@projection_bp.get("/projections/<run_id>")
+@require_auth
+def get_projection_run(run_id: str):
+    projection_service = current_app.extensions["projection_service"]
+    rows = projection_service.get_run(g.user_id, run_id)
+    if not rows:
+        return jsonify({"error": "projection run not found"}), 404
+    return jsonify([asdict(ProjectionDTO.from_domain(row)) for row in rows])

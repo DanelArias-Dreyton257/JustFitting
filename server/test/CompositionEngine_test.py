@@ -9,7 +9,7 @@ import unittest
 from datetime import date
 
 from server.src.services.composition import CompositionEngine, Projection
-from server.src.services.composition.models import LogInput, ProfileParams
+from server.src.services.composition.models import EngineConstants, LogInput, ProfileParams
 
 PROFILE = ProfileParams(
     height_cm=176,
@@ -141,6 +141,94 @@ class CompositionEngineGoldenTest(unittest.TestCase):
             self.assertEqual((result.date - prev_date).days, 7)
             self.assertEqual(result.source, "projected")
             prev_date = result.date
+
+
+class EngineConstantsOverrideTest(unittest.TestCase):
+    """Phase 1.5: per-user overridable energy constants. Omitting
+    `engine_constants` must reproduce today's fixed `constants.py` values
+    exactly (the golden tests above already pin that); these cover that an
+    explicit override actually changes the computed row."""
+
+    LOG = LogInput(
+        date=date(2026, 6, 26),
+        weight_kg=90.7,
+        waist_cm=80.0,
+        neck_cm=35.0,
+        intake_kcal=2014.30,
+        steps=5000,
+    )
+
+    def test_default_engine_constants_matches_no_override(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        explicit_result = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants()
+        )
+        self.assertEqual(default_result, explicit_result)
+
+    def test_custom_tef_changes_target_calories_and_tdee(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        custom = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants(tef=0.20)
+        )
+        self.assertNotAlmostEqual(custom.tdee, default_result.tdee, delta=0.01)
+        self.assertNotAlmostEqual(
+            custom.target_calories, default_result.target_calories, delta=0.01
+        )
+
+    def test_custom_neat_step_factor_changes_neat(self):
+        custom = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants(neat_step_factor=1.0)
+        )
+        expected_neat = 1.0 * self.LOG.weight_kg * (self.LOG.steps / 1000)
+        self.assertAlmostEqual(custom.neat, expected_neat, delta=0.01)
+
+    def test_custom_kcal_per_kg_fat_changes_weekly_deficit(self):
+        prior_week = LogInput(
+            date=date(2026, 6, 19),
+            weight_kg=91.0,
+            waist_cm=80.5,
+            neck_cm=35.0,
+            intake_kcal=2050.0,
+            steps=5200,
+        )
+        default_results = CompositionEngine.compute_series(PROFILE, [prior_week, self.LOG])
+        custom_results = CompositionEngine.compute_series(
+            PROFILE,
+            [prior_week, self.LOG],
+            engine_constants=EngineConstants(kcal_per_kg_fat=9000.0),
+        )
+        self.assertNotAlmostEqual(
+            custom_results[-1].weekly_deficit_kcal,
+            default_results[-1].weekly_deficit_kcal,
+            delta=0.5,
+        )
+
+    def test_custom_implausible_threshold_changes_the_warning_boundary(self):
+        prior_week = LogInput(
+            date=date(2026, 6, 19),
+            weight_kg=91.0,
+            waist_cm=80.5,
+            neck_cm=35.0,
+            intake_kcal=2050.0,
+            steps=5200,
+        )
+        # A 5% swing wouldn't warn at the default 8% threshold, but should
+        # at a tightened 3% threshold.
+        swing_log = LogInput(
+            date=date(2026, 6, 26),
+            weight_kg=prior_week.weight_kg * 0.95,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2000.0,
+            steps=5000,
+        )
+        with self.assertWarns(UserWarning):
+            CompositionEngine.compute_row(
+                PROFILE,
+                swing_log,
+                prev_weight_kg=prior_week.weight_kg,
+                engine_constants=EngineConstants(implausible_weekly_change_pct=0.03),
+            )
 
 
 if __name__ == "__main__":

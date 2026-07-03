@@ -47,6 +47,16 @@ class ClientSmokeTest(unittest.TestCase):
             response = self.client.get(f"/static/icons/{filename}")
             self.assertEqual(response.status_code, 200, f"{filename} was not served")
 
+    def test_index_includes_phase_1_5_nav_and_views(self):
+        response = self.client.get("/")
+        for nav_view in (b'data-view="alert-history"', b'data-view="settings"'):
+            self.assertIn(nav_view, response.data)
+        for section_id in (b'id="view-alert-history"', b'id="view-settings"'):
+            self.assertIn(section_id, response.data)
+        self.assertIn(b'id="reset-password-form"', response.data)
+        self.assertIn(b'id="sex-disclaimer"', response.data)
+        self.assertIn(b'id="projection-activity"', response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

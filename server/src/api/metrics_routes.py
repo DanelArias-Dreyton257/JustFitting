@@ -7,33 +7,16 @@ from dataclasses import asdict
 from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
+from server.src.data.dto.AdherenceDTO import AdherenceDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
-from server.src.services.composition.CompositionEngine import compute_series
-from server.src.services.composition.models import ProfileParams
+from server.src.services.composition import CompositionEngine
+from server.src.services.MetricsSeriesService import compute_series_for_user
 
 metrics_bp = Blueprint("metrics", __name__, url_prefix="/api/metrics")
 
 
-def _profile_params(profile) -> ProfileParams:
-    return ProfileParams(
-        height_cm=profile.height_cm,
-        sex=profile.sex,
-        birthdate=profile.birthdate,
-        target_bf=profile.target_bf,
-        weekly_rate=profile.weekly_rate,
-    )
-
-
 def _compute_results(user_id: int):
-    user_manager = current_app.extensions["user_manager"]
-    log_manager = current_app.extensions["log_manager"]
-    profile = user_manager.get_profile(user_id)
-    logs = log_manager.list_logs(user_id)
-    engine_inputs = log_manager.to_engine_inputs(logs)
-    if not engine_inputs:
-        return [], []
-    results = compute_series(_profile_params(profile), engine_inputs)
-    return logs, results
+    return compute_series_for_user(current_app, user_id)
 
 
 @metrics_bp.get("/latest")
@@ -45,16 +28,41 @@ def latest():
     ]
     if not real_pairs:
         return jsonify({"error": "no logs yet"}), 404
-    _, latest_result = real_pairs[-1]
-    return jsonify(asdict(MetricsDTO.from_domain(latest_result)))
+    latest_log, latest_result = real_pairs[-1]
+    dto = MetricsDTO.from_domain(
+        latest_result,
+        log_id=latest_log.log_id,
+        engine_version=CompositionEngine.ENGINE_VERSION,
+    )
+    return jsonify(asdict(dto))
 
 
 @metrics_bp.get("/series")
 @require_auth
 def series():
     metric = request.args.get("metric")
-    _, results = _compute_results(g.user_id)
-    payload = [asdict(MetricsDTO.from_domain(result)) for result in results]
+    logs, results = _compute_results(g.user_id)
+    payload = [
+        asdict(
+            MetricsDTO.from_domain(
+                result, log_id=log.log_id, engine_version=CompositionEngine.ENGINE_VERSION
+            )
+        )
+        for log, result in zip(logs, results)
+    ]
     if metric:
         payload = [{"date": row["date"], metric: row.get(metric)} for row in payload]
     return jsonify(payload)
+
+
+@metrics_bp.get("/adherence")
+@require_auth
+def adherence():
+    logs, results = _compute_results(g.user_id)
+    if not logs:
+        return jsonify({"error": "no logs yet"}), 404
+    log_manager = current_app.extensions["log_manager"]
+    mean_intake_diff_kcal = log_manager.compute_adherence(logs, results)
+    real_log_count = sum(1 for log in logs if log.intake_is_real)
+    dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
+    return jsonify(asdict(dto))

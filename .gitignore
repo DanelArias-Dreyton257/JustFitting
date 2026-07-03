@@ -66,6 +66,9 @@ justfitting.db
 justfitting.db-journal
 dist/
 
+# Node / Capacitor (Android packaging, see README's "Android app" section)
+node_modules/
+
 # Flask stuff:
 instance/
 .webassets-cache

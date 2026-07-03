@@ -28,6 +28,10 @@
       <button class="nav-link" data-view="dashboard">Dashboard</button>
       <button class="nav-link" data-view="log">Log</button>
       <button class="nav-link" data-view="projection">Projection</button>
+      <button class="nav-link" data-view="plan">Plan</button>
+      <button class="nav-link" data-view="alert-history">Alerts</button>
+      <button class="nav-link" data-view="report">Report</button>
+      <button class="nav-link" data-view="settings">Settings</button>
       <button class="nav-link" data-view="account">Account</button>
     </nav>
     <button class="logout-btn" id="logout-btn" hidden>Log out</button>
@@ -46,6 +50,23 @@
           <button type="submit">Log in</button>
           <p class="form-error" data-for="login-form"></p>
         </form>
+        <button type="button" id="forgot-password-toggle" class="link-btn">Forgot password?</button>
+
+        <div id="password-recovery" hidden>
+          <form id="reset-password-form" class="stacked-form">
+            <h2>Reset your password</h2>
+            <p class="disclaimer">
+              This directly resets the password for the given account --
+              there's no email verification yet (planned future work, see
+              the README's "Known limitations").
+            </p>
+            <label>Username or email <input name="identifier" required /></label>
+            <label>New password <input name="new_password" type="password" required /></label>
+            <button type="submit">Reset password</button>
+            <p class="form-note" id="reset-password-note"></p>
+            <p class="form-error" data-for="reset-password-form"></p>
+          </form>
+        </div>
 
         <form id="register-form" class="stacked-form">
           <h2>Create an account</h2>
@@ -72,25 +93,69 @@
 
     <section id="view-dashboard" class="view" hidden>
       <h1>Dashboard</h1>
+      <p class="disclaimer" id="sex-disclaimer" hidden></p>
+      <div class="alerts-panel" id="dashboard-alerts" hidden></div>
       <div class="stat-row" id="dashboard-stats"></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Weight (kg)</h3><svg id="chart-weight" class="chart"></svg></div>
         <div class="chart-card"><h3>Body fat (%)</h3><svg id="chart-bodyfat" class="chart"></svg></div>
         <div class="chart-card"><h3>Fat vs lean mass (kg)</h3><svg id="chart-mass" class="chart"></svg></div>
         <div class="chart-card"><h3>Calories (kcal)</h3><svg id="chart-calories" class="chart"></svg></div>
+        <div class="chart-card">
+          <h3>Waist &amp; neck (cm)</h3>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Waist</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f0b94d"></span>Neck</span>
+          </div>
+          <svg id="chart-perimeters" class="chart"></svg>
+        </div>
+        <div class="chart-card"><h3>Steps (daily avg)</h3><svg id="chart-steps" class="chart"></svg></div>
+        <div class="chart-card">
+          <h3>Weight vs goal trajectory (kg)</h3>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Actual</span>
+            <span class="legend-item"><span class="legend-dot legend-dot--dashed" style="background:#7ee787"></span>Target (weekly objective)</span>
+          </div>
+          <svg id="chart-goal-trajectory" class="chart"></svg>
+        </div>
       </div>
     </section>
 
     <section id="view-log" class="view" hidden>
       <h1>Weekly log</h1>
-      <form id="log-form" class="inline-form">
-        <label>Date <input name="date" type="date" required /></label>
-        <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
-        <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" required /></label>
-        <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" required /></label>
-        <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
-        <label>Steps <input name="steps" type="number" step="1" required /></label>
-        <button type="submit">Save log</button>
+      <form id="log-form" class="wizard-form">
+        <div class="wizard-progress" id="log-wizard-progress">
+          <span class="wizard-step-label" data-step="1">1. Date &amp; weight</span>
+          <span class="wizard-step-label" data-step="2">2. Perimeters</span>
+          <span class="wizard-step-label" data-step="3">3. Energy</span>
+          <span class="wizard-step-label" data-step="4">4. Review</span>
+        </div>
+
+        <fieldset class="wizard-step" data-step="1">
+          <label>Date <input name="date" type="date" required /></label>
+          <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="2" hidden>
+          <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" required /></label>
+          <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="3" hidden>
+          <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
+          <label>Steps <input name="steps" type="number" step="1" required /></label>
+        </fieldset>
+
+        <fieldset class="wizard-step" data-step="4" hidden>
+          <p>Review before saving:</p>
+          <dl class="wizard-review" id="log-review"></dl>
+        </fieldset>
+
+        <div class="wizard-nav">
+          <button type="button" id="log-back" hidden>Back</button>
+          <button type="button" id="log-next">Next</button>
+          <button type="submit" id="log-save" hidden>Save log</button>
+        </div>
         <p class="form-error" data-for="log-form"></p>
       </form>
       <table class="data-table" id="log-table">
@@ -113,6 +178,12 @@
             <option value="real_projected">Real + projected (expanding)</option>
           </select>
         </label>
+        <label>Steps assumption
+          <select id="projection-activity">
+            <option value="constant">Hold constant (last logged value)</option>
+            <option value="trend">Follow trend</option>
+          </select>
+        </label>
         <button id="projection-refresh">Update forecast</button>
       </div>
       <p class="disclaimer">Forecast values are estimates extrapolated from your trend, not measurements.</p>
@@ -122,6 +193,94 @@
         </thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section id="view-plan" class="view" hidden>
+      <h1>Plan adjustment</h1>
+      <p class="disclaimer">
+        Preview how a different target body fat or weekly rate would change
+        your target calories and weeks-to-goal, before committing to it.
+      </p>
+
+      <h2>Current plan</h2>
+      <div class="stat-row" id="plan-current-stats"></div>
+
+      <form id="plan-form" class="inline-form">
+        <label>Target body fat (%) <input name="target_bf_pct" type="number" step="0.1" required /></label>
+        <label>Weekly rate (%) <input name="weekly_rate_pct" type="number" step="0.01" required /></label>
+        <button type="submit">Preview</button>
+        <p class="form-error" data-for="plan-form"></p>
+      </form>
+
+      <div id="plan-preview-result" hidden>
+        <h2>Proposed plan</h2>
+        <div class="stat-row" id="plan-proposed-stats"></div>
+        <button id="plan-commit-btn">Commit this plan</button>
+        <p class="form-error" data-for="plan-commit"></p>
+      </div>
+
+      <h2>Goal history</h2>
+      <table class="data-table" id="goal-history-table">
+        <thead>
+          <tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="view-alert-history" class="view" hidden>
+      <h1>Alert history</h1>
+      <p class="disclaimer">
+        Every alert JustFitting has ever detected, including ones you've
+        already dismissed on the Dashboard.
+      </p>
+      <div id="alert-history-list"></div>
+    </section>
+
+    <section id="view-settings" class="view" hidden>
+      <h1>Settings</h1>
+      <p class="disclaimer">
+        Tune the energy-model constants and Phase 1.3 alert thresholds used
+        for your account. Saving creates a new historized settings entry
+        (like a goal-plan change) rather than overwriting the old one.
+      </p>
+      <p id="settings-status" class="disclaimer"></p>
+
+      <form id="settings-form" class="stacked-form">
+        <h2>Energy model</h2>
+        <label>Thermic effect of food (%) <input name="tef_pct" type="number" step="0.1" required /></label>
+        <label>Kcal per kg of fat <input name="kcal_per_kg_fat" type="number" step="1" required /></label>
+        <label>NEAT step factor <input name="neat_step_factor" type="number" step="0.01" required /></label>
+
+        <h2>Alerts &amp; feedback</h2>
+        <label>Implausible weekly change (%) <input name="implausible_pct" type="number" step="0.1" required /></label>
+        <label>Stagnation window (weeks) <input name="stagnation_weeks" type="number" step="1" min="1" required /></label>
+        <label>Stagnation threshold (kg) <input name="stagnation_threshold_kg" type="number" step="0.01" required /></label>
+        <label>Lean-loss window (weeks) <input name="lean_loss_window_weeks" type="number" step="1" min="1" required /></label>
+        <label>Max lean-mass loss share (%) <input name="max_lean_loss_pct" type="number" step="1" required /></label>
+        <label>Significant deviation (kg) <input name="significant_deviation_kg" type="number" step="0.1" required /></label>
+
+        <button type="submit">Save settings</button>
+        <p class="form-error" data-for="settings-form"></p>
+      </form>
+
+      <h2>Settings history</h2>
+      <table class="data-table" id="settings-history-table">
+        <thead>
+          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="view-report" class="view" hidden>
+      <h1>Progress report</h1>
+      <p class="disclaimer">
+        A shareable technical summary. Use the button below (or your
+        browser's Print / Save as PDF) to export it.
+      </p>
+      <button id="report-print-btn">Print / Save as PDF</button>
+      <div id="report-content"></div>
     </section>
 
     <section id="view-account" class="view" hidden>

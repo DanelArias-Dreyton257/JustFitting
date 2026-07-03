@@ -46,8 +46,10 @@ def compute_weight_to_shed(
     return prev_weight_kg - weight_objective_kg
 
 
-def compute_weekly_deficit(weight_to_shed_kg: float) -> float:
-    return weight_to_shed_kg * KCAL_PER_KG_FAT
+def compute_weekly_deficit(
+    weight_to_shed_kg: float, kcal_per_kg_fat: float = KCAL_PER_KG_FAT
+) -> float:
+    return weight_to_shed_kg * kcal_per_kg_fat
 
 
 def compute_daily_deficit(weekly_deficit_kcal: float) -> float:

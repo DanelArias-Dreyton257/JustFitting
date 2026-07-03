@@ -15,8 +15,6 @@ class UserProfile:
     height_cm: float
     sex: int  # 1 = male, 0 = female
     birthdate: date
-    target_bf: float
-    weekly_rate: float
     units: str
     created_at: datetime
 
@@ -30,8 +28,6 @@ class UserProfile:
             height_cm=row["height_cm"],
             sex=row["sex"],
             birthdate=date.fromisoformat(row["birthdate"]),
-            target_bf=row["target_bf"],
-            weekly_rate=row["weekly_rate"],
             units=row["units"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )

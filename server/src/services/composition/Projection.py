@@ -1,25 +1,29 @@
 """Forecasts future weekly rows from a real-log history.
 
 Weight/waist/neck follow an OLS linear trend (the spreadsheet TREND()
-equivalent); steps are held constant; intake is assumed to equal the
-previous row's recommended target calories and is marked as not real, so
-adherence metrics must only be computed over ``intake_is_real=True`` rows.
+equivalent); steps default to held-constant but can follow the same OLS
+trend instead (``activity_model="trend"``, Phase 1.5); intake is assumed to
+equal the previous row's recommended target calories and is marked as not
+real, so adherence metrics must only be computed over
+``intake_is_real=True`` rows.
 """
 
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import List, Literal, Sequence, Tuple
+from typing import List, Literal, Optional, Sequence, Tuple
 
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.constants import DAYS_PER_WEEK
 from server.src.services.composition.models import (
     CompositionResult,
+    EngineConstants,
     LogInput,
     ProfileParams,
 )
 
 BaseRegression = Literal["real_only", "real_and_projected"]
+ActivityModel = Literal["constant", "trend"]
 
 
 def _ols(xs: Sequence[float], ys: Sequence[float]) -> Tuple[float, float]:
@@ -51,22 +55,49 @@ def project_series(
     real_logs: Sequence[LogInput],
     weeks: int,
     base_regression: BaseRegression = "real_only",
+    activity_model: ActivityModel = "constant",
+    engine_constants: Optional[EngineConstants] = None,
 ) -> List[CompositionResult]:
     """Forecast ``weeks`` future weekly rows beyond the last real log."""
+    return [
+        result
+        for _, result in project_series_with_inputs(
+            profile, real_logs, weeks, base_regression, activity_model, engine_constants
+        )
+    ]
+
+
+def project_series_with_inputs(
+    profile: ProfileParams,
+    real_logs: Sequence[LogInput],
+    weeks: int,
+    base_regression: BaseRegression = "real_only",
+    activity_model: ActivityModel = "constant",
+    engine_constants: Optional[EngineConstants] = None,
+) -> List[Tuple[LogInput, CompositionResult]]:
+    """Same as ``project_series``, but also returns each forecasted row's raw
+    ``LogInput`` (estimated weight/waist/neck) alongside its ``CompositionResult``
+    -- needed to persist a saved forecast run (see ``ProjectionService``),
+    since the derived metrics alone don't carry the raw estimates back out.
+
+    ``activity_model`` controls the forecast's steps assumption: ``"constant"``
+    (default) carries the last real log's steps forward unchanged;
+    ``"trend"`` fits the same OLS trend used for weight/waist/neck.
+    """
     if weeks <= 0:
         return []
     if len(real_logs) < 2:
         raise ValueError("at least two real logs are required to project a trend")
 
     ordered_real = sorted(real_logs, key=lambda log: log.date)
-    real_results = CompositionEngine.compute_series(profile, ordered_real)
+    real_results = CompositionEngine.compute_series(profile, ordered_real, engine_constants)
 
     history: List[LogInput] = list(ordered_real)
     last_steps = ordered_real[-1].steps
     prev_weight_kg = ordered_real[-1].weight_kg
     prev_target_calories = real_results[-1].target_calories
 
-    projected_results: List[CompositionResult] = []
+    projected_pairs: List[Tuple[LogInput, CompositionResult]] = []
     cursor_date = ordered_real[-1].date
 
     for _ in range(weeks):
@@ -77,6 +108,10 @@ def project_series(
         forecast_weight = _forecast(regression_source, "weight_kg", cursor_date)
         forecast_waist = _forecast(regression_source, "waist_cm", cursor_date)
         forecast_neck = _forecast(regression_source, "neck_cm", cursor_date)
+        if activity_model == "trend":
+            forecast_steps = max(0.0, _forecast(regression_source, "steps", cursor_date))
+        else:
+            forecast_steps = last_steps
 
         projected_log = LogInput(
             date=cursor_date,
@@ -84,15 +119,17 @@ def project_series(
             waist_cm=forecast_waist,
             neck_cm=forecast_neck,
             intake_kcal=prev_target_calories,
-            steps=last_steps,
+            steps=forecast_steps,
             intake_is_real=False,
         )
 
-        result = CompositionEngine.compute_row(profile, projected_log, prev_weight_kg)
-        projected_results.append(result)
+        result = CompositionEngine.compute_row(
+            profile, projected_log, prev_weight_kg, engine_constants
+        )
+        projected_pairs.append((projected_log, result))
 
         history.append(projected_log)
         prev_weight_kg = projected_log.weight_kg
         prev_target_calories = result.target_calories
 
-    return projected_results
+    return projected_pairs

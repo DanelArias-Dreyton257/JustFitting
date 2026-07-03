@@ -17,11 +17,11 @@ if [ ! -f .env ]; then
 fi
 
 echo "Initializing database..."
-conda run -n "${ENV_NAME}" python -c "
+conda run -n "${ENV_NAME}" python - <<'PY'
 import os
 from server.src.data.db.DB import DB
 DB(os.environ.get('JUSTFITTING_DB_PATH', 'justfitting.db'))
 print('Database ready.')
-"
+PY
 
 echo "Install complete. Run scripts/run.sh to start the app."

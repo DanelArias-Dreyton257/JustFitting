@@ -5,17 +5,32 @@ import {
   showView,
   setFormError,
   renderDashboardStats,
+  renderAlerts,
+  renderAlertHistory,
+  renderGoalHistory,
   renderLogTable,
   renderProjectionTable,
   fillProfileForm,
+  showWizardStep,
+  renderLogReview,
+  renderPlanStats,
+  renderReport,
+  renderSexDisclaimer,
+  fillSettingsForm,
+  renderSettingsStatus,
+  renderSettingsHistory,
 } from "./views.js";
-import { drawLineChart, drawStackedBars } from "./charts.js";
+import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
 
 const state = {
   profile: null,
   logs: [],
   series: [],
+  planPreviewParams: null,
 };
+
+const LOG_WIZARD_STEPS = 4;
+let logWizardStep = 1;
 
 const navButtons = document.querySelectorAll(".nav-link");
 const logoutBtn = document.getElementById("logout-btn");
@@ -50,48 +65,156 @@ function navigate(viewName) {
   if (viewName === "dashboard") refreshDashboard();
   if (viewName === "log") refreshLogs();
   if (viewName === "projection") refreshProjection();
+  if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
+  if (viewName === "report") refreshReport();
+  if (viewName === "alert-history") refreshAlertHistory();
+  if (viewName === "settings") refreshSettings();
 }
 
 async function refreshDashboard() {
-  const [latest, series] = await Promise.all([
+  const [latest, series, logs, alerts, adherence, goals] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
+    api.listLogs().catch(() => []),
+    api.alerts().catch(() => []),
+    api.adherence().catch(() => null),
+    api.goals().catch(() => []),
   ]);
   state.series = series;
-  renderDashboardStats(document.getElementById("dashboard-stats"), latest);
+  renderDashboardStats(document.getElementById("dashboard-stats"), latest, adherence);
+  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
+  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
+
+  const logsById = new Map(logs.map((log) => [log.log_id, log]));
+  const isProjected = (row) => row.source === "projected";
 
   drawLineChart(
     document.getElementById("chart-weight"),
     series.map((row) => ({
+      date: row.date,
       value: row.fat_mass_kg + row.lean_mass_kg,
       projected: row.source === "projected",
-    }))
+    })),
+    { label: "Weight" }
   );
   drawLineChart(
     document.getElementById("chart-bodyfat"),
-    series.map((row) => ({ value: row.body_fat * 100, projected: row.source === "projected" }))
+    series.map((row) => ({
+      date: row.date,
+      value: row.body_fat * 100,
+      projected: row.source === "projected",
+    })),
+    { label: "Body fat %" }
   );
   drawStackedBars(
     document.getElementById("chart-mass"),
-    series.map((row) => ({ fat: row.fat_mass_kg, lean: row.lean_mass_kg }))
+    series.map((row) => ({ date: row.date, fat: row.fat_mass_kg, lean: row.lean_mass_kg }))
   );
   drawLineChart(
     document.getElementById("chart-calories"),
-    series.map((row) => ({ value: row.target_calories, projected: row.source === "projected" }))
+    series.map((row) => ({
+      date: row.date,
+      value: row.target_calories,
+      projected: row.source === "projected",
+    })),
+    { label: "Target calories" }
+  );
+  drawMultiLineChart(
+    document.getElementById("chart-perimeters"),
+    series,
+    [
+      {
+        accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0,
+        color: "#5eb3ff",
+        label: "Waist",
+      },
+      {
+        accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0,
+        color: "#f0b94d",
+        label: "Neck",
+      },
+    ],
+    { isProjected }
+  );
+  drawLineChart(
+    document.getElementById("chart-steps"),
+    series.map((row) => ({
+      date: row.date,
+      value: (logsById.get(row.log_id) || {}).steps || 0,
+      projected: row.source === "projected",
+    })),
+    { label: "Steps" }
+  );
+
+  const goalMarkers = goals.map((goal) => ({
+    date: goal.start_date,
+    label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
+      goal.weekly_rate * 100
+    ).toFixed(2)}%/wk`,
+  }));
+  drawMultiLineChart(
+    document.getElementById("chart-goal-trajectory"),
+    series,
+    [
+      { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff", label: "Actual" },
+      {
+        accessor: (row) => row.weight_objective_kg,
+        color: "#7ee787",
+        dashed: true,
+        label: "Target",
+      },
+    ],
+    { isProjected, markers: goalMarkers }
   );
 }
 
 async function refreshLogs() {
   state.logs = await api.listLogs();
   renderLogTable(document.querySelector("#log-table tbody"), state.logs);
+  goToLogStep(1);
+}
+
+function goToLogStep(step) {
+  logWizardStep = step;
+  const form = document.getElementById("log-form");
+  showWizardStep(form, step, LOG_WIZARD_STEPS);
+  if (step === LOG_WIZARD_STEPS) {
+    renderLogReview(document.getElementById("log-review"), formToJson(form));
+  }
+}
+
+function currentLogStepIsValid() {
+  const fieldset = document.querySelector(`.wizard-step[data-step="${logWizardStep}"]`);
+  return Array.from(fieldset.querySelectorAll("input")).every((input) =>
+    input.reportValidity()
+  );
+}
+
+async function refreshPlan() {
+  const [profile, current, goals] = await Promise.all([
+    api.me(),
+    api.metricsLatest().catch(() => null),
+    api.goals().catch(() => []),
+  ]);
+  state.profile = profile;
+  const form = document.getElementById("plan-form");
+  form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
+  form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
+  renderPlanStats(document.getElementById("plan-current-stats"), current);
+  renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
+  state.planPreviewParams = null;
+  document.getElementById("plan-preview-result").hidden = true;
+  setFormError("plan-form", "");
+  setFormError("plan-commit", "");
 }
 
 async function refreshProjection() {
   const weeks = Number(document.getElementById("projection-weeks").value) || 4;
   const base = document.getElementById("projection-base").value;
+  const activity = document.getElementById("projection-activity").value;
   try {
-    const rows = await api.projection(weeks, base);
+    const rows = await api.projection(weeks, base, activity);
     renderProjectionTable(document.querySelector("#projection-table tbody"), rows);
   } catch (err) {
     // Not enough real logs yet to fit a trend.
@@ -103,6 +226,24 @@ async function refreshAccount() {
   const profile = await api.me();
   state.profile = profile;
   fillProfileForm(document.getElementById("profile-form"), profile);
+}
+
+async function refreshReport() {
+  const report = await api.report();
+  renderReport(document.getElementById("report-content"), report);
+}
+
+async function refreshAlertHistory() {
+  const alerts = await api.alerts(true);
+  renderAlertHistory(document.getElementById("alert-history-list"), alerts);
+}
+
+async function refreshSettings() {
+  const [settings, history] = await Promise.all([api.getSettings(), api.settingsHistory()]);
+  fillSettingsForm(document.getElementById("settings-form"), settings);
+  renderSettingsStatus(document.getElementById("settings-status"), settings);
+  renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
+  setFormError("settings-form", "");
 }
 
 function formToJson(form) {
@@ -136,6 +277,25 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
   }
 });
 
+document.getElementById("forgot-password-toggle").addEventListener("click", () => {
+  const container = document.getElementById("password-recovery");
+  container.hidden = !container.hidden;
+});
+
+document.getElementById("reset-password-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("reset-password-form", "");
+  document.getElementById("reset-password-note").textContent = "";
+  const raw = formToJson(event.target);
+  try {
+    const { message } = await api.resetPassword(raw.identifier, raw.new_password);
+    document.getElementById("reset-password-note").textContent = message;
+    event.target.reset();
+  } catch (err) {
+    setFormError("reset-password-form", err.message);
+  }
+});
+
 document.getElementById("register-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormError("register-form", "");
@@ -158,6 +318,15 @@ document.getElementById("register-form").addEventListener("submit", async (event
   } catch (err) {
     setFormError("register-form", err.message);
   }
+});
+
+document.getElementById("log-next").addEventListener("click", () => {
+  if (!currentLogStepIsValid()) return;
+  goToLogStep(Math.min(logWizardStep + 1, LOG_WIZARD_STEPS));
+});
+
+document.getElementById("log-back").addEventListener("click", () => {
+  goToLogStep(Math.max(logWizardStep - 1, 1));
 });
 
 document.getElementById("log-form").addEventListener("submit", async (event) => {
@@ -188,7 +357,50 @@ document.querySelector("#log-table tbody").addEventListener("click", async (even
   await refreshLogs();
 });
 
+document.getElementById("dashboard-alerts").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".alert-dismiss-btn");
+  if (!btn) return;
+  await api.acknowledgeAlert(btn.dataset.alertId);
+  await refreshDashboard();
+});
+
+document.getElementById("report-print-btn").addEventListener("click", () => {
+  window.print();
+});
+
 document.getElementById("projection-refresh").addEventListener("click", refreshProjection);
+
+document.getElementById("plan-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("plan-form", "");
+  setFormError("plan-commit", "");
+  const raw = formToJson(event.target);
+  const params = {
+    target_bf: Number(raw.target_bf_pct) / 100,
+    weekly_rate: Number(raw.weekly_rate_pct) / 100,
+  };
+  try {
+    const proposed = await api.planPreview(params);
+    state.planPreviewParams = params;
+    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed);
+    document.getElementById("plan-preview-result").hidden = false;
+  } catch (err) {
+    state.planPreviewParams = null;
+    document.getElementById("plan-preview-result").hidden = true;
+    setFormError("plan-form", err.message);
+  }
+});
+
+document.getElementById("plan-commit-btn").addEventListener("click", async () => {
+  if (!state.planPreviewParams) return;
+  setFormError("plan-commit", "");
+  try {
+    state.profile = await api.updateProfile(state.planPreviewParams);
+    await refreshPlan();
+  } catch (err) {
+    setFormError("plan-commit", err.message);
+  }
+});
 
 document.getElementById("profile-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -246,6 +458,36 @@ document.getElementById("delete-account-btn").addEventListener("click", async ()
   await api.deleteAccount();
   clearToken();
   showAuthOnly();
+});
+
+document.getElementById("alert-history-list").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".alert-dismiss-btn");
+  if (!btn) return;
+  await api.acknowledgeAlert(btn.dataset.alertId);
+  await refreshAlertHistory();
+});
+
+document.getElementById("settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("settings-form", "");
+  const raw = formToJson(event.target);
+  const payload = {
+    tef: Number(raw.tef_pct) / 100,
+    kcal_per_kg_fat: Number(raw.kcal_per_kg_fat),
+    neat_step_factor: Number(raw.neat_step_factor),
+    implausible_weekly_change_pct: Number(raw.implausible_pct) / 100,
+    stagnation_weeks: Number(raw.stagnation_weeks),
+    stagnation_threshold_kg: Number(raw.stagnation_threshold_kg),
+    lean_loss_window_weeks: Number(raw.lean_loss_window_weeks),
+    max_lean_mass_loss_share: Number(raw.max_lean_loss_pct) / 100,
+    significant_deviation_kg: Number(raw.significant_deviation_kg),
+  };
+  try {
+    await api.updateSettings(payload);
+    await refreshSettings();
+  } catch (err) {
+    setFormError("settings-form", err.message);
+  }
 });
 
 boot();

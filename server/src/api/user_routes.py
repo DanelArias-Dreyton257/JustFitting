@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timezone
 
 from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
+from server.src.data.dto.AdherenceDTO import AdherenceDTO
+from server.src.data.dto.AlertLogDTO import AlertLogDTO
+from server.src.data.dto.AuditEntryDTO import AuditEntryDTO
 from server.src.data.dto.BodyLogDTO import BodyLogDTO
+from server.src.data.dto.GoalPlanDTO import GoalPlanDTO
+from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProfileDTO import ProfileDTO
+from server.src.services.AlertSyncService import sync_alerts
+from server.src.services.composition import CompositionEngine
+from server.src.services.GoalPlanManager import GoalPlanManagerError
+from server.src.services.MetricsSeriesService import compute_series_for_user
 from server.src.services.UserManager import UserManagerError
 
 user_bp = Blueprint("users", __name__, url_prefix="/api")
@@ -27,6 +36,22 @@ def _log_manager():
     return current_app.extensions["log_manager"]
 
 
+def _goal_plan_manager():
+    return current_app.extensions["goal_plan_manager"]
+
+
+def _audit_log_dao():
+    return current_app.extensions["audit_log_dao"]
+
+
+def _profile_dto(user_id: int):
+    profile = _user_manager().get_profile(user_id)
+    if profile is None:
+        return None
+    goal = _goal_plan_manager().get_active(user_id)
+    return ProfileDTO.from_domain(profile, goal=goal)
+
+
 @user_bp.post("/users")
 def register():
     payload = request.get_json(force=True) or {}
@@ -42,14 +67,14 @@ def register():
             weekly_rate=float(payload["weekly_rate"]),
             units=payload.get("units", "metric"),
         )
-    except UserManagerError as exc:
+    except (UserManagerError, GoalPlanManagerError) as exc:
         return jsonify({"error": str(exc)}), 400
     except (KeyError, ValueError) as exc:
         return jsonify({"error": f"invalid payload: {exc}"}), 400
 
     token = _auth_service().issue_token(profile.user_id)
     return (
-        jsonify({"token": token, "profile": asdict(ProfileDTO.from_domain(profile))}),
+        jsonify({"token": token, "profile": asdict(_profile_dto(profile.user_id))}),
         201,
     )
 
@@ -65,7 +90,9 @@ def login():
     if profile is None:
         return jsonify({"error": "invalid credentials"}), 401
     token = _auth_service().issue_token(profile.user_id)
-    return jsonify({"token": token, "profile": asdict(ProfileDTO.from_domain(profile))})
+    return jsonify(
+        {"token": token, "profile": asdict(_profile_dto(profile.user_id))}
+    )
 
 
 @user_bp.post("/auth/logout")
@@ -75,13 +102,30 @@ def logout():
     return "", 204
 
 
+@user_bp.post("/auth/reset-password")
+def reset_password():
+    """Directly resets a password given a matching username/email -- no
+    email verification (see README's "Known limitations"/"Future work")."""
+    payload = request.get_json(force=True) or {}
+    identifier = payload.get("identifier")
+    new_password = payload.get("new_password")
+    if not identifier or not new_password:
+        return jsonify({"error": "identifier and new_password are required"}), 400
+    ok = current_app.extensions["password_reset_service"].reset_password(
+        identifier, new_password
+    )
+    if not ok:
+        return jsonify({"error": "no account found for that username or email"}), 404
+    return jsonify({"message": "Password updated. You can log in with your new password."})
+
+
 @user_bp.get("/users/me")
 @require_auth
 def me():
-    profile = _user_manager().get_profile(g.user_id)
-    if profile is None:
+    dto = _profile_dto(g.user_id)
+    if dto is None:
         return jsonify({"error": "user not found"}), 404
-    return jsonify(asdict(ProfileDTO.from_domain(profile)))
+    return jsonify(asdict(dto))
 
 
 @user_bp.put("/users/me")
@@ -95,10 +139,10 @@ def update_me():
     if "birthdate" in payload:
         fields["birthdate"] = date.fromisoformat(payload["birthdate"])
     try:
-        profile = _user_manager().update_profile(g.user_id, **fields)
-    except UserManagerError as exc:
+        _user_manager().update_profile(g.user_id, **fields)
+    except (UserManagerError, GoalPlanManagerError) as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify(asdict(ProfileDTO.from_domain(profile)))
+    return jsonify(asdict(_profile_dto(g.user_id)))
 
 
 @user_bp.post("/users/me/password")
@@ -124,15 +168,77 @@ def delete_me():
     return "", 204
 
 
+@user_bp.get("/users/me/goals")
+@require_auth
+def list_goals():
+    goals = _goal_plan_manager().list_history(g.user_id)
+    return jsonify([asdict(GoalPlanDTO.from_domain(goal)) for goal in goals])
+
+
+@user_bp.get("/users/me/audit-log")
+@require_auth
+def audit_log():
+    entries = _audit_log_dao().list_for_user(g.user_id)
+    return jsonify([asdict(AuditEntryDTO.from_domain(entry)) for entry in entries])
+
+
 @user_bp.get("/users/me/export")
 @require_auth
 def export_data():
-    profile = _user_manager().get_profile(g.user_id)
+    profile_dto = _profile_dto(g.user_id)
     logs = _log_manager().list_logs(g.user_id)
+    goal_history = _goal_plan_manager().list_history(g.user_id)
+    audit_entries = _audit_log_dao().list_for_user(g.user_id)
     return jsonify(
         {
-            "profile": asdict(ProfileDTO.from_domain(profile)),
+            "profile": asdict(profile_dto),
             "logs": [asdict(BodyLogDTO.from_domain(log)) for log in logs],
+            "goal_history": [
+                asdict(GoalPlanDTO.from_domain(goal)) for goal in goal_history
+            ],
+            "audit_log": [
+                asdict(AuditEntryDTO.from_domain(entry)) for entry in audit_entries
+            ],
+        }
+    )
+
+
+@user_bp.get("/users/me/report")
+@require_auth
+def report():
+    profile_dto = _profile_dto(g.user_id)
+    if profile_dto is None:
+        return jsonify({"error": "user not found"}), 404
+
+    logs, results = compute_series_for_user(current_app, g.user_id)
+    series = [
+        asdict(
+            MetricsDTO.from_domain(
+                result, log_id=log.log_id, engine_version=CompositionEngine.ENGINE_VERSION
+            )
+        )
+        for log, result in zip(logs, results)
+    ]
+    latest_metrics = series[-1] if series else None
+
+    mean_intake_diff_kcal = _log_manager().compute_adherence(logs, results) if logs else None
+    real_log_count = sum(1 for log in logs if log.intake_is_real)
+    adherence_dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
+
+    goal_history = _goal_plan_manager().list_history(g.user_id)
+    open_alerts = sync_alerts(current_app, g.user_id, include_acknowledged=False)
+
+    return jsonify(
+        {
+            "profile": asdict(profile_dto),
+            "latest_metrics": latest_metrics,
+            "adherence": asdict(adherence_dto),
+            "goal_history": [
+                asdict(GoalPlanDTO.from_domain(goal)) for goal in goal_history
+            ],
+            "series": series,
+            "alerts": [asdict(AlertLogDTO.from_domain(alert)) for alert in open_alerts],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
     )
 

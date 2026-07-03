@@ -36,6 +36,25 @@ class ProjectionTest(unittest.TestCase):
         for result in projected:
             self.assertEqual(result.source, "projected")
 
+    def test_activity_model_constant_holds_neat_flat(self):
+        pairs = Projection.project_series_with_inputs(
+            PROFILE, REAL_LOGS, weeks=3, activity_model="constant"
+        )
+        last_real_steps = REAL_LOGS[-1].steps
+        for log, _ in pairs:
+            self.assertEqual(log.steps, last_real_steps)
+
+    def test_activity_model_trend_follows_the_steps_regression(self):
+        # Steps rise then dip in REAL_LOGS (6000, 6200, 6100); a "trend"
+        # forecast should differ from just carrying the last value forward.
+        pairs = Projection.project_series_with_inputs(
+            PROFILE, REAL_LOGS, weeks=3, activity_model="trend"
+        )
+        last_real_steps = REAL_LOGS[-1].steps
+        forecasted_steps = [log.steps for log, _ in pairs]
+        self.assertTrue(any(steps != last_real_steps for steps in forecasted_steps))
+        self.assertTrue(all(steps >= 0 for steps in forecasted_steps))
+
     def test_real_and_projected_regression_accepts_expanding_window(self):
         real_only = Projection.project_series(
             PROFILE, REAL_LOGS, weeks=4, base_regression="real_only"

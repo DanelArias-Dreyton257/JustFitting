@@ -8,8 +8,11 @@ import os
 from datetime import date
 from typing import Optional
 
+from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.data.domain.UserProfile import UserProfile
+
+GOAL_FIELDS = ("target_bf", "weekly_rate")
 
 PBKDF2_ITERATIONS = 260_000
 SALT_BYTES = 16
@@ -39,8 +42,15 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 class UserManager:
-    def __init__(self, user_dao: UserDAO):
+    def __init__(
+        self,
+        user_dao: UserDAO,
+        goal_plan_manager,
+        audit_log_dao: Optional[AuditLogDAO] = None,
+    ):
         self.user_dao = user_dao
+        self.goal_plan_manager = goal_plan_manager
+        self.audit_log_dao = audit_log_dao
 
     def register(
         self,
@@ -66,17 +76,19 @@ class UserManager:
         if not (0 < target_bf < 1):
             raise UserManagerError("target_bf must be a fraction between 0 and 1")
 
-        return self.user_dao.create(
+        profile = self.user_dao.create(
             username=username,
             email=email,
             password_hash=hash_password(password),
             height_cm=height_cm,
             sex=sex,
             birthdate=birthdate,
-            target_bf=target_bf,
-            weekly_rate=weekly_rate,
             units=units,
         )
+        self.goal_plan_manager.create_goal_plan(
+            profile.user_id, target_bf, weekly_rate, start_date=date.today()
+        )
+        return profile
 
     def authenticate(
         self, username_or_email: str, password: str
@@ -94,8 +106,41 @@ class UserManager:
         return self.user_dao.get_by_id(user_id)
 
     def update_profile(self, user_id: int, **fields) -> Optional[UserProfile]:
+        existing = self.user_dao.get_by_id(user_id)
+        if existing is None:
+            return None
+
         fields.pop("password_hash", None)
         fields.pop("username", None)
+
+        goal_fields = {key: fields.pop(key) for key in GOAL_FIELDS if key in fields}
+        if goal_fields:
+            active_goal = self.goal_plan_manager.get_active(user_id)
+            target_bf = goal_fields.get(
+                "target_bf", active_goal.target_bf if active_goal else None
+            )
+            weekly_rate = goal_fields.get(
+                "weekly_rate", active_goal.weekly_rate if active_goal else None
+            )
+            self.goal_plan_manager.create_goal_plan(user_id, target_bf, weekly_rate)
+
+        if self.audit_log_dao is not None:
+            for field, new_value in fields.items():
+                previous_value = getattr(existing, field, None)
+                if previous_value != new_value:
+                    self.audit_log_dao.record(
+                        user_id=user_id,
+                        entity_type="profile",
+                        entity_id=user_id,
+                        field=field,
+                        previous_value=str(previous_value)
+                        if previous_value is not None
+                        else None,
+                        new_value=str(new_value) if new_value is not None else None,
+                    )
+
+        if not fields:
+            return existing
         return self.user_dao.update(user_id, **fields)
 
     def change_password(

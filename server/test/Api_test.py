@@ -243,6 +243,516 @@ class ApiTestCase(unittest.TestCase):
         me_response = self.client.get("/api/users/me", headers=headers)
         self.assertEqual(me_response.status_code, 401)
 
+    def test_register_reflects_the_active_goal_plan(self):
+        response = self._register()
+        profile = response.get_json()["profile"]
+        self.assertAlmostEqual(profile["target_bf"], 0.15)
+        self.assertAlmostEqual(profile["weekly_rate"], -0.005)
+
+    def test_update_profile_goal_fields_historizes_the_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        update_response = self.client.put(
+            "/api/users/me",
+            json={"target_bf": 0.2, "weekly_rate": -0.01},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        profile = update_response.get_json()
+        self.assertAlmostEqual(profile["target_bf"], 0.2)
+        self.assertAlmostEqual(profile["weekly_rate"], -0.01)
+
+        goals_response = self.client.get("/api/users/me/goals", headers=headers)
+        self.assertEqual(goals_response.status_code, 200)
+        goals = goals_response.get_json()
+        self.assertEqual(len(goals), 2)
+        self.assertTrue(goals[0]["active"])
+        self.assertFalse(goals[1]["active"])
+
+    def test_log_edit_is_recorded_in_the_audit_log(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=headers,
+        )
+        log_id = create_response.get_json()["log_id"]
+
+        self.client.put(
+            f"/api/logs/{log_id}", json={"weight_kg": 90.2}, headers=headers
+        )
+
+        audit_response = self.client.get("/api/users/me/audit-log", headers=headers)
+        self.assertEqual(audit_response.status_code, 200)
+        entries = audit_response.get_json()
+        log_entries = [e for e in entries if e["entity_type"] == "body_log"]
+        self.assertEqual(len(log_entries), 1)
+        self.assertEqual(log_entries[0]["field"], "weight_kg")
+
+    def test_save_and_retrieve_a_projection_run(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        save_response = self.client.post(
+            "/api/projection?weeks=3", headers=headers
+        )
+        self.assertEqual(save_response.status_code, 201)
+        body = save_response.get_json()
+        run_id = body["run_id"]
+        self.assertEqual(len(body["rows"]), 3)
+
+        runs_response = self.client.get("/api/projections", headers=headers)
+        self.assertEqual(runs_response.status_code, 200)
+        runs = runs_response.get_json()
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["run_id"], run_id)
+
+        run_response = self.client.get(f"/api/projections/{run_id}", headers=headers)
+        self.assertEqual(run_response.status_code, 200)
+        self.assertEqual(len(run_response.get_json()), 3)
+
+    def test_metrics_series_is_cached_across_reads(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        first = self.client.get("/api/metrics/series", headers=headers).get_json()
+        second = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(first, second)
+        self.assertIsNotNone(first[0]["log_id"])
+        self.assertIsNotNone(first[0]["engine_version"])
+
+    def test_plan_preview_matches_current_plan_when_no_overrides_given(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        latest = self.client.get("/api/metrics/latest", headers=headers).get_json()
+        preview = self.client.get("/api/plan/preview", headers=headers)
+        self.assertEqual(preview.status_code, 200)
+        body = preview.get_json()
+        self.assertAlmostEqual(body["target_calories"], latest["target_calories"], places=2)
+        self.assertAlmostEqual(body["weeks_to_goal"], latest["weeks_to_goal"], places=2)
+
+    def test_plan_preview_reflects_a_candidate_weekly_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        slower = self.client.get(
+            "/api/plan/preview?weekly_rate=-0.002", headers=headers
+        ).get_json()
+        faster = self.client.get(
+            "/api/plan/preview?weekly_rate=-0.01", headers=headers
+        ).get_json()
+        # A faster weekly loss rate implies a lower target-calorie intake
+        # and fewer weeks to reach the goal.
+        self.assertLess(faster["target_calories"], slower["target_calories"])
+        self.assertLess(faster["weeks_to_goal"], slower["weeks_to_goal"])
+
+    def test_plan_preview_does_not_persist_a_new_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        self.client.get("/api/plan/preview?target_bf=0.25", headers=headers)
+
+        goals_response = self.client.get("/api/users/me/goals", headers=headers)
+        self.assertEqual(len(goals_response.get_json()), 1)
+
+    def test_plan_preview_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/plan/preview", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_export_includes_goal_history_and_audit_log(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put(
+            "/api/users/me", json={"target_bf": 0.2}, headers=headers
+        )
+
+        export_response = self.client.get("/api/users/me/export", headers=headers)
+        exported = export_response.get_json()
+        self.assertEqual(len(exported["goal_history"]), 2)
+        self.assertGreaterEqual(len(exported["audit_log"]), 1)
+
+    def test_alerts_empty_without_logs(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get("/api/alerts", headers=self._auth_header(token))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), [])
+
+    def test_alerts_flags_an_implausible_weekly_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # >8% down in one week
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/alerts", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        alerts = response.get_json()
+        implausible = [a for a in alerts if a["type"] == "implausible_change"]
+        self.assertEqual(len(implausible), 1)
+        self.assertEqual(implausible[0]["date"], "2026-01-04")
+        self.assertEqual(implausible[0]["severity"], "warning")
+
+    def test_alerts_flags_a_significant_goal_deviation(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        # weekly_rate=-0.005 on 97.0kg objects ~90.545g change; logging a
+        # weight far above that objective should trip the deviation alert.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 98.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/alerts", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        alerts = response.get_json()
+        deviation = [a for a in alerts if a["type"] == "deviation"]
+        self.assertTrue(any(a["date"] == "2026-01-11" for a in deviation))
+
+    def test_adherence_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/adherence", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_adherence_reflects_real_logs_only(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/adherence", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["real_log_count"], 2)
+        self.assertIsNotNone(body["mean_intake_diff_kcal"])
+
+    def test_acknowledge_alert_removes_it_from_the_default_list(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # >8% down in one week
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        implausible = [a for a in alerts if a["type"] == "implausible_change"][0]
+        self.assertIsNone(implausible["acknowledged_at"])
+
+        ack_response = self.client.post(
+            f"/api/alerts/{implausible['alert_id']}/acknowledge", headers=headers
+        )
+        self.assertEqual(ack_response.status_code, 200)
+        self.assertIsNotNone(ack_response.get_json()["acknowledged_at"])
+
+        after_default = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(
+            any(a["alert_id"] == implausible["alert_id"] for a in after_default)
+        )
+
+        after_all = self.client.get(
+            "/api/alerts?include_acknowledged=true", headers=headers
+        ).get_json()
+        acked = [a for a in after_all if a["alert_id"] == implausible["alert_id"]]
+        self.assertEqual(len(acked), 1)
+        self.assertIsNotNone(acked[0]["acknowledged_at"])
+
+    def test_acknowledge_alert_not_owned_by_user_returns_404(self):
+        token_a = self._register().get_json()["token"]
+        headers_a = self._auth_header(token_a)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers_a,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers_a,
+        )
+        alerts = self.client.get("/api/alerts", headers=headers_a).get_json()
+        alert_id = alerts[0]["alert_id"]
+
+        token_b = self._register(
+            username="other", email="other@example.com"
+        ).get_json()["token"]
+        headers_b = self._auth_header(token_b)
+        response = self.client.post(
+            f"/api/alerts/{alert_id}/acknowledge", headers=headers_b
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_report_includes_all_sections(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/users/me/report", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        report = response.get_json()
+        for key in (
+            "profile",
+            "latest_metrics",
+            "adherence",
+            "goal_history",
+            "series",
+            "alerts",
+            "generated_at",
+        ):
+            self.assertIn(key, report)
+        self.assertEqual(len(report["series"]), 2)
+        self.assertIsNotNone(report["latest_metrics"])
+        self.assertEqual(len(report["goal_history"]), 1)
+
+    def test_settings_default_before_any_override(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/users/me/settings", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["is_default"])
+        self.assertEqual(body["stagnation_weeks"], 3)
+
+    def test_settings_update_and_history(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"stagnation_weeks": 2, "significant_deviation_kg": 0.5},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertFalse(body["is_default"])
+        self.assertEqual(body["stagnation_weeks"], 2)
+        self.assertEqual(body["significant_deviation_kg"], 0.5)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        self.assertEqual(get_response.get_json()["stagnation_weeks"], 2)
+
+        history_response = self.client.get(
+            "/api/users/me/settings/history", headers=headers
+        )
+        self.assertEqual(len(history_response.get_json()), 1)
+
+    def test_settings_update_rejects_invalid_value(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef": 1.5},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_custom_alert_threshold_changes_detection(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        # Default significant_deviation_kg is 1.0; a small ~0.5kg gap
+        # shouldn't trip it, but a tightened 0.1kg threshold should.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        default_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(any(a["type"] == "deviation" for a in default_alerts))
+
+        self.client.put(
+            "/api/users/me/settings",
+            json={"significant_deviation_kg": 0.1},
+            headers=headers,
+        )
+        tightened_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertTrue(any(a["type"] == "deviation" for a in tightened_alerts))
+
+    def test_reset_password_unknown_identifier_returns_404(self):
+        response = self.client.post(
+            "/api/auth/reset-password",
+            json={"identifier": "no-such-user", "new_password": "whatever12"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_reset_password_directly_resets_with_no_verification(self):
+        self._register()
+
+        reset_response = self.client.post(
+            "/api/auth/reset-password",
+            json={"identifier": "danel", "new_password": "brand-new-password-1"},
+        )
+        self.assertEqual(reset_response.status_code, 200)
+        self.assertIn("message", reset_response.get_json())
+
+        relogin = self.client.post(
+            "/api/auth/login", json={"username": "danel", "password": "brand-new-password-1"}
+        )
+        self.assertEqual(relogin.status_code, 200)
+
+    def test_reset_password_requires_both_fields(self):
+        response = self.client.post(
+            "/api/auth/reset-password", json={"identifier": "danel"}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_projection_activity_query_param_is_accepted(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get(
+            "/api/projection?weeks=2&activity=trend", headers=headers
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()), 2)
+
+    def test_save_projection_persists_activity_model(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.post(
+            "/api/projection?weeks=2", json={"activity": "trend"}, headers=headers
+        )
+        self.assertEqual(response.status_code, 201)
+        rows = response.get_json()["rows"]
+        self.assertTrue(all(row["activity_model"] == "trend" for row in rows))
+
+    def test_alert_history_includes_acknowledged_alerts(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # implausible swing
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        # This scenario trips both the implausible-change and deviation
+        # detectors -- acknowledge everything currently open.
+        open_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertGreaterEqual(len(open_alerts), 1)
+        for alert in open_alerts:
+            self.client.post(
+                f"/api/alerts/{alert['alert_id']}/acknowledge", headers=headers
+            )
+
+        default_view = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertEqual(default_view, [])
+
+        full_history = self.client.get(
+            "/api/alerts?include_acknowledged=true", headers=headers
+        ).get_json()
+        self.assertEqual(len(full_history), len(open_alerts))
+        self.assertTrue(all(a["acknowledged_at"] is not None for a in full_history))
+
 
 if __name__ == "__main__":
     unittest.main()

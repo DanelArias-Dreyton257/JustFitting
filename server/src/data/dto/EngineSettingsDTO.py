@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional
+
+from server.src.data.domain.EngineSettings import EngineSettings
+
+
+@dataclass(frozen=True)
+class EngineSettingsDTO:
+    tef: float
+    kcal_per_kg_fat: float
+    neat_step_factor: float
+    implausible_weekly_change_pct: float
+    stagnation_weeks: int
+    stagnation_threshold_kg: float
+    lean_loss_window_weeks: int
+    max_lean_mass_loss_share: float
+    significant_deviation_kg: float
+    is_default: bool
+    settings_id: Optional[int] = None
+    start_date: Optional[str] = None
+    active: Optional[bool] = None
+    created_at: Optional[str] = None
+
+    @staticmethod
+    def from_domain(settings: Optional[EngineSettings]) -> "EngineSettingsDTO":
+        from server.src.services.composition.models import DEFAULT_ENGINE_CONSTANTS
+
+        if settings is None:
+            defaults = DEFAULT_ENGINE_CONSTANTS
+            return EngineSettingsDTO(
+                tef=defaults.tef,
+                kcal_per_kg_fat=defaults.kcal_per_kg_fat,
+                neat_step_factor=defaults.neat_step_factor,
+                implausible_weekly_change_pct=defaults.implausible_weekly_change_pct,
+                stagnation_weeks=defaults.stagnation_weeks,
+                stagnation_threshold_kg=defaults.stagnation_threshold_kg,
+                lean_loss_window_weeks=defaults.lean_loss_window_weeks,
+                max_lean_mass_loss_share=defaults.max_lean_mass_loss_share,
+                significant_deviation_kg=defaults.significant_deviation_kg,
+                is_default=True,
+            )
+        return EngineSettingsDTO(
+            tef=settings.tef,
+            kcal_per_kg_fat=settings.kcal_per_kg_fat,
+            neat_step_factor=settings.neat_step_factor,
+            implausible_weekly_change_pct=settings.implausible_weekly_change_pct,
+            stagnation_weeks=settings.stagnation_weeks,
+            stagnation_threshold_kg=settings.stagnation_threshold_kg,
+            lean_loss_window_weeks=settings.lean_loss_window_weeks,
+            max_lean_mass_loss_share=settings.max_lean_mass_loss_share,
+            significant_deviation_kg=settings.significant_deviation_kg,
+            is_default=False,
+            settings_id=settings.settings_id,
+            start_date=settings.start_date.isoformat(),
+            active=settings.active,
+            created_at=settings.created_at.isoformat(),
+        )

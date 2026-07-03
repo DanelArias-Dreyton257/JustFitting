@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from server.src.services.composition.models import CompositionResult
 
@@ -34,9 +35,15 @@ class MetricsDTO:
     final_weight_kg: float
     weeks_to_goal: float
     source: str
+    log_id: Optional[int] = None
+    engine_version: Optional[int] = None
 
     @staticmethod
-    def from_domain(result: CompositionResult) -> "MetricsDTO":
+    def from_domain(
+        result: CompositionResult,
+        log_id: Optional[int] = None,
+        engine_version: Optional[int] = None,
+    ) -> "MetricsDTO":
         return MetricsDTO(
             date=result.date.isoformat(),
             age=result.age,
@@ -65,4 +72,6 @@ class MetricsDTO:
             final_weight_kg=result.final_weight_kg,
             weeks_to_goal=result.weeks_to_goal,
             source=result.source,
+            log_id=log_id,
+            engine_version=engine_version,
         )

@@ -80,8 +80,8 @@ git push origin vX.Y.Z
 
 ## Architecture
 
-Python-only, no Node.js, no build step. Server and client are both small
-Flask apps that talk over HTTP:
+The server and client runtime is Python-only: no Node.js, no build step.
+Server and client are both small Flask apps that talk over HTTP:
 
 - **Server** (`http://localhost:5000`) — persistence, business logic, the
   calculation engine. Bearer-token auth with DB-persisted, sliding-expiry
@@ -104,16 +104,25 @@ formula lives in its own module (`Anthropometry`, `BodyFat`, `EnergyModel`,
 **The Composition Model** below and `docs/composition_spec.md` for the
 full, authoritative spec.
 
+Node.js/Capacitor (`package.json`, `capacitor.config.json`) is a dev-time
+packaging tool for the Android app, not a runtime dependency — it bundles
+the same static `dist/` client the web deployment already builds. See
+**Android app** below.
+
 ### Repository layout
 
 ```
 JustFitting/
 ├── environment.yml
+├── package.json               # Capacitor Android packaging (dev-time only)
+├── capacitor.config.json
 ├── render.yaml
 ├── CHANGELOG.md
 ├── docs/composition_spec.md
 ├── .github/workflows/{ci,release}.yml
 ├── scripts/
+├── dist/                       # generated static client, gitignored
+├── android/                    # generated Capacitor project (after `npm run android:add`), committed
 ├── client/
 │   ├── src/
 │   │   ├── Client.py            # Flask entry point (port 5500)
@@ -172,14 +181,47 @@ Wobj 90.545 | DailyDeficit 500.5 | Wfinal 85.459 | Weeks 11.93
 ```
 
 Future weeks are forecast with an OLS linear trend (weight/waist/neck),
-steps held constant, and intake assumed equal to the previous week's
-target calories (`intake_is_real=false`) — see `docs/composition_spec.md`
-for the full spec, the projection design decision (`base_regression`), and
-the golden reference values `CompositionEngine_test.py` is checked against.
+steps held constant by default (or trend-fit the same way,
+`activity_model="trend"`, Phase 1.5), and intake assumed equal to the
+previous week's target calories (`intake_is_real=false`) — see
+`docs/composition_spec.md` for the full spec, the projection design
+decision (`base_regression`), and the golden reference values
+`CompositionEngine_test.py` is checked against.
+
+Every constant above (`TEF`, the `7700` kcal/kg factor, the NEAT step
+factor, and the Phase 1.3 alert thresholds) is a fixed `constants.py`
+default that a user can override per-account (Phase 1.5, `GET`/`PUT
+/api/users/me/settings`) — see `docs/composition_spec.md`.
 
 **Health disclaimer**: body-fat figures are population-level estimates
 (RFM, US Navy method, Deurenberg), not clinical measurements or medical
 advice.
+
+**Known limitations**:
+- RFM and the U.S. Navy body-fat formulas above use male-only constants
+  for every user (only Deurenberg adjusts for sex); results are
+  systematically less accurate for female users. The app detects this and
+  shows an in-app disclaimer wherever a female profile's body-fat figures
+  are displayed (`renderSexDisclaimer` in `views.js`), rather than
+  presenting a silently biased number. See "Future work" below.
+- Password reset (`POST /api/auth/reset-password`) has no email or token
+  verification: given a username/email that exists, it resets the
+  password immediately. There's no mail server involved at all today. The
+  client shows a disclaimer on the reset form pointing at this. See
+  "Future work" below.
+
+**Future work (unscheduled — not planned for the near term)**:
+- A real female U.S. Navy body-fat formula. It needs a hip-circumference
+  measurement (`waist + hip - neck`, different regression constants) that
+  JustFitting has never collected, so it's a new logged field (DB column,
+  wizard step, DTO, chart), not just a formula change. Deliberately left
+  as a known limitation with a disclaimer (above) rather than scoped into
+  any current phase.
+- Email-verified password reset. Today `POST /api/auth/reset-password`
+  resets on the spot, with only a client-side disclaimer warning that
+  there's no verification. Gating it behind an emailed, single-use,
+  short-lived token (and the SMTP/mail-sending infrastructure that needs)
+  is the obvious next step, but isn't planned for the near term.
 
 ## Roadmap: body-composition module capabilities
 
@@ -192,131 +234,334 @@ independently, in roughly the order that unlocks the most value first;
 full detail, status per item, and the recommended data model are in
 `docs/product_capabilities_spec.md`.
 
-### Phase 1.1 — Data model & audit hardening
+### Phase 1.1 — Data model & audit hardening (done)
 
-- Split `GoalPlan` out of `UserProfile` into its own historized entity
-  (`goal_id, user_id, target_bf, weekly_rate, start_date, active`), so a
-  user's goal history survives across changes instead of being
-  overwritten in place.
-- Add an audit trail for `BodyLog`/profile/goal edits: timestamp, user,
-  field, previous value, new value, and the engine version active at the
-  time — the spec's "every update must retain date, user, previous value,
-  new value, and the calculation-engine version" requirement.
-- Persist `CalculatedMetrics`/`EnergyPlan` snapshots per log (cached,
-  keyed by `log_id` + engine version) instead of always recomputing on
-  read, so historical results stay reproducible if the engine changes.
-- Add a persisted `Projection` entity (`projection_id, user_id,
-  projected_date, estimated_weight, estimated_waist, estimated_neck,
-  source_model, base_regression`) so a saved forecast run can be
-  inspected later without recomputing, with its regression base recorded.
+- `GoalPlan` is split out of `UserProfile` into its own historized entity
+  (`goal_plans`: `goal_id, user_id, target_bf, weekly_rate, start_date,
+  active, created_at`, `data/db/GoalPlanDAO.py`, `services/GoalPlanManager.py`).
+  Every target-BF/weekly-rate change deactivates the previous row and
+  inserts a new one instead of overwriting in place; `GET
+  /api/users/me/goals` returns the full history, newest first. The
+  `users` table's old `target_bf`/`weekly_rate` columns are gone (backfilled
+  into an initial active goal plan by migration v4); `GET`/`PUT
+  /api/users/me` keep returning `target_bf`/`weekly_rate` by joining in the
+  active goal, so existing clients are unaffected.
+- An audit trail (`audit_log` table, `data/db/AuditLogDAO.py`) records
+  every profile field edit, goal-plan change, and body-log field edit:
+  user, entity, field, previous value, new value, timestamp, and the
+  engine version where applicable. `GET /api/users/me/audit-log` exposes
+  it; it's also folded into `GET /api/users/me/export`.
+- `CalculatedMetrics`/`EnergyPlan` results are cached per log, keyed by
+  `(log_id, engine_version)` (`metrics_snapshots` table,
+  `data/db/MetricsSnapshotDAO.py`, `services/MetricsCache.py`). A read
+  recomputes only when a log is missing its snapshot at the current
+  `CompositionEngine.ENGINE_VERSION`; any log create/update/delete or
+  goal-plan change invalidates the affected user's cache so the next read
+  repopulates it. `MetricsDTO` now carries `log_id`/`engine_version`.
+- Forecast runs can be persisted (`projections` table,
+  `data/db/ProjectionDAO.py`, `services/ProjectionService.py`):
+  `POST /api/projection` saves the current forecast under a `run_id` (with
+  `estimated_weight/waist/neck`, `source_model`, `base_regression`);
+  `GET /api/projections` lists saved runs and `GET
+  /api/projections/<run_id>` retrieves one, so a forecast can be inspected
+  later without recomputing. `GET /api/projection` (no persistence) is
+  unchanged for the live-preview use case.
 
-### Phase 1.2 — Visual tracking & UX completeness
+### Phase 1.2 — Visual tracking & UX completeness (done)
 
-- Add waist/neck perimeter and steps charts to the Dashboard (today only
-  weight, body fat %, fat/lean mass and calories are charted).
-- Add a goal-trajectory comparison chart: actual weight vs. the weekly
-  `Wobj` target line, so real vs. planned progress is visible at a glance.
-- Turn the flat weekly-log form into a guided, multi-step capture flow.
-- Add a dedicated "Plan adjustment" view: shows the effect of a
-  calorie-target change on weeks-to-goal before committing it.
+- The Dashboard's chart grid grew from 4 to 7 cards: waist/neck perimeters
+  and daily steps (`chart-perimeters`, `chart-steps`) join weight, body
+  fat %, fat/lean mass and calories. A new `drawMultiLineChart` in
+  `charts.js` plots several series (with a small color-dot legend) on one
+  `<svg>`, generalizing the old single-series `drawLineChart`. Waist/neck/
+  steps aren't in `MetricsDTO`, so `app.js` merges `GET /api/logs` (raw
+  `BodyLogDTO`, has them) with `GET /api/metrics/series` by `log_id`
+  client-side — no server/DTO changes needed.
+- A goal-trajectory chart (`chart-goal-trajectory`) plots actual weight
+  (solid) against the weekly objective `Wobj` (dashed, `weight_objective_kg`
+  — already computed per row by `Trajectory.compute_weight_objective` and
+  returned in `MetricsDTO`), so real vs. planned progress is visible at a
+  glance without any new backend work.
+- The flat `#log-form` is now a 4-step guided wizard (Date & weight →
+  Perimeters → Energy → Review) inside one `<form>`; `views.js`'s
+  `showWizardStep`/`renderLogReview` toggle `<fieldset>` visibility and
+  render a review summary, `app.js` gates `Next` on the current step's
+  native input validity (`reportValidity()`). The final submit still posts
+  the same payload to `POST /api/logs` — capture UX changed, not the
+  contract.
+- A new "Plan adjustment" view lets a user try a candidate target-BF/
+  weekly-rate pair and see its effect on target calories, daily deficit,
+  weeks-to-goal and goal weight *before* committing it, via a new
+  read-only `GET /api/plan/preview?target_bf=&weekly_rate=` endpoint
+  (`server/src/api/plan_routes.py`) that reuses
+  `CompositionEngine.compute_row` with a candidate `ProfileParams` against
+  the latest real log — no persistence, no cache invalidation. "Commit
+  this plan" reuses the existing `PUT /api/users/me` (`GoalPlanManager`,
+  historized as in Phase 1.1); the preview endpoint never writes.
 
-### Phase 1.3 — Alerts & feedback engine
+### Phase 1.3 — Alerts & feedback engine (done)
 
-- Surface the existing implausible-weekly-change guard
-  (`CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT`, today only a Python
-  `warnings.warn`) as a structured API/UI alert.
-- Add stagnation/plateau detection (N consecutive weeks with `|dW|` under
-  a configurable threshold).
-- Add excessive-lean-mass-loss detection (lean mass falling faster than a
-  configurable share of total weight lost).
-- Add significant-deviation alerts (actual weight diverging from `Wobj`
-  by more than a configurable margin).
-- Expose all of the above through a notifications endpoint and a UI
-  alerts panel/banner.
+- A new pure `services/composition/Alerts.py` module runs four detectors
+  over an already-computed metrics series — no new engine computation and
+  no `ENGINE_VERSION` bump, since every detector reads fields
+  `CompositionEngine.compute_row` already produces:
+  - **Implausible change**: surfaces the existing
+    `CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT` guard (previously
+    only a Python `warnings.warn`) as a structured `warning` alert, reusing
+    `weight_delta_pct`.
+  - **Stagnation/plateau**: `STAGNATION_WEEKS` (3) consecutive real weeks
+    with `|dW|` under `STAGNATION_THRESHOLD_KG` (0.15 kg).
+  - **Excessive lean-mass loss**: over a `LEAN_LOSS_WINDOW_WEEKS` (4) real-week
+    rolling window, lean mass makes up more than `MAX_LEAN_MASS_LOSS_SHARE`
+    (35%) of a *net* weight loss (skipped entirely on a net gain).
+  - **Significant deviation**: `|weight_gap_kg|` (`K_i`, actual weight vs.
+    the weekly objective `Wobj`) beyond `SIGNIFICANT_DEVIATION_KG` (1.0 kg).
 
-### Phase 1.4 — Adherence & reporting
+  All five thresholds are named constants in `constants.py`, next to the
+  energy-model ones, as candidates for Phase 1.5's per-profile
+  configurability.
+- `GET /api/alerts` (`server/src/api/alerts_routes.py`) computes a user's
+  series via a new shared `services/MetricsSeriesService.compute_series_for_user`
+  (extracted from `/api/metrics`'s route, which had the same logic inlined)
+  and runs `Alerts.detect_alerts` over it. Nothing new is persisted —
+  alerts are recomputed on every read from existing logs/snapshots, the
+  same way `/api/metrics/series` is.
+- The Dashboard gained an alerts panel (`#dashboard-alerts`) above the stat
+  tiles: `views.js`'s `renderAlerts` draws one bordered banner row per
+  alert (red for `warning`, blue for `info`) and stays empty/hidden with no
+  alerts, so a clean week costs no screen space.
+- 11 `Alerts_test.py` cases (pure detector logic against synthetic
+  `CompositionResult` series) plus 3 new `Api_test.py` cases covering
+  `GET /api/alerts` end-to-end (empty with no logs, an implausible-change
+  swing, a goal-trajectory deviation).
 
-- Add `GET /api/metrics/adherence` (or fold it into `/latest`) surfacing
-  `LogManager.compute_adherence` — mean `IntakeDiff` over
-  `intake_is_real=true` rows only — and show it on the Dashboard.
-- Add exportable technical reports/summaries for the user, a trainer, or
-  a nutritionist (e.g. a printable/PDF report), beyond today's raw JSON
-  export/import.
+### Phase 1.4 — Adherence & reporting (done)
 
-### Phase 1.5 — Account & model completeness
+- `GET /api/metrics/adherence` (`metrics_routes.py`, new `AdherenceDTO`)
+  surfaces `LogManager.compute_adherence` — mean `IntakeDiff` over
+  `intake_is_real=true` rows only, plus the real-log count so the client
+  can tell "no real-intake logs yet" apart from "0 kcal/day average" —
+  and the Dashboard's stat-tile row now shows an "Adherence" tile
+  (`±N kcal/day`) alongside the existing stats.
+- Alerts are now persisted instead of recomputed and forgotten on every
+  read: a new `alert_log` table (migration v8, `data/db/AlertLogDAO.py`,
+  domain `AlertLog`, `AlertLogDTO`) records each detection deduped on
+  `(user_id, type, date)`, via a shared `services/AlertSyncService
+  .sync_alerts` (mirroring how `MetricsSeriesService` is already shared
+  between `/api/metrics` and `/api/alerts`). `GET /api/alerts` now
+  excludes acknowledged alerts by default (`?include_acknowledged=true`
+  to see the full history) and a new `POST
+  /api/alerts/<id>/acknowledge` dismisses one; the Dashboard's alerts
+  panel gained a dismiss (×) button per alert.
+- A new `GET /api/users/me/report` endpoint (`user_routes.py`) bundles
+  profile, latest metrics, adherence, the full goal-plan history, the
+  complete weekly series, and open alerts into one payload — richer
+  than the existing raw JSON `/export` (which is unchanged and stays
+  the backup/restore contract). A new "Report" view renders it as a
+  readable summary with a **Print / Save as PDF** button
+  (`window.print()` plus a `@media print` stylesheet that hides the
+  nav/footer) — no new Python dependency, consistent with this repo's
+  "no Node.js, no build step" architecture.
+- The historized goal-plan timeline (`GET /api/users/me/goals`,
+  implemented in Phase 1.1) is now surfaced in the UI: a "Goal history"
+  table in the Plan view (start date, target BF%, weekly rate,
+  active/past badge), and the same goal-change dates are drawn as
+  dashed vertical markers on the Dashboard's goal-trajectory chart —
+  so a user can see *when* and *why* their target calories shifted.
+- `charts.js`'s three draw functions were reworked from index-spaced to
+  date-spaced points: a date-based x-scale, ~4 gridlines/axis labels per
+  axis, and hover tooltips (a small per-card `.chart-tooltip` div driven
+  by `mousemove`, showing the date and each series' value under the
+  cursor) — this was also the prerequisite for the goal-change markers
+  above.
 
-- Account recovery / forgot-password flow (email-based reset).
-- Sex-specific RFM and U.S. Navy formula variants — both are currently
-  hardcoded to the male-constant form (Deurenberg already varies by sex);
-  either add the female variants or explicitly declare the male-only
-  scope in the product.
-- Make the energy constants (`KCAL_PER_KG_FAT`, `TEF`, the NEAT step
-  factor) configurable per profile/admin rather than fixed code
-  constants.
-- Make the projection's activity assumption configurable (today steps
-  are always carried forward as a constant).
+### Phase 1.5 — Account & model completeness (done)
+
+- **Account recovery**: a direct, unverified password reset, not
+  overwriting the existing authenticated change-password flow (`POST
+  /api/users/me/password`, still requires the old password and is
+  unaffected). `POST /api/auth/reset-password` `{identifier, new_password}`
+  looks up the account by username or email and immediately updates the
+  password (`services/PasswordResetService.py`), revoking every existing
+  session for that user (`SessionDAO.delete_all_for_user`) and recording a
+  redacted `audit_log` entry. There is no email/token verification step —
+  see "Known limitations" and "Future work" above for the plan to add one.
+  The client's auth view gained a "Forgot password?" toggle revealing the
+  reset form, with an inline disclaimer about the missing verification
+  step.
+- **Sex-specific formulas — moved to "Known limitations"/"Future work",
+  not implemented**: RFM and the U.S. Navy method stay male-calibrated for
+  every user (Deurenberg already adjusts for sex). A real female Navy
+  variant needs a hip-circumference measurement this app has never
+  collected, which would mean a new logged field, wizard step, and chart,
+  not just a formula change. Rather than half-build it or schedule it into
+  a phase, this is documented as an unscheduled known limitation (see
+  above) and a client-side disclaimer (`renderSexDisclaimer` in
+  `views.js`) is shown wherever a female profile's body-fat figures are
+  displayed, so the gap is visible instead of silent.
+- **Configurable engine constants & alert thresholds, per user**: a single
+  `EngineConstants` dataclass
+  (`services/composition/models.py`) now covers both the energy-model
+  constants (`tef`, `kcal_per_kg_fat`, `neat_step_factor`, and the
+  implausible-change threshold) and the five Phase 1.3 alert thresholds,
+  threaded as an optional parameter through `CompositionEngine.compute_row
+  /compute_series`, `Alerts.detect_alerts`, and `Projection.project_series*`
+  — omitting it reproduces today's fixed `constants.py` values exactly, so
+  every existing golden test still passes unchanged. A new `EngineSettings`
+  entity (migration v9, `data/db/EngineSettingsDAO.py`,
+  `services/EngineSettingsManager.py`) historizes per-user overrides
+  exactly like `GoalPlan` does for goals: every update deactivates the
+  previous row, inserts a new one, audits each changed field, and
+  invalidates the metrics cache so cached snapshots recompute under the
+  new constants. `GET`/`PUT /api/users/me/settings` and `GET
+  /api/users/me/settings/history` expose it; a new "Settings" client view
+  edits it as percentages/raw values and lists the override history.
+- **Configurable projection activity assumption**: `Projection
+  .project_series_with_inputs` gained `activity_model="constant"` (default,
+  today's carry-forward-the-last-value behavior, unchanged) or `"trend"`
+  (fits the same OLS trend used for weight/waist/neck, clamped at 0). `GET`
+  /`POST /api/projection` accept `?activity=`, persisted per saved run
+  (`projections.activity_model`, migration v10); the Projection view
+  gained a "Steps assumption" selector.
+- **Alert-history browser**, noticed while building Phase 1.4:
+  `GET /api/alerts?include_acknowledged=true` already returned the full
+  history including dismissed alerts, but no UI browsed it. A new
+  "Alerts" nav view (`renderAlertHistory` in `views.js`) lists every alert
+  ever detected with an active/acknowledged badge and a dismiss button
+  for the still-open ones, reusing the existing acknowledge endpoint.
 
 ### Phase 1.6 — Testing groundwork
 
 - Weighted or non-linear projection models beyond OLS.
 - Playwright JS unit tests for `views.js`/`api.js`.
 - A fully-native client using the `remote/RemoteFacade` seam directly, as
-  a longer-term alternative to the PWA/TWA Android app below — not
+  a longer-term alternative to the Capacitor Android app below — not
   planned, just kept possible.
 
 ## Android app
 
-Phase 2 (not yet built): ship the existing hosted web client as an
-installable Android app via a **Trusted Web Activity (TWA)**, built with
-Google's **Bubblewrap** CLI. No on-device Flask, no WebView, no native
-HTTP client — the Android app is a thin wrapper that opens the same
-hosted PWA in Chrome, with the browser UI hidden once the domain is
-verified:
+Phase 2 (scaffolding done; on-device build is a local step, see below):
+ship the existing web client as an installable Android app by bundling
+the same static `dist/` build **inside** the APK/AAB with
+**[Capacitor](https://capacitorjs.com/)**, rather than opening a hosted
+URL in a browser wrapper.
+
+This repo's Android plan changed twice before landing here (see
+`CHANGELOG.md` for the earlier Chaquopy + on-device-Flask attempt): the
+most recent prior plan was a **Trusted Web Activity (TWA)** via Google's
+Bubblewrap CLI — a thin Chrome wrapper that just opens the hosted PWA,
+with the browser UI hidden once the domain is verified. Capacitor
+replaces that: the UI ships inside the package instead of depending on a
+reachable hosted client URL at runtime, while still keeping the API
+remote over plain HTTP(S) — no on-device Flask, no WebView-only wrapper,
+and no native UI rewrite. The Flask API stays exactly as deployed today
+(Deployment, above); only the client is bundled differently.
 
 ```
-Flask backend + HTML/CSS/JS
+scripts/build_static_site.py <API_URL>   # same build the web deploy uses
         |
-Hosted at https://yourdomain.com  (client on GitHub Pages, API on Render
-        |                          -- both already set up, see Deployment)
-PWA manifest + service worker
+dist/  (HTML/CSS/JS, api_base_url baked into index.html)
         |
-Bubblewrap generates Android project
+capacitor.config.json  (webDir: "dist")
         |
-Android app opens your Flask PWA as a TWA
+npx cap sync android    # copies dist/ into the native Android project
+        |
+Android app: local UI, HTTP(S) calls to <API_URL>
 ```
 
-Steps:
+### Setup
 
-1. **PWA groundwork** (done) — `client/src/webapp/static/manifest.json`
-   (name, icons, `start_url: "/"`, `display: standalone`, theme/background
-   color, `scope: "/"`) and an app-shell service worker (`static/sw.js`,
-   stale-while-revalidate for this site's own static assets; API calls to
-   a different origin are left untouched). Both are served at the site
-   *root* — `GET /manifest.json` and `GET /sw.js` in `Client.py`, not
-   under `/static/`, since a service worker's default scope is the
-   directory it's served from and Bubblewrap wants a stable
-   `/manifest.json` URL — and linked/registered from `index.html`.
-   `scripts/build_static_site.py` resolves the same `url_for(...)` calls
-   and copies both files to the built site's root for GitHub Pages, which
-   has no Flask routes to serve them dynamically. This already makes the
-   client installable and usable offline, independent of Android.
-2. **HTTPS hosting + Digital Asset Links** (not started): the client must
-   be served over HTTPS at a stable domain (the existing GitHub Pages
-   deploy in `release.yml` already qualifies, or any custom domain
-   pointed at it). Add `/.well-known/assetlinks.json` at that origin,
-   declaring the Android app's package name and signing-key fingerprint,
-   so Android can verify the app owns the site and hide the address bar
-   (this is what makes it a TWA rather than just "a browser bookmark").
-   Can't be filled in until step 3 produces a package name + keystore.
-3. **Generate the Android project** (not started): `npx @bubblewrap/cli
-   init --manifest=https://yourdomain.com/manifest.json` scaffolds an
-   Android Studio project pointed at the hosted PWA; `bubblewrap build`
-   produces a signed APK/AAB ready for internal testing or the Play
-   Store.
+```bash
+npm install                 # @capacitor/core, @capacitor/cli, @capacitor/android
+npm run android:add         # one-time: scaffolds android/ via `npx cap add android`
+```
 
-Because the client and API are already deployed as two independently
-hosted HTTPS services (Deployment, above), no server-side changes are
-needed for this — the same production deployment *is* the PWA.
+### Building the client for each target
+
+The API base URL is injected the same way as the web build
+(`scripts/build_static_site.py`, `window.JUSTFITTING_API_BASE_URL` in
+`api.js`) — nothing new to learn, just a different target URL per case:
+
+| Target | Command |
+| --- | --- |
+| Production (real device/release build) | `python scripts/build_static_site.py https://YOUR_PRODUCTION_API_URL` |
+| Android emulator | `python scripts/build_static_site.py http://10.0.2.2:5000` (the emulator's alias for the host machine's `localhost`) — also `npm run build:web:android` |
+| Real device on the same LAN | `python scripts/build_static_site.py http://LOCAL_MACHINE_LAN_IP:5000` |
+
+Then sync the build into the native project and open it in Android Studio:
+
+```bash
+npm run android:sync        # build:web:android + `npx cap sync android`
+npm run android:open        # `npx cap open android`
+```
+
+Run the app from Android Studio onto an emulator or a connected device.
+After editing web client code, re-run `android:sync` (with whichever
+`build_static_site.py` target you need) to refresh the bundled `dist/`
+inside `android/`.
+
+For a production release, run `build_static_site.py` with the production
+URL, then `npx cap sync android` (skip the emulator-default script) before
+building the signed AAB/APK in Android Studio.
+
+### Network notes
+
+- **Production must use HTTPS.** `capacitor.config.json` ships with no
+  `cleartext` override, so Android's default cleartext-traffic block
+  applies — this is intentional, not an oversight.
+- **Local HTTP dev (emulator/LAN) needs cleartext enabled explicitly.**
+  Android blocks plain-HTTP network requests by default since API 28. To
+  test against `http://10.0.2.2:5000` or a LAN IP, temporarily add
+  `"server": {"cleartext": true}` to `capacitor.config.json`, re-run
+  `npx cap sync android`, and **revert it before any release build** —
+  never ship `cleartext: true`.
+- **CORS**: the server already reads `JUSTFITTING_CORS_ORIGINS` (see
+  `server/src/api/app.py`) instead of hardcoding origins. Capacitor's
+  Android WebView serves the bundled UI from the `https://localhost`
+  origin by default, so if you lock `JUSTFITTING_CORS_ORIGINS` down to an
+  allowlist (rather than the default `*`), include `https://localhost` in
+  it or the app's API calls will be blocked by CORS.
+
+### What's not built yet
+
+- `android/` isn't in this repo — it's generated locally by
+  `npm run android:add` and should then be committed (Capacitor's own
+  convention: the native project holds Gradle/signing/manifest
+  customizations that `cap sync` doesn't regenerate).
+- Actually running the app on an emulator/device is a local step that
+  needs Node.js and Android Studio/SDK installed — not something this
+  repo's CI or a hosted environment can do for you.
+
+### Future: local/offline data mode (design note, not implemented)
+
+Today the Android app is purely a remote-API client, same as the web
+app. A natural next step once this ships is a data-access layer inside
+the client JS that can choose between **remote API mode** (today's
+behavior, unchanged), **local storage mode** (logs/metrics cached or
+entered offline, most likely via a Capacitor storage/SQLite plugin), and
+a future **sync mode** reconciling the two. This is *only* a design
+direction, not scoped work — running the full Flask server on-device is
+explicitly out of scope unless a strong reason emerges later.
+
+### Phase 2.1 — native capabilities (ideas, unscheduled)
+
+Going native (even just as a Capacitor wrapper) unlocks a few
+device-level capabilities that a browser tab can't offer, in service of
+the project's core goal — full tracking with good visual feedback, and
+full access to the computed body-report metrics. None of these are
+scoped or scheduled; they're recorded here so they aren't lost:
+
+- **Weekly-log reminder notifications** (`@capacitor/local-notifications`)
+  — a scheduled local reminder to log the week's measurements, which
+  today relies entirely on the user remembering to open the app.
+- **Native share sheet for the Report view** — the existing `GET
+  /api/users/me/report` + Print/Save-as-PDF flow (Phase 1.4) could use
+  `@capacitor/share` to hand the exported report straight to another app
+  (e.g. to a trainer or nutritionist) instead of only browser print.
+- **Automatic steps import** (Android Health Connect / Google Fit) to
+  replace today's manually-entered weekly step average with a real daily
+  reading — directly improves the NEAT/TDEE inputs' accuracy.
+- **Local/offline data mode** — see the design note above.
 
 ## The Team
 
