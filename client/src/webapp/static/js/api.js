@@ -47,6 +47,7 @@ export const api = {
 
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
+  alerts: () => request("GET", "/api/alerts"),
 
   projection: (weeks, base) => request("GET", `/api/projection?weeks=${weeks}&base=${base}`),
 

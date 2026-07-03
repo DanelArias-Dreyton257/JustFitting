@@ -5,6 +5,7 @@ import {
   showView,
   setFormError,
   renderDashboardStats,
+  renderAlerts,
   renderLogTable,
   renderProjectionTable,
   fillProfileForm,
@@ -62,13 +63,15 @@ function navigate(viewName) {
 }
 
 async function refreshDashboard() {
-  const [latest, series, logs] = await Promise.all([
+  const [latest, series, logs, alerts] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.listLogs().catch(() => []),
+    api.alerts().catch(() => []),
   ]);
   state.series = series;
   renderDashboardStats(document.getElementById("dashboard-stats"), latest);
+  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
 
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
   const isProjected = (row) => row.source === "projected";

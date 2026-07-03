@@ -153,6 +153,39 @@ button#projection-refresh:hover {
   min-height: 1.2em;
 }
 
+.alerts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.alert-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+}
+
+.alert-item .alert-date {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.alert-warning {
+  background: rgba(229, 104, 107, 0.1);
+  border-color: var(--danger);
+}
+
+.alert-info {
+  background: rgba(94, 179, 255, 0.1);
+  border-color: var(--accent);
+}
+
 .stat-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

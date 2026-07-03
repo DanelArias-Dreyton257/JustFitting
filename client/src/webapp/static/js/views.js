@@ -39,6 +39,24 @@ export function renderDashboardStats(container, metrics) {
     .join("");
 }
 
+export function renderAlerts(container, alerts) {
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = "";
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = alerts
+    .map(
+      (alert) => `
+      <div class="alert-item alert-${alert.severity}" data-type="${alert.type}">
+        <span class="alert-date">${alert.date}</span>
+        <span class="alert-message">${alert.message}</span>
+      </div>`
+    )
+    .join("");
+}
+
 export function renderLogTable(tbody, logs) {
   tbody.innerHTML = logs
     .map(
