@@ -39,18 +39,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.github/workflows/ci.yml` now installs Chromium
   (`playwright install --with-deps chromium`) before the client test step.
 
-- `Dockerfile.capacitor`: isolates the Node/Capacitor CLI toolchain (`npm
-  install`, `npx cap add android`, `npx cap sync android`) from the
-  conda-managed Python env, as an alternative to installing Node.js
-  directly on the host. Includes a bare `python3`/`python` (no pip deps)
-  since those npm scripts shell out to `scripts/build_static_site.py`,
-  which is stdlib-only. Deliberately excludes the Android SDK/emulator/
-  Android Studio -- those need a GUI and hardware-accelerated
-  virtualization that don't containerize well on Windows, so `npm run
-  android:open` still runs natively. README's "Android app" Setup section
-  documents both paths. Not built/run in this change (no Docker installed
-  in the environment this was authored in) -- verify locally with `docker
-  build -f Dockerfile.capacitor -t justfitting-capacitor .`.
+- Node.js/JDK moved into `environment.yml` as conda dependencies
+  (`nodejs>=20,<21`, `openjdk=17`), replacing the earlier
+  `Dockerfile.capacitor` isolation approach. Docker Desktop needs admin
+  rights to install (WSL2/Hyper-V) on Windows, which isn't available on
+  every machine (e.g. a restricted/non-admin account); conda envs are
+  already fully user-scoped, so installing Node/the JDK the same way
+  Python already is gives the same isolation with no elevated
+  permissions anywhere. `scripts/install.sh`/`scripts/update.sh` (which
+  already just run `conda env create|update -f environment.yml`) pick
+  this up for free. README's "Android app" section was rewritten around
+  this: conda for Node/JDK, the Android **command-line SDK tools** (not
+  the full Studio IDE) for the SDK, `ANDROID_HOME` as a User (not System)
+  environment variable, building via the generated project's Gradle
+  wrapper (`gradlew.bat assembleDebug`/`installDebug`) instead of
+  requiring Android Studio, and testing on a real device over USB/`adb`
+  as a no-admin alternative to the emulator (which needs admin to enable
+  HAXM/Windows Hypervisor Platform). `android/` has been scaffolded via
+  `npx cap add android` and is now committed (Capacitor's convention);
+  its own generated `.gitignore` already excludes the derived
+  `assets/public` copy, `local.properties`, and build outputs.
 
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see

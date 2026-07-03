@@ -111,24 +111,24 @@ full, authoritative spec.
 
 Node.js/Capacitor (`package.json`, `capacitor.config.json`) is a dev-time
 packaging tool for the Android app, not a runtime dependency — it bundles
-the same static `dist/` client the web deployment already builds. See
-**Android app** below.
+the same static `dist/` client the web deployment already builds. Node
+itself is a conda dependency (`environment.yml`), same as Python, so it
+needs no separate installer. See **Android app** below.
 
 ### Repository layout
 
 ```
 JustFitting/
 ├── environment.yml
-├── package.json               # Capacitor Android packaging (dev-time only)
+├── package.json               # Capacitor Android packaging (Node from environment.yml)
 ├── capacitor.config.json
-├── Dockerfile.capacitor        # optional: Node/Capacitor CLI, isolated from conda
 ├── render.yaml
 ├── CHANGELOG.md
 ├── docs/composition_spec.md
 ├── .github/workflows/{ci,release}.yml
 ├── scripts/
 ├── dist/                       # generated static client, gitignored
-├── android/                    # generated Capacitor project (after `npm run android:add`), committed
+├── android/                    # Capacitor Android project, committed
 ├── client/
 │   ├── src/
 │   │   ├── Client.py            # Flask entry point (port 5500)
@@ -496,28 +496,62 @@ Android app: local UI, HTTP(S) calls to <API_URL>
 
 ### Setup
 
+Node.js and a JDK are **conda dependencies** (`environment.yml`), right
+alongside Python — `scripts/install.sh`/`scripts/update.sh` (or `conda env
+update -n justfitting -f environment.yml --prune`) install them into the
+`justfitting` env for free. Everything lives inside that one conda env, so
+there's no separate Node installer, no admin rights, and no Docker needed
+— this is also why an earlier `Dockerfile.capacitor` isolation layer was
+dropped: conda already gives per-env isolation without the Docker
+Desktop/WSL2/Hyper-V dependency, which itself needs admin to set up:
+
 ```bash
+conda activate justfitting
 npm install                 # @capacitor/core, @capacitor/cli, @capacitor/android
 npm run android:add         # one-time: scaffolds android/ via `npx cap add android`
 ```
 
-**Running these in Docker instead of installing Node locally**: `Dockerfile.capacitor`
-at the repo root isolates the Node/Capacitor CLI toolchain from the
-conda-managed Python env (it includes a bare `python3` too, since the npm
-scripts shell out to `scripts/build_static_site.py`, which is stdlib-only —
-no pip deps needed for that to work in the container):
+### Android SDK and building, without Android Studio
 
-```bash
-docker build -f Dockerfile.capacitor -t justfitting-capacitor .
-docker run --rm -v "$PWD":/app justfitting-capacitor install
-docker run --rm -v "$PWD":/app justfitting-capacitor run android:add
-docker run --rm -v "$PWD":/app justfitting-capacitor run android:sync
-```
+Only the Android **SDK** is required to build; the Android Studio **IDE**
+is optional convenience, not a hard dependency:
 
-This covers `install`/`android:add`/`android:sync` (they only touch files
-under `node_modules/`, `dist/`, and `android/`). `npm run android:open`
-launches Android Studio, a GUI app, and must be run natively on the host
-afterward — it isn't a Docker command.
+1. Download the **command line tools** package (not the full IDE) from
+   [developer.android.com/studio#command-tools](https://developer.android.com/studio#command-tools)
+   and unzip it anywhere under your user profile (e.g.
+   `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\`).
+2. Point `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) at that `Sdk` folder as a
+   **User** environment variable (System Properties → Environment
+   Variables → *User* variables — only *System* variables need admin on
+   Windows).
+3. Install what the Gradle build needs and accept the licenses:
+   ```bash
+   sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+   sdkmanager --licenses
+   ```
+4. Build from the command line — the generated `android/` project already
+   has a Gradle wrapper, so Android Studio is never actually required:
+   ```bash
+   android\gradlew.bat assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
+   android\gradlew.bat installDebug    # builds AND installs onto a connected device/emulator
+   ```
+   `npm run android:open` (launches Android Studio, if you have it) stays
+   available as a convenience, not a requirement.
+
+### Testing on a real device instead of an emulator
+
+The Android emulator needs hardware-accelerated virtualization (Intel
+HAXM or Windows Hypervisor Platform) enabled, which **does** require
+admin rights on Windows. If that's not available, skip the emulator
+entirely and test on a real phone over USB:
+
+1. On the phone: Settings → About phone → tap "Build number" 7 times to
+   unlock Developer Options, then enable **USB debugging** there.
+2. Connect via USB, accept the "Allow USB debugging?" prompt, and confirm
+   it's visible: `adb devices` (`adb` ships inside `platform-tools` from
+   the SDK setup above).
+3. `android\gradlew.bat installDebug` builds and installs straight onto
+   the connected device — no emulator, no virtualization, no admin.
 
 ### Building the client for each target
 
@@ -538,14 +572,16 @@ npm run android:sync        # build:web:android + `npx cap sync android`
 npm run android:open        # `npx cap open android`
 ```
 
-Run the app from Android Studio onto an emulator or a connected device.
-After editing web client code, re-run `android:sync` (with whichever
-`build_static_site.py` target you need) to refresh the bundled `dist/`
-inside `android/`.
+Run the app via `android\gradlew.bat installDebug` (or `npm run
+android:open` if you have Android Studio) onto an emulator or a connected
+device. After editing web client code, re-run `android:sync` (with
+whichever `build_static_site.py` target you need) to refresh the bundled
+`dist/` inside `android/`.
 
 For a production release, run `build_static_site.py` with the production
 URL, then `npx cap sync android` (skip the emulator-default script) before
-building the signed AAB/APK in Android Studio.
+building the signed AAB/APK (`gradlew.bat bundleRelease` or Android
+Studio's Build menu).
 
 ### Network notes
 
@@ -565,15 +601,22 @@ building the signed AAB/APK in Android Studio.
   allowlist (rather than the default `*`), include `https://localhost` in
   it or the app's API calls will be blocked by CORS.
 
-### What's not built yet
+### Current status
 
-- `android/` isn't in this repo — it's generated locally by
-  `npm run android:add` and should then be committed (Capacitor's own
-  convention: the native project holds Gradle/signing/manifest
-  customizations that `cap sync` doesn't regenerate).
-- Actually running the app on an emulator/device is a local step that
-  needs Node.js and Android Studio/SDK installed — not something this
-  repo's CI or a hosted environment can do for you.
+- `android/` is scaffolded and committed to this repo (`npx cap add
+  android`, via the conda-installed Node above) — Capacitor's own
+  convention, since the native project holds Gradle/signing/manifest
+  customizations that `cap sync` doesn't regenerate. Its own `.gitignore`
+  (generated alongside it) already excludes the derived bits:
+  `app/src/main/assets/public` (the synced `dist/` copy), the copied
+  `capacitor.config.json`, and `local.properties` (machine-specific SDK
+  path).
+- Not done in this repo: installing Android SDK components and actually
+  running a Gradle build / launching on a device or emulator (see the two
+  sections above). That's a multi-GB one-time download (platforms,
+  build-tools, optionally an emulator system image) and is left as a step
+  for whoever's building a release, rather than baked into this repo or
+  its CI.
 
 ### Future: local/offline data mode (design note, not implemented)
 
