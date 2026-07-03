@@ -20,17 +20,25 @@ def _base_regression(base: str) -> str:
     return "real_and_projected" if base == "real_projected" else "real_only"
 
 
+def _activity_model(activity: str) -> str:
+    return "trend" if activity == "trend" else "constant"
+
+
 def _forecast_inputs(user_id: int):
     user_manager = current_app.extensions["user_manager"]
     log_manager = current_app.extensions["log_manager"]
     goal_plan_manager = current_app.extensions["goal_plan_manager"]
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
 
     profile = user_manager.get_profile(user_id)
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
     real_logs = [log for log in log_manager.list_logs(user_id) if log.source == "real"]
     engine_inputs = log_manager.to_engine_inputs(real_logs)
-    return profile_params, engine_inputs
+    engine_constants = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(user_id)
+    )
+    return profile_params, engine_inputs, engine_constants
 
 
 @projection_bp.get("/projection")
@@ -38,11 +46,12 @@ def _forecast_inputs(user_id: int):
 def projection():
     weeks = request.args.get("weeks", default=4, type=int)
     base_regression = _base_regression(request.args.get("base", default="real"))
+    activity_model = _activity_model(request.args.get("activity", default="constant"))
 
-    profile_params, engine_inputs = _forecast_inputs(g.user_id)
+    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
     try:
         results = Projection.project_series(
-            profile_params, engine_inputs, weeks, base_regression
+            profile_params, engine_inputs, weeks, base_regression, activity_model, engine_constants
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -57,12 +66,21 @@ def save_projection():
     base_regression = _base_regression(
         payload.get("base", request.args.get("base", "real"))
     )
+    activity_model = _activity_model(
+        payload.get("activity", request.args.get("activity", "constant"))
+    )
 
     projection_service = current_app.extensions["projection_service"]
-    profile_params, engine_inputs = _forecast_inputs(g.user_id)
+    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
     try:
         run_id, rows = projection_service.save_run(
-            g.user_id, profile_params, engine_inputs, weeks, base_regression
+            g.user_id,
+            profile_params,
+            engine_inputs,
+            weeks,
+            base_regression,
+            activity_model,
+            engine_constants,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

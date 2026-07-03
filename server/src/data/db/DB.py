@@ -200,6 +200,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS idx_engine_settings_user_active ON engine_settings(user_id, active);
         """,
     ),
+    (
+        10,
+        """
+        ALTER TABLE projections ADD COLUMN activity_model TEXT NOT NULL DEFAULT 'constant';
+        """,
+    ),
 ]
 
 

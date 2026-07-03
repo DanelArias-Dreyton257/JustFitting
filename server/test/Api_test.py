@@ -657,6 +657,29 @@ class ApiTestCase(unittest.TestCase):
         tightened_alerts = self.client.get("/api/alerts", headers=headers).get_json()
         self.assertTrue(any(a["type"] == "deviation" for a in tightened_alerts))
 
+    def test_projection_activity_query_param_is_accepted(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get(
+            "/api/projection?weeks=2&activity=trend", headers=headers
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()), 2)
+
+    def test_save_projection_persists_activity_model(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.post(
+            "/api/projection?weeks=2", json={"activity": "trend"}, headers=headers
+        )
+        self.assertEqual(response.status_code, 201)
+        rows = response.get_json()["rows"]
+        self.assertTrue(all(row["activity_model"] == "trend" for row in rows))
+
     def test_alert_history_includes_acknowledged_alerts(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

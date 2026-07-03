@@ -22,6 +22,7 @@ class Projection:
     source_model: str
     base_regression: str
     generated_at: datetime
+    activity_model: str = "constant"
 
     @staticmethod
     def from_row(row) -> "Projection":
@@ -36,4 +37,5 @@ class Projection:
             source_model=row["source_model"],
             base_regression=row["base_regression"],
             generated_at=datetime.fromisoformat(row["generated_at"]),
+            activity_model=row["activity_model"],
         )

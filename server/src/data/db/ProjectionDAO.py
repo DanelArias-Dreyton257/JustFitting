@@ -21,6 +21,7 @@ class ProjectionDAO:
         source_model: str,
         base_regression: str,
         generated_at: datetime,
+        activity_model: str = "constant",
     ) -> List[Projection]:
         created: List[Projection] = []
         generated_at_iso = generated_at.isoformat()
@@ -30,8 +31,8 @@ class ProjectionDAO:
                 INSERT INTO projections
                     (user_id, run_id, projected_date, estimated_weight,
                      estimated_waist, estimated_neck, source_model,
-                     base_regression, generated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     base_regression, generated_at, activity_model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -43,6 +44,7 @@ class ProjectionDAO:
                     source_model,
                     base_regression,
                     generated_at_iso,
+                    activity_model,
                 ),
             )
             created.append(self.get_by_id(cursor.lastrowid))

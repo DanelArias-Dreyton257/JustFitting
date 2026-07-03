@@ -11,7 +11,7 @@ from typing import List, Optional, Sequence, Tuple
 from server.src.data.db.ProjectionDAO import ProjectionDAO
 from server.src.data.domain.Projection import Projection as ProjectionRow
 from server.src.services.composition import Projection
-from server.src.services.composition.models import LogInput, ProfileParams
+from server.src.services.composition.models import EngineConstants, LogInput, ProfileParams
 
 SOURCE_MODEL = "ols_linear"
 
@@ -27,9 +27,11 @@ class ProjectionService:
         real_logs: Sequence[LogInput],
         weeks: int,
         base_regression: str = "real_only",
+        activity_model: str = "constant",
+        engine_constants: Optional[EngineConstants] = None,
     ) -> Tuple[str, List[ProjectionRow]]:
         pairs = Projection.project_series_with_inputs(
-            profile, real_logs, weeks, base_regression
+            profile, real_logs, weeks, base_regression, activity_model, engine_constants
         )
         run_id = uuid.uuid4().hex
         generated_at = datetime.now(timezone.utc)
@@ -40,6 +42,7 @@ class ProjectionService:
             source_model=SOURCE_MODEL,
             base_regression=base_regression,
             generated_at=generated_at,
+            activity_model=activity_model,
         )
         return run_id, rows
 
