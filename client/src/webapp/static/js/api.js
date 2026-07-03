@@ -33,6 +33,11 @@ export const api = {
   register: (payload) => request("POST", "/api/users", { body: payload, auth: false }),
   login: (payload) => request("POST", "/api/auth/login", { body: payload, auth: false }),
   logout: () => request("POST", "/api/auth/logout"),
+  resetPassword: (identifier, newPassword) =>
+    request("POST", "/api/auth/reset-password", {
+      body: { identifier, new_password: newPassword },
+      auth: false,
+    }),
   me: () => request("GET", "/api/users/me"),
   updateProfile: (payload) => request("PUT", "/api/users/me", { body: payload }),
   changePassword: (payload) => request("POST", "/api/users/me/password", { body: payload }),
@@ -48,14 +53,20 @@ export const api = {
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
   adherence: () => request("GET", "/api/metrics/adherence"),
-  alerts: () => request("GET", "/api/alerts"),
+  alerts: (includeAcknowledged = false) =>
+    request("GET", `/api/alerts?include_acknowledged=${includeAcknowledged}`),
   acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),
 
-  projection: (weeks, base) => request("GET", `/api/projection?weeks=${weeks}&base=${base}`),
+  projection: (weeks, base, activity = "constant") =>
+    request("GET", `/api/projection?weeks=${weeks}&base=${base}&activity=${activity}`),
 
   planPreview: (params) =>
     request("GET", `/api/plan/preview?${new URLSearchParams(params).toString()}`),
 
   goals: () => request("GET", "/api/users/me/goals"),
   report: () => request("GET", "/api/users/me/report"),
+
+  getSettings: () => request("GET", "/api/users/me/settings"),
+  updateSettings: (payload) => request("PUT", "/api/users/me/settings", { body: payload }),
+  settingsHistory: () => request("GET", "/api/users/me/settings/history"),
 };

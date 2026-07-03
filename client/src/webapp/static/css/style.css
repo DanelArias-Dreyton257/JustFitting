@@ -153,6 +153,23 @@ button#projection-refresh:hover {
   min-height: 1.2em;
 }
 
+.form-note {
+  color: var(--text);
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+}
+
 .alerts-panel {
   display: flex;
   flex-direction: column;

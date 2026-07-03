@@ -29,7 +29,9 @@
       <button class="nav-link" data-view="log">Log</button>
       <button class="nav-link" data-view="projection">Projection</button>
       <button class="nav-link" data-view="plan">Plan</button>
+      <button class="nav-link" data-view="alert-history">Alerts</button>
       <button class="nav-link" data-view="report">Report</button>
+      <button class="nav-link" data-view="settings">Settings</button>
       <button class="nav-link" data-view="account">Account</button>
     </nav>
     <button class="logout-btn" id="logout-btn" hidden>Log out</button>
@@ -48,6 +50,23 @@
           <button type="submit">Log in</button>
           <p class="form-error" data-for="login-form"></p>
         </form>
+        <button type="button" id="forgot-password-toggle" class="link-btn">Forgot password?</button>
+
+        <div id="password-recovery" hidden>
+          <form id="reset-password-form" class="stacked-form">
+            <h2>Reset your password</h2>
+            <p class="disclaimer">
+              This directly resets the password for the given account --
+              there's no email verification yet (planned future work, see
+              the README's "Known limitations").
+            </p>
+            <label>Username or email <input name="identifier" required /></label>
+            <label>New password <input name="new_password" type="password" required /></label>
+            <button type="submit">Reset password</button>
+            <p class="form-note" id="reset-password-note"></p>
+            <p class="form-error" data-for="reset-password-form"></p>
+          </form>
+        </div>
 
         <form id="register-form" class="stacked-form">
           <h2>Create an account</h2>
@@ -74,6 +93,7 @@
 
     <section id="view-dashboard" class="view" hidden>
       <h1>Dashboard</h1>
+      <p class="disclaimer" id="sex-disclaimer" hidden></p>
       <div class="alerts-panel" id="dashboard-alerts" hidden></div>
       <div class="stat-row" id="dashboard-stats"></div>
       <div class="chart-grid">
@@ -158,6 +178,12 @@
             <option value="real_projected">Real + projected (expanding)</option>
           </select>
         </label>
+        <label>Steps assumption
+          <select id="projection-activity">
+            <option value="constant">Hold constant (last logged value)</option>
+            <option value="trend">Follow trend</option>
+          </select>
+        </label>
         <button id="projection-refresh">Update forecast</button>
       </div>
       <p class="disclaimer">Forecast values are estimates extrapolated from your trend, not measurements.</p>
@@ -197,6 +223,51 @@
       <table class="data-table" id="goal-history-table">
         <thead>
           <tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="view-alert-history" class="view" hidden>
+      <h1>Alert history</h1>
+      <p class="disclaimer">
+        Every alert JustFitting has ever detected, including ones you've
+        already dismissed on the Dashboard.
+      </p>
+      <div id="alert-history-list"></div>
+    </section>
+
+    <section id="view-settings" class="view" hidden>
+      <h1>Settings</h1>
+      <p class="disclaimer">
+        Tune the energy-model constants and Phase 1.3 alert thresholds used
+        for your account. Saving creates a new historized settings entry
+        (like a goal-plan change) rather than overwriting the old one.
+      </p>
+      <p id="settings-status" class="disclaimer"></p>
+
+      <form id="settings-form" class="stacked-form">
+        <h2>Energy model</h2>
+        <label>Thermic effect of food (%) <input name="tef_pct" type="number" step="0.1" required /></label>
+        <label>Kcal per kg of fat <input name="kcal_per_kg_fat" type="number" step="1" required /></label>
+        <label>NEAT step factor <input name="neat_step_factor" type="number" step="0.01" required /></label>
+
+        <h2>Alerts &amp; feedback</h2>
+        <label>Implausible weekly change (%) <input name="implausible_pct" type="number" step="0.1" required /></label>
+        <label>Stagnation window (weeks) <input name="stagnation_weeks" type="number" step="1" min="1" required /></label>
+        <label>Stagnation threshold (kg) <input name="stagnation_threshold_kg" type="number" step="0.01" required /></label>
+        <label>Lean-loss window (weeks) <input name="lean_loss_window_weeks" type="number" step="1" min="1" required /></label>
+        <label>Max lean-mass loss share (%) <input name="max_lean_loss_pct" type="number" step="1" required /></label>
+        <label>Significant deviation (kg) <input name="significant_deviation_kg" type="number" step="0.1" required /></label>
+
+        <button type="submit">Save settings</button>
+        <p class="form-error" data-for="settings-form"></p>
+      </form>
+
+      <h2>Settings history</h2>
+      <table class="data-table" id="settings-history-table">
+        <thead>
+          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>Status</th></tr>
         </thead>
         <tbody></tbody>
       </table>

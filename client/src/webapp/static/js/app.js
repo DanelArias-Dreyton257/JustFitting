@@ -6,6 +6,7 @@ import {
   setFormError,
   renderDashboardStats,
   renderAlerts,
+  renderAlertHistory,
   renderGoalHistory,
   renderLogTable,
   renderProjectionTable,
@@ -14,6 +15,10 @@ import {
   renderLogReview,
   renderPlanStats,
   renderReport,
+  renderSexDisclaimer,
+  fillSettingsForm,
+  renderSettingsStatus,
+  renderSettingsHistory,
 } from "./views.js";
 import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
 
@@ -63,6 +68,8 @@ function navigate(viewName) {
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
   if (viewName === "report") refreshReport();
+  if (viewName === "alert-history") refreshAlertHistory();
+  if (viewName === "settings") refreshSettings();
 }
 
 async function refreshDashboard() {
@@ -77,6 +84,7 @@ async function refreshDashboard() {
   state.series = series;
   renderDashboardStats(document.getElementById("dashboard-stats"), latest, adherence);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
+  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
   const isProjected = (row) => row.source === "projected";
@@ -204,8 +212,9 @@ async function refreshPlan() {
 async function refreshProjection() {
   const weeks = Number(document.getElementById("projection-weeks").value) || 4;
   const base = document.getElementById("projection-base").value;
+  const activity = document.getElementById("projection-activity").value;
   try {
-    const rows = await api.projection(weeks, base);
+    const rows = await api.projection(weeks, base, activity);
     renderProjectionTable(document.querySelector("#projection-table tbody"), rows);
   } catch (err) {
     // Not enough real logs yet to fit a trend.
@@ -222,6 +231,19 @@ async function refreshAccount() {
 async function refreshReport() {
   const report = await api.report();
   renderReport(document.getElementById("report-content"), report);
+}
+
+async function refreshAlertHistory() {
+  const alerts = await api.alerts(true);
+  renderAlertHistory(document.getElementById("alert-history-list"), alerts);
+}
+
+async function refreshSettings() {
+  const [settings, history] = await Promise.all([api.getSettings(), api.settingsHistory()]);
+  fillSettingsForm(document.getElementById("settings-form"), settings);
+  renderSettingsStatus(document.getElementById("settings-status"), settings);
+  renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
+  setFormError("settings-form", "");
 }
 
 function formToJson(form) {
@@ -252,6 +274,25 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
     await enterApp();
   } catch (err) {
     setFormError("login-form", err.message);
+  }
+});
+
+document.getElementById("forgot-password-toggle").addEventListener("click", () => {
+  const container = document.getElementById("password-recovery");
+  container.hidden = !container.hidden;
+});
+
+document.getElementById("reset-password-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("reset-password-form", "");
+  document.getElementById("reset-password-note").textContent = "";
+  const raw = formToJson(event.target);
+  try {
+    const { message } = await api.resetPassword(raw.identifier, raw.new_password);
+    document.getElementById("reset-password-note").textContent = message;
+    event.target.reset();
+  } catch (err) {
+    setFormError("reset-password-form", err.message);
   }
 });
 
@@ -417,6 +458,36 @@ document.getElementById("delete-account-btn").addEventListener("click", async ()
   await api.deleteAccount();
   clearToken();
   showAuthOnly();
+});
+
+document.getElementById("alert-history-list").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".alert-dismiss-btn");
+  if (!btn) return;
+  await api.acknowledgeAlert(btn.dataset.alertId);
+  await refreshAlertHistory();
+});
+
+document.getElementById("settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("settings-form", "");
+  const raw = formToJson(event.target);
+  const payload = {
+    tef: Number(raw.tef_pct) / 100,
+    kcal_per_kg_fat: Number(raw.kcal_per_kg_fat),
+    neat_step_factor: Number(raw.neat_step_factor),
+    implausible_weekly_change_pct: Number(raw.implausible_pct) / 100,
+    stagnation_weeks: Number(raw.stagnation_weeks),
+    stagnation_threshold_kg: Number(raw.stagnation_threshold_kg),
+    lean_loss_window_weeks: Number(raw.lean_loss_window_weeks),
+    max_lean_mass_loss_share: Number(raw.max_lean_loss_pct) / 100,
+    significant_deviation_kg: Number(raw.significant_deviation_kg),
+  };
+  try {
+    await api.updateSettings(payload);
+    await refreshSettings();
+  } catch (err) {
+    setFormError("settings-form", err.message);
+  }
 });
 
 boot();

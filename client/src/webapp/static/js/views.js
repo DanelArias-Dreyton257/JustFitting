@@ -69,6 +69,81 @@ export function renderAlerts(container, alerts) {
     .join("");
 }
 
+export function renderSexDisclaimer(container, profile) {
+  if (!profile || profile.sex !== 0) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML =
+    "Body-fat % estimates (RFM, U.S. Navy) are calibrated on male-only " +
+    "constants; only the Deurenberg estimator adjusts for sex, so accuracy " +
+    "may be reduced here. A female-specific U.S. Navy formula needs a hip " +
+    "measurement this app doesn't collect yet -- see the README's " +
+    '"Known limitations" for details.';
+}
+
+export function renderAlertHistory(container, alerts) {
+  if (!alerts || alerts.length === 0) {
+    container.innerHTML = `<p class="disclaimer">No alerts yet.</p>`;
+    return;
+  }
+  container.innerHTML = alerts
+    .map((alert) => {
+      const isAcknowledged = !!alert.acknowledged_at;
+      const dismissBtn = isAcknowledged
+        ? ""
+        : `<button class="alert-dismiss-btn" data-alert-id="${alert.alert_id}" title="Dismiss">&times;</button>`;
+      return `
+      <div class="alert-item alert-${alert.severity}" data-type="${alert.type}">
+        <span class="alert-date">${alert.date}</span>
+        <span class="alert-message">${alert.message}</span>
+        <span class="badge ${isAcknowledged ? "inactive" : "active"}">${
+          isAcknowledged ? `acknowledged ${alert.acknowledged_at.slice(0, 10)}` : "active"
+        }</span>
+        ${dismissBtn}
+      </div>`;
+    })
+    .join("");
+}
+
+export function fillSettingsForm(form, dto) {
+  form.tef_pct.value = (dto.tef * 100).toFixed(2);
+  form.kcal_per_kg_fat.value = dto.kcal_per_kg_fat;
+  form.neat_step_factor.value = dto.neat_step_factor;
+  form.implausible_pct.value = (dto.implausible_weekly_change_pct * 100).toFixed(1);
+  form.stagnation_weeks.value = dto.stagnation_weeks;
+  form.stagnation_threshold_kg.value = dto.stagnation_threshold_kg;
+  form.lean_loss_window_weeks.value = dto.lean_loss_window_weeks;
+  form.max_lean_loss_pct.value = (dto.max_lean_mass_loss_share * 100).toFixed(0);
+  form.significant_deviation_kg.value = dto.significant_deviation_kg;
+}
+
+export function renderSettingsStatus(container, dto) {
+  container.textContent = dto.is_default
+    ? "Using default engine constants (no overrides saved yet)."
+    : `Custom settings active since ${dto.start_date}.`;
+}
+
+export function renderSettingsHistory(tbody, history) {
+  tbody.innerHTML = history
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.start_date}</td>
+        <td>${(row.tef * 100).toFixed(2)}%</td>
+        <td>${row.kcal_per_kg_fat}</td>
+        <td>${row.stagnation_weeks}</td>
+        <td>${(row.max_lean_mass_loss_share * 100).toFixed(0)}%</td>
+        <td><span class="badge ${row.active ? "active" : "inactive"}">${
+          row.active ? "active" : "past"
+        }</span></td>
+      </tr>`
+    )
+    .join("");
+}
+
 export function renderGoalHistory(tbody, goals) {
   tbody.innerHTML = goals
     .map(
