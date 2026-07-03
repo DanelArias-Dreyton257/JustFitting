@@ -222,7 +222,7 @@
       <h2>Goal history</h2>
       <table class="data-table" id="goal-history-table">
         <thead>
-          <tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr>
+          <tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Direction</th><th>Status</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -260,6 +260,25 @@
         <label>Max lean-mass loss share (%) <input name="max_lean_loss_pct" type="number" step="1" required /></label>
         <label>Significant deviation (kg) <input name="significant_deviation_kg" type="number" step="0.1" required /></label>
 
+        <h2>Body-fat &amp; BMR calibration</h2>
+        <p class="disclaimer">
+          Oleada 2 (bulk/volume) calibration -- defaults reproduce today's
+          numbers exactly; only override these if you know why.
+        </p>
+        <label>BMR model
+          <select name="bmr_model">
+            <option value="cunningham">Cunningham (lean mass)</option>
+            <option value="mifflin">Mifflin-St Jeor (weight/height/age)</option>
+          </select>
+        </label>
+        <label>RFM weight <input name="w_rfm" type="number" step="0.01" min="0" max="1" required /></label>
+        <label>Navy weight <input name="w_navy" type="number" step="0.01" min="0" max="1" required /></label>
+        <label>Deurenberg weight <input name="w_deur" type="number" step="0.01" min="0" max="1" required /></label>
+        <label>Fat offset (delta, pp) <input name="delta_pct" type="number" step="0.1" required /></label>
+        <label>FFMI coefficient <input name="ffmi_coef" type="number" step="0.1" required /></label>
+        <label>Lean-tissue energy density (kcal/kg) <input name="lean_tissue_kcal_per_kg" type="number" step="1" required /></label>
+        <label>Ideal fat ratio ceiling (%) <input name="fat_ratio_ideal_pct" type="number" step="1" required /></label>
+
         <button type="submit">Save settings</button>
         <p class="form-error" data-for="settings-form"></p>
       </form>
@@ -267,7 +286,7 @@
       <h2>Settings history</h2>
       <table class="data-table" id="settings-history-table">
         <thead>
-          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>Status</th></tr>
+          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>BMR model</th><th>Status</th></tr>
         </thead>
         <tbody></tbody>
       </table>

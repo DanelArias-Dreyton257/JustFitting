@@ -118,6 +118,14 @@ export function fillSettingsForm(form, dto) {
   form.lean_loss_window_weeks.value = dto.lean_loss_window_weeks;
   form.max_lean_loss_pct.value = (dto.max_lean_mass_loss_share * 100).toFixed(0);
   form.significant_deviation_kg.value = dto.significant_deviation_kg;
+  form.bmr_model.value = dto.bmr_model;
+  form.w_rfm.value = dto.w_rfm;
+  form.w_navy.value = dto.w_navy;
+  form.w_deur.value = dto.w_deur;
+  form.delta_pct.value = (dto.delta * 100).toFixed(1);
+  form.ffmi_coef.value = dto.ffmi_coef;
+  form.lean_tissue_kcal_per_kg.value = dto.lean_tissue_kcal_per_kg;
+  form.fat_ratio_ideal_pct.value = (dto.fat_ratio_ideal * 100).toFixed(0);
 }
 
 export function renderSettingsStatus(container, dto) {
@@ -136,6 +144,7 @@ export function renderSettingsHistory(tbody, history) {
         <td>${row.kcal_per_kg_fat}</td>
         <td>${row.stagnation_weeks}</td>
         <td>${(row.max_lean_mass_loss_share * 100).toFixed(0)}%</td>
+        <td>${row.bmr_model}</td>
         <td><span class="badge ${row.active ? "active" : "inactive"}">${
           row.active ? "active" : "past"
         }</span></td>
@@ -152,6 +161,9 @@ export function renderGoalHistory(tbody, goals) {
         <td>${goal.start_date}</td>
         <td>${(goal.target_bf * 100).toFixed(1)}%</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td><span class="badge ${goal.direction === "bulk" ? "active" : "inactive"}">${
+          goal.direction
+        }</span></td>
         <td><span class="badge ${goal.active ? "active" : "inactive"}">${
           goal.active ? "active" : "past"
         }</span></td>
@@ -229,17 +241,27 @@ export function renderLogReview(container, values) {
     .join("");
 }
 
-export function renderPlanStats(container, metrics) {
+export function renderPlanStats(container, metrics, direction) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to preview a plan.</p>`;
     return;
   }
+  // A bulk goal's Pi_i/daily_deficit_kcal goes negative by construction
+  // (composition_spec.md's "Formula reconciliation") -- same computed
+  // figure, sign-flipped and relabeled "surplus" for display (Phase 3, F1).
+  const isBulk = direction === "bulk";
   const tiles = [
     ["Target calories", `${metrics.target_calories.toFixed(0)} kcal`],
-    ["Daily deficit", `${metrics.daily_deficit_kcal.toFixed(0)} kcal`],
+    [
+      isBulk ? "Daily surplus" : "Daily deficit",
+      `${Math.abs(metrics.daily_deficit_kcal).toFixed(0)} kcal`,
+    ],
     ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
     ["Goal weight", `${metrics.final_weight_kg.toFixed(1)} kg`],
   ];
+  if (direction) {
+    tiles.push(["Direction", isBulk ? "Bulk" : "Cut"]);
+  }
   container.innerHTML = tiles
     .map(
       ([label, value]) => `
@@ -300,6 +322,7 @@ export function renderReport(container, report) {
         <td>${goal.start_date}</td>
         <td>${(goal.target_bf * 100).toFixed(1)}%</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td>${goal.direction}</td>
         <td><span class="badge ${goal.active ? "active" : "inactive"}">${
           goal.active ? "active" : "past"
         }</span></td>
@@ -347,7 +370,7 @@ export function renderReport(container, report) {
 
     <h2>Goal history</h2>
     <table class="data-table">
-      <thead><tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr></thead>
+      <thead><tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Direction</th><th>Status</th></tr></thead>
       <tbody>${goalRows}</tbody>
     </table>
 

@@ -201,7 +201,7 @@ async function refreshPlan() {
   const form = document.getElementById("plan-form");
   form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
-  renderPlanStats(document.getElementById("plan-current-stats"), current);
+  renderPlanStats(document.getElementById("plan-current-stats"), current, profile.direction);
   renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
   state.planPreviewParams = null;
   document.getElementById("plan-preview-result").hidden = true;
@@ -382,7 +382,8 @@ document.getElementById("plan-form").addEventListener("submit", async (event) =>
   try {
     const proposed = await api.planPreview(params);
     state.planPreviewParams = params;
-    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed);
+    const direction = params.weekly_rate > 0 ? "bulk" : "cut";
+    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed, direction);
     document.getElementById("plan-preview-result").hidden = false;
   } catch (err) {
     state.planPreviewParams = null;
@@ -481,6 +482,14 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     lean_loss_window_weeks: Number(raw.lean_loss_window_weeks),
     max_lean_mass_loss_share: Number(raw.max_lean_loss_pct) / 100,
     significant_deviation_kg: Number(raw.significant_deviation_kg),
+    bmr_model: raw.bmr_model,
+    w_rfm: Number(raw.w_rfm),
+    w_navy: Number(raw.w_navy),
+    w_deur: Number(raw.w_deur),
+    delta: Number(raw.delta_pct) / 100,
+    ffmi_coef: Number(raw.ffmi_coef),
+    lean_tissue_kcal_per_kg: Number(raw.lean_tissue_kcal_per_kg),
+    fat_ratio_ideal: Number(raw.fat_ratio_ideal_pct) / 100,
   };
   try {
     await api.updateSettings(payload);
