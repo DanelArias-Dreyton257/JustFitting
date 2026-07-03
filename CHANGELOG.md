@@ -9,6 +9,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.5: account & model completeness (see README's roadmap).
+  - **Account recovery**: a direct, unverified password reset --
+    `services/PasswordResetService.py`'s `reset_password(identifier,
+    new_password)` looks the account up by username or email and resets
+    it immediately, no email or token step. `POST /api/auth/reset-password`
+    `{identifier, new_password}` (404 if no matching account) revokes
+    every existing session for that user
+    (`SessionDAO.delete_all_for_user`) and records a redacted `audit_log`
+    entry. The existing authenticated `POST /api/users/me/password`
+    (old-password required) is unchanged. The client's auth view gained a
+    "Forgot password?" toggle revealing the reset form, with an inline
+    disclaimer that there's no verification yet -- email-gated reset is
+    unscheduled future work (README's "Known limitations"/"Future work"),
+    not built now.
+  - **Configurable engine constants & alert thresholds, per user**: a new
+    `EngineConstants` dataclass (`services/composition/models.py`) covers
+    both the energy-model constants (`tef`, `kcal_per_kg_fat`, a newly
+    named `neat_step_factor`, and the implausible-change threshold) and
+    the five Phase 1.3 alert thresholds, threaded as an optional
+    parameter through `CompositionEngine.compute_row`/`compute_series`,
+    `Alerts.detect_alerts`, and `Projection.project_series*` -- omitting
+    it reproduces today's fixed `constants.py` values exactly, so every
+    existing golden test is unaffected and no `ENGINE_VERSION` bump was
+    needed. A new `EngineSettings` entity (migration v9,
+    `data/db/EngineSettingsDAO.py`, `services/EngineSettingsManager.py`)
+    historizes per-user overrides the same way `GoalPlanManager`
+    historizes goal changes (deactivate-old/insert-new/audit-each-field/
+    invalidate-metrics-cache). `GET`/`PUT /api/users/me/settings` and
+    `GET /api/users/me/settings/history` expose it; a new "Settings"
+    client view edits it (as percentages for fraction fields) and lists
+    the override history.
+  - **Configurable projection activity assumption**:
+    `Projection.project_series_with_inputs` gained
+    `activity_model="constant"` (default, today's carry-the-last-value
+    behavior, unchanged) or `"trend"` (fits the same OLS trend already
+    used for weight/waist/neck, clamped at 0 steps). `GET`/`POST
+    /api/projection` accept `?activity=`, persisted per saved run
+    (`projections.activity_model`, migration v10); the Projection view
+    gained a "Steps assumption" selector.
+  - **Alert-history browser**, noticed while building Phase 1.4:
+    `GET /api/alerts?include_acknowledged=true` already returned the full
+    history, but no UI browsed it. `api.js`'s `alerts()` now takes an
+    `includeAcknowledged` flag; a new "Alerts" nav view
+    (`renderAlertHistory` in `views.js`) lists every alert ever detected
+    with an active/acknowledged badge, reusing the existing acknowledge
+    endpoint for the still-open ones.
+  - **Sex-specific formulas -- moved to "Known limitations"/"Future
+    work", not implemented**: RFM and the U.S. Navy method stay
+    male-calibrated for every user (Deurenberg already adjusts for sex);
+    a real female Navy variant needs a hip-circumference measurement this
+    app has never collected, which would mean a new logged field, wizard
+    step and chart, not just a formula change. Rather than half-build it
+    or schedule it into a phase, it's now an unscheduled "Known
+    limitation" / "Future work" item in the README (not planned for the
+    near term). Female users see an in-app disclaimer
+    (`renderSexDisclaimer` in `views.js`, shown wherever body-fat figures
+    are displayed) instead of a silently less-accurate number;
+    `docs/composition_spec.md` and `docs/product_capabilities_spec.md`
+    document the limitation.
+  - 5 new server test files/additions (`EngineSettingsManager_test.py`,
+    `PasswordResetService_test.py`, plus new cases in
+    `CompositionEngine_test.py`, `Alerts_test.py`, `Projection_test.py`,
+    and new `Api_test.py` cases covering settings CRUD/history,
+    threshold-driven alert detection, the direct reset-password flow, and
+    the projection activity param) and a `Client_test.py` case asserting
+    the new nav/views/forms are served.
+  - `docs/composition_spec.md` and `docs/product_capabilities_spec.md`
+    updated to mark Phase 1.5's §14/§15/§16 items done (or moved to
+    unscheduled known limitations, for the sex-specific formulas and
+    email-verified reset), and the README roadmap rewritten with full
+    implementation detail and new "Known limitations" / "Future work"
+    sections covering both.
 - Phase 1.4: adherence & reporting (see README's roadmap).
   - `GET /api/metrics/adherence` (`metrics_routes.py`, new
     `data/dto/AdherenceDTO.py`) surfaces `LogManager.compute_adherence`
@@ -301,6 +373,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bumped the PWA service worker's `CACHE_NAME` again
+  (`client/src/webapp/static/sw.js`, `justfitting-shell-v4` -> `-v5`) for
+  Phase 1.5's new Settings/Alerts nav views and forgot/reset-password
+  forms, same reasoning as the bumps below.
 - Bumped the PWA service worker's `CACHE_NAME` again
   (`client/src/webapp/static/sw.js`, `justfitting-shell-v3` -> `-v4`) for
   Phase 1.4's new Report view, goal-history table, and reworked charts,

@@ -36,6 +36,17 @@ Deur_i = (1.2*BMI_i + 0.23*age_i - 10.8*g - 5.4) / 100
 BF_i   = 0.50*RFM_i + 0.25*Navy_i + 0.25*Deur_i   # weighted mean, the headline %
 ```
 
+**Known limitation (male-only RFM/Navy):** RFM and the US Navy method above
+use their male-form constants for every user, regardless of `g` (sex) --
+only Deurenberg adjusts for sex. The real female Navy formula needs a
+hip-circumference measurement (`waist + hip - neck`, different regression
+constants) that JustFitting doesn't collect anywhere in its data model, so
+fixing this means a new logged field, not just a formula change. This is
+unscheduled future work, not planned for the near term -- see the README's
+"Known limitations" / "Future work" sections. A client-side disclaimer is
+shown to female users instead (`renderSexDisclaimer` in `views.js`) so the
+limitation is visible rather than silent.
+
 ## Mass partition & distance to target
 
 ```
@@ -55,8 +66,13 @@ IntakeDiff_i = E_i - TargetCal_i
 ```
 
 `TEF` is really a % of *intake*, but here it's applied as a divisor on
-`BMR + NEAT`. `TEF` and the `7700` kcal/kg constant are configurable (see
-`services/composition/constants.py`), never inlined in routes.
+`BMR + NEAT`. `TEF`, the `7700` kcal/kg constant and the NEAT step factor
+(`0.5` above) default from `services/composition/constants.py`, never
+inlined in routes, and are now also overridable per user (Phase 1.5): see
+`services/composition/models.EngineConstants` (also carries the Phase 1.3
+alert thresholds) and `services/EngineSettingsManager.py`, which historizes
+overrides the same way `GoalPlanManager` historizes goal changes. Omitting
+an override reproduces the fixed `constants.py` values exactly.
 
 ## Goal & trajectory (base cases at the first row, marked below)
 
@@ -87,7 +103,8 @@ alter previously-computed rows.
 ```
 t_i = t_{i-1} + 7 days
 W_i, c_i, n_i = OLS_linear_forecast(history vs date, at t_i)   # spreadsheet TREND() equivalent
-s_i           = held CONSTANT (carry last value)
+s_i           = held CONSTANT (carry last value), or the same OLS trend as W/c/n
+                if `activity_model="trend"` (Phase 1.5, default stays "constant")
 E_i           = TargetCal_{i-1}, with intake_is_real = false
 # then recompute ALL derived metrics for row i exactly as for real rows
 ```

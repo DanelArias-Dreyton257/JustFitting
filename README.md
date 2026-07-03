@@ -172,14 +172,47 @@ Wobj 90.545 | DailyDeficit 500.5 | Wfinal 85.459 | Weeks 11.93
 ```
 
 Future weeks are forecast with an OLS linear trend (weight/waist/neck),
-steps held constant, and intake assumed equal to the previous week's
-target calories (`intake_is_real=false`) — see `docs/composition_spec.md`
-for the full spec, the projection design decision (`base_regression`), and
-the golden reference values `CompositionEngine_test.py` is checked against.
+steps held constant by default (or trend-fit the same way,
+`activity_model="trend"`, Phase 1.5), and intake assumed equal to the
+previous week's target calories (`intake_is_real=false`) — see
+`docs/composition_spec.md` for the full spec, the projection design
+decision (`base_regression`), and the golden reference values
+`CompositionEngine_test.py` is checked against.
+
+Every constant above (`TEF`, the `7700` kcal/kg factor, the NEAT step
+factor, and the Phase 1.3 alert thresholds) is a fixed `constants.py`
+default that a user can override per-account (Phase 1.5, `GET`/`PUT
+/api/users/me/settings`) — see `docs/composition_spec.md`.
 
 **Health disclaimer**: body-fat figures are population-level estimates
 (RFM, US Navy method, Deurenberg), not clinical measurements or medical
 advice.
+
+**Known limitations**:
+- RFM and the U.S. Navy body-fat formulas above use male-only constants
+  for every user (only Deurenberg adjusts for sex); results are
+  systematically less accurate for female users. The app detects this and
+  shows an in-app disclaimer wherever a female profile's body-fat figures
+  are displayed (`renderSexDisclaimer` in `views.js`), rather than
+  presenting a silently biased number. See "Future work" below.
+- Password reset (`POST /api/auth/reset-password`) has no email or token
+  verification: given a username/email that exists, it resets the
+  password immediately. There's no mail server involved at all today. The
+  client shows a disclaimer on the reset form pointing at this. See
+  "Future work" below.
+
+**Future work (unscheduled — not planned for the near term)**:
+- A real female U.S. Navy body-fat formula. It needs a hip-circumference
+  measurement (`waist + hip - neck`, different regression constants) that
+  JustFitting has never collected, so it's a new logged field (DB column,
+  wizard step, DTO, chart), not just a formula change. Deliberately left
+  as a known limitation with a disclaimer (above) rather than scoped into
+  any current phase.
+- Email-verified password reset. Today `POST /api/auth/reset-password`
+  resets on the spot, with only a client-side disclaimer warning that
+  there's no verification. Gating it behind an emailed, single-use,
+  short-lived token (and the SMTP/mail-sending infrastructure that needs)
+  is the obvious next step, but isn't planned for the near term.
 
 ## Roadmap: body-composition module capabilities
 
@@ -333,26 +366,60 @@ full detail, status per item, and the recommended data model are in
   cursor) — this was also the prerequisite for the goal-change markers
   above.
 
-### Phase 1.5 — Account & model completeness
+### Phase 1.5 — Account & model completeness (done)
 
-- Account recovery / forgot-password flow (email-based reset).
-- Sex-specific RFM and U.S. Navy formula variants — both are currently
-  hardcoded to the male-constant form (Deurenberg already varies by sex);
-  either add the female variants or explicitly declare the male-only
-  scope in the product.
-- Make the energy constants (`KCAL_PER_KG_FAT`, `TEF`, the NEAT step
-  factor) and the Phase 1.3 alert thresholds (`STAGNATION_WEEKS`,
-  `STAGNATION_THRESHOLD_KG`, `LEAN_LOSS_WINDOW_WEEKS`,
-  `MAX_LEAN_MASS_LOSS_SHARE`, `SIGNIFICANT_DEVIATION_KG`) configurable per
-  profile/admin rather than fixed code constants.
-- Make the projection's activity assumption configurable (today steps
-  are always carried forward as a constant).
-- A dedicated alert-history browser, noticed while building Phase 1.4:
-  `GET /api/alerts?include_acknowledged=true` already returns the full
-  history including dismissed alerts, but no UI browses it — today a
-  user can only see currently-open alerts on the Dashboard. Worth a
-  small view/table once there's more than a handful of weeks of
-  acknowledged alerts to look back at.
+- **Account recovery**: a direct, unverified password reset, not
+  overwriting the existing authenticated change-password flow (`POST
+  /api/users/me/password`, still requires the old password and is
+  unaffected). `POST /api/auth/reset-password` `{identifier, new_password}`
+  looks up the account by username or email and immediately updates the
+  password (`services/PasswordResetService.py`), revoking every existing
+  session for that user (`SessionDAO.delete_all_for_user`) and recording a
+  redacted `audit_log` entry. There is no email/token verification step —
+  see "Known limitations" and "Future work" above for the plan to add one.
+  The client's auth view gained a "Forgot password?" toggle revealing the
+  reset form, with an inline disclaimer about the missing verification
+  step.
+- **Sex-specific formulas — moved to "Known limitations"/"Future work",
+  not implemented**: RFM and the U.S. Navy method stay male-calibrated for
+  every user (Deurenberg already adjusts for sex). A real female Navy
+  variant needs a hip-circumference measurement this app has never
+  collected, which would mean a new logged field, wizard step, and chart,
+  not just a formula change. Rather than half-build it or schedule it into
+  a phase, this is documented as an unscheduled known limitation (see
+  above) and a client-side disclaimer (`renderSexDisclaimer` in
+  `views.js`) is shown wherever a female profile's body-fat figures are
+  displayed, so the gap is visible instead of silent.
+- **Configurable engine constants & alert thresholds, per user**: a single
+  `EngineConstants` dataclass
+  (`services/composition/models.py`) now covers both the energy-model
+  constants (`tef`, `kcal_per_kg_fat`, `neat_step_factor`, and the
+  implausible-change threshold) and the five Phase 1.3 alert thresholds,
+  threaded as an optional parameter through `CompositionEngine.compute_row
+  /compute_series`, `Alerts.detect_alerts`, and `Projection.project_series*`
+  — omitting it reproduces today's fixed `constants.py` values exactly, so
+  every existing golden test still passes unchanged. A new `EngineSettings`
+  entity (migration v9, `data/db/EngineSettingsDAO.py`,
+  `services/EngineSettingsManager.py`) historizes per-user overrides
+  exactly like `GoalPlan` does for goals: every update deactivates the
+  previous row, inserts a new one, audits each changed field, and
+  invalidates the metrics cache so cached snapshots recompute under the
+  new constants. `GET`/`PUT /api/users/me/settings` and `GET
+  /api/users/me/settings/history` expose it; a new "Settings" client view
+  edits it as percentages/raw values and lists the override history.
+- **Configurable projection activity assumption**: `Projection
+  .project_series_with_inputs` gained `activity_model="constant"` (default,
+  today's carry-forward-the-last-value behavior, unchanged) or `"trend"`
+  (fits the same OLS trend used for weight/waist/neck, clamped at 0). `GET`
+  /`POST /api/projection` accept `?activity=`, persisted per saved run
+  (`projections.activity_model`, migration v10); the Projection view
+  gained a "Steps assumption" selector.
+- **Alert-history browser**, noticed while building Phase 1.4:
+  `GET /api/alerts?include_acknowledged=true` already returned the full
+  history including dismissed alerts, but no UI browsed it. A new
+  "Alerts" nav view (`renderAlertHistory` in `views.js`) lists every alert
+  ever detected with an active/acknowledged badge and a dismiss button
+  for the still-open ones, reusing the existing acknowledge endpoint.
 
 ### Phase 1.6 — Testing groundwork
 
