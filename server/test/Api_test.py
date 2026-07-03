@@ -657,6 +657,34 @@ class ApiTestCase(unittest.TestCase):
         tightened_alerts = self.client.get("/api/alerts", headers=headers).get_json()
         self.assertTrue(any(a["type"] == "deviation" for a in tightened_alerts))
 
+    def test_reset_password_unknown_identifier_returns_404(self):
+        response = self.client.post(
+            "/api/auth/reset-password",
+            json={"identifier": "no-such-user", "new_password": "whatever12"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_reset_password_directly_resets_with_no_verification(self):
+        self._register()
+
+        reset_response = self.client.post(
+            "/api/auth/reset-password",
+            json={"identifier": "danel", "new_password": "brand-new-password-1"},
+        )
+        self.assertEqual(reset_response.status_code, 200)
+        self.assertIn("message", reset_response.get_json())
+
+        relogin = self.client.post(
+            "/api/auth/login", json={"username": "danel", "password": "brand-new-password-1"}
+        )
+        self.assertEqual(relogin.status_code, 200)
+
+    def test_reset_password_requires_both_fields(self):
+        response = self.client.post(
+            "/api/auth/reset-password", json={"identifier": "danel"}
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_projection_activity_query_param_is_accepted(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

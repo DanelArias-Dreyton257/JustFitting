@@ -31,6 +31,7 @@ from server.src.services.EngineSettingsManager import EngineSettingsManager
 from server.src.services.GoalPlanManager import GoalPlanManager
 from server.src.services.LogManager import LogManager
 from server.src.services.MetricsCache import MetricsCache
+from server.src.services.PasswordResetService import PasswordResetService
 from server.src.services.ProjectionService import ProjectionService
 from server.src.services.UserManager import UserManager
 
@@ -46,6 +47,8 @@ def create_app(config: Optional[dict] = None) -> Flask:
 
     audit_log_dao = AuditLogDAO(db)
     alert_log_dao = AlertLogDAO(db)
+    user_dao = UserDAO(db)
+    session_dao = SessionDAO(db)
     metrics_cache = MetricsCache(MetricsSnapshotDAO(db))
     goal_plan_manager = GoalPlanManager(
         GoalPlanDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
@@ -53,14 +56,16 @@ def create_app(config: Optional[dict] = None) -> Flask:
     engine_settings_manager = EngineSettingsManager(
         EngineSettingsDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
     )
-    user_manager = UserManager(
-        UserDAO(db), goal_plan_manager, audit_log_dao=audit_log_dao
-    )
-    auth_service = AuthService(SessionDAO(db))
+    user_manager = UserManager(user_dao, goal_plan_manager, audit_log_dao=audit_log_dao)
+    auth_service = AuthService(session_dao)
     log_manager = LogManager(
         BodyLogDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
     )
     projection_service = ProjectionService(ProjectionDAO(db))
+
+    password_reset_service = PasswordResetService(
+        user_dao, session_dao, audit_log_dao=audit_log_dao
+    )
 
     app.extensions["db"] = db
     app.extensions["user_manager"] = user_manager
@@ -72,6 +77,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.extensions["alert_log_dao"] = alert_log_dao
     app.extensions["metrics_cache"] = metrics_cache
     app.extensions["projection_service"] = projection_service
+    app.extensions["password_reset_service"] = password_reset_service
 
     cors_origins = app.config.get(
         "CORS_ORIGINS", os.environ.get("JUSTFITTING_CORS_ORIGINS", "*")

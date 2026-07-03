@@ -102,6 +102,23 @@ def logout():
     return "", 204
 
 
+@user_bp.post("/auth/reset-password")
+def reset_password():
+    """Directly resets a password given a matching username/email -- no
+    email verification (see README's "Known limitations"/"Future work")."""
+    payload = request.get_json(force=True) or {}
+    identifier = payload.get("identifier")
+    new_password = payload.get("new_password")
+    if not identifier or not new_password:
+        return jsonify({"error": "identifier and new_password are required"}), 400
+    ok = current_app.extensions["password_reset_service"].reset_password(
+        identifier, new_password
+    )
+    if not ok:
+        return jsonify({"error": "no account found for that username or email"}), 404
+    return jsonify({"message": "Password updated. You can log in with your new password."})
+
+
 @user_bp.get("/users/me")
 @require_auth
 def me():
