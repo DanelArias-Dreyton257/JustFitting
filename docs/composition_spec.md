@@ -114,6 +114,14 @@ E_i           = TargetCal_{i-1}, with intake_is_real = false
 also includes prior forecasts (`"real_and_projected"`). Projected rows are
 always labelled as forecasts, never as measurements.
 
+`trend_model` (Phase 1.6) chooses how the linear trend itself is fit:
+`"ols"` (default, unweighted, exactly today's behavior) or `"weighted_ols"`,
+which weights each history point by `WEIGHTED_TREND_DECAY ** weeks_ago`
+(`constants.py`, default `0.85`) so recent weeks influence the slope more
+than older ones — still a straight-line fit, just recency-biased, applied
+identically to weight/waist/neck (and to steps too when
+`activity_model="trend"`).
+
 **Intake semantics:** once intake is set to `TargetCal_{i-1}` (assumed, not
 logged), `IntakeDiff` compares a recommendation against a recommendation
 and is ~0 by construction. Adherence must only be computed over rows where

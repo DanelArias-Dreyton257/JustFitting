@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
+  `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
+  `trend_model: "ols" | "weighted_ols"` parameter threads through
+  `project_series`/`project_series_with_inputs` alongside the existing
+  `base_regression`/`activity_model`, weighting each history point by
+  `WEIGHTED_TREND_DECAY ** weeks_ago` (new `constants.py` default `0.85`)
+  when set to `"weighted_ols"` -- `"ols"` stays the default and is
+  provably unchanged (every existing golden test is byte-identical).
+  Exposed via `?trend_model=` on `GET`/`POST /api/projection`, persisted
+  per saved run (`projections.trend_model`, migration v11,
+  `ProjectionDAO`/domain `Projection`/`ProjectionDTO`). No client UI
+  selector yet -- API-only for now, same as how `activity_model` shipped
+  its backend piece first.
+
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
   README's "Android app" section) with a real installable app that bundles

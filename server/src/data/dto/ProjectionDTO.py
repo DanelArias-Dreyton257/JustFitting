@@ -18,6 +18,7 @@ class ProjectionDTO:
     base_regression: str
     generated_at: str
     activity_model: str
+    trend_model: str
 
     @staticmethod
     def from_domain(projection: Projection) -> "ProjectionDTO":
@@ -33,4 +34,5 @@ class ProjectionDTO:
             base_regression=projection.base_regression,
             generated_at=projection.generated_at.isoformat(),
             activity_model=projection.activity_model,
+            trend_model=projection.trend_model,
         )

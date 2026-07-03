@@ -432,8 +432,22 @@ full detail, status per item, and the recommended data model are in
 
 ### Phase 1.6 — Testing groundwork
 
-- Weighted or non-linear projection models beyond OLS.
-- Playwright JS unit tests for `views.js`/`api.js`.
+- **Weighted projection model (done)**: `Projection.py` gained a
+  `trend_model` parameter alongside `activity_model`/`base_regression` --
+  `"ols"` (default, unchanged) or `"weighted_ols"`, a recency-weighted
+  least-squares fit (`constants.WEIGHTED_TREND_DECAY`, default `0.85` per
+  week) that leans on recent weeks more than older ones. Exposed via
+  `?trend_model=` on `GET`/`POST /api/projection`, persisted per saved run
+  (`projections.trend_model`, migration v11). No client UI selector yet
+  (the API is usable today; a "Trend model" dropdown alongside the
+  existing "Steps assumption" one in the Projection view is a natural
+  follow-up).
+- **Browser tests (in progress)**: Python-driven Playwright tests
+  (`environment.yml` already listed `playwright` as a dependency ahead of
+  this) exercising `views.js`'s DOM rendering and `api.js`'s network calls
+  against real, in-process Flask apps (`client/test/browser/`) -- not a
+  Node-based test runner, keeping this inside the existing conda/`unittest`
+  workflow.
 - A fully-native client using the `remote/RemoteFacade` seam directly, as
   a longer-term alternative to the Capacitor Android app below — not
   planned, just kept possible.

@@ -1,11 +1,12 @@
 """Forecasts future weekly rows from a real-log history.
 
-Weight/waist/neck follow an OLS linear trend (the spreadsheet TREND()
-equivalent); steps default to held-constant but can follow the same OLS
-trend instead (``activity_model="trend"``, Phase 1.5); intake is assumed to
-equal the previous row's recommended target calories and is marked as not
-real, so adherence metrics must only be computed over
-``intake_is_real=True`` rows.
+Weight/waist/neck follow a linear trend fit -- either plain OLS (the
+spreadsheet TREND() equivalent) or, since Phase 1.6, a recency-weighted OLS
+(``trend_model="weighted_ols"``) that leans more on recent weeks; steps
+default to held-constant but can follow the same trend fit instead
+(``activity_model="trend"``, Phase 1.5); intake is assumed to equal the
+previous row's recommended target calories and is marked as not real, so
+adherence metrics must only be computed over ``intake_is_real=True`` rows.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from datetime import date, timedelta
 from typing import List, Literal, Optional, Sequence, Tuple
 
 from server.src.services.composition import CompositionEngine
-from server.src.services.composition.constants import DAYS_PER_WEEK
+from server.src.services.composition.constants import DAYS_PER_WEEK, WEIGHTED_TREND_DECAY
 from server.src.services.composition.models import (
     CompositionResult,
     EngineConstants,
@@ -24,16 +25,22 @@ from server.src.services.composition.models import (
 
 BaseRegression = Literal["real_only", "real_and_projected"]
 ActivityModel = Literal["constant", "trend"]
+TrendModel = Literal["ols", "weighted_ols"]
 
 
-def _ols(xs: Sequence[float], ys: Sequence[float]) -> Tuple[float, float]:
+def _weighted_ols(
+    xs: Sequence[float], ys: Sequence[float], weights: Sequence[float]
+) -> Tuple[float, float]:
     n = len(xs)
     if n < 2:
         raise ValueError("at least two points are required to fit a trend")
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    denominator = sum((x - mean_x) ** 2 for x in xs)
+    total_weight = sum(weights)
+    mean_x = sum(w * x for w, x in zip(weights, xs)) / total_weight
+    mean_y = sum(w * y for w, y in zip(weights, ys)) / total_weight
+    numerator = sum(
+        w * (x - mean_x) * (y - mean_y) for w, x, y in zip(weights, xs, ys)
+    )
+    denominator = sum(w * (x - mean_x) ** 2 for w, x in zip(weights, xs))
     if denominator == 0:
         return 0.0, mean_y
     slope = numerator / denominator
@@ -41,11 +48,31 @@ def _ols(xs: Sequence[float], ys: Sequence[float]) -> Tuple[float, float]:
     return slope, intercept
 
 
-def _forecast(history: Sequence[LogInput], attr: str, target_date: date) -> float:
+def _ols(xs: Sequence[float], ys: Sequence[float]) -> Tuple[float, float]:
+    """Plain OLS -- equivalent to ``_weighted_ols`` with uniform weights."""
+    return _weighted_ols(xs, ys, [1.0] * len(xs))
+
+
+def _recency_weights(xs: Sequence[float]) -> List[float]:
+    most_recent = max(xs)
+    return [
+        WEIGHTED_TREND_DECAY ** ((most_recent - x) / DAYS_PER_WEEK) for x in xs
+    ]
+
+
+def _forecast(
+    history: Sequence[LogInput],
+    attr: str,
+    target_date: date,
+    trend_model: TrendModel = "ols",
+) -> float:
     base_date = history[0].date
     xs = [(log.date - base_date).days for log in history]
     ys = [getattr(log, attr) for log in history]
-    slope, intercept = _ols(xs, ys)
+    if trend_model == "weighted_ols":
+        slope, intercept = _weighted_ols(xs, ys, _recency_weights(xs))
+    else:
+        slope, intercept = _ols(xs, ys)
     x_target = (target_date - base_date).days
     return slope * x_target + intercept
 
@@ -57,12 +84,19 @@ def project_series(
     base_regression: BaseRegression = "real_only",
     activity_model: ActivityModel = "constant",
     engine_constants: Optional[EngineConstants] = None,
+    trend_model: TrendModel = "ols",
 ) -> List[CompositionResult]:
     """Forecast ``weeks`` future weekly rows beyond the last real log."""
     return [
         result
         for _, result in project_series_with_inputs(
-            profile, real_logs, weeks, base_regression, activity_model, engine_constants
+            profile,
+            real_logs,
+            weeks,
+            base_regression,
+            activity_model,
+            engine_constants,
+            trend_model,
         )
     ]
 
@@ -74,6 +108,7 @@ def project_series_with_inputs(
     base_regression: BaseRegression = "real_only",
     activity_model: ActivityModel = "constant",
     engine_constants: Optional[EngineConstants] = None,
+    trend_model: TrendModel = "ols",
 ) -> List[Tuple[LogInput, CompositionResult]]:
     """Same as ``project_series``, but also returns each forecasted row's raw
     ``LogInput`` (estimated weight/waist/neck) alongside its ``CompositionResult``
@@ -82,7 +117,11 @@ def project_series_with_inputs(
 
     ``activity_model`` controls the forecast's steps assumption: ``"constant"``
     (default) carries the last real log's steps forward unchanged;
-    ``"trend"`` fits the same OLS trend used for weight/waist/neck.
+    ``"trend"`` fits the same trend model used for weight/waist/neck.
+
+    ``trend_model`` controls how the linear trend itself is fit: ``"ols"``
+    (default) is plain least-squares; ``"weighted_ols"`` (Phase 1.6) weights
+    more recent weeks more heavily (see ``_recency_weights``).
     """
     if weeks <= 0:
         return []
@@ -105,11 +144,13 @@ def project_series_with_inputs(
         regression_source = (
             history if base_regression == "real_and_projected" else ordered_real
         )
-        forecast_weight = _forecast(regression_source, "weight_kg", cursor_date)
-        forecast_waist = _forecast(regression_source, "waist_cm", cursor_date)
-        forecast_neck = _forecast(regression_source, "neck_cm", cursor_date)
+        forecast_weight = _forecast(regression_source, "weight_kg", cursor_date, trend_model)
+        forecast_waist = _forecast(regression_source, "waist_cm", cursor_date, trend_model)
+        forecast_neck = _forecast(regression_source, "neck_cm", cursor_date, trend_model)
         if activity_model == "trend":
-            forecast_steps = max(0.0, _forecast(regression_source, "steps", cursor_date))
+            forecast_steps = max(
+                0.0, _forecast(regression_source, "steps", cursor_date, trend_model)
+            )
         else:
             forecast_steps = last_steps
 
