@@ -8,6 +8,7 @@ from typing import Optional
 from flask import Flask, jsonify
 from flask_cors import CORS
 
+from server.src.api.alerts_routes import alerts_bp
 from server.src.api.log_routes import log_bp
 from server.src.api.metrics_routes import metrics_bp
 from server.src.api.plan_routes import plan_bp
@@ -72,6 +73,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(projection_bp)
     app.register_blueprint(plan_bp)
+    app.register_blueprint(alerts_bp)
 
     @app.get("/api/health")
     def health():

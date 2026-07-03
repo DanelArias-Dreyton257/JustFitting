@@ -9,27 +9,13 @@ from flask import Blueprint, current_app, g, jsonify, request
 from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
+from server.src.services.MetricsSeriesService import compute_series_for_user
 
 metrics_bp = Blueprint("metrics", __name__, url_prefix="/api/metrics")
 
 
 def _compute_results(user_id: int):
-    user_manager = current_app.extensions["user_manager"]
-    log_manager = current_app.extensions["log_manager"]
-    goal_plan_manager = current_app.extensions["goal_plan_manager"]
-    metrics_cache = current_app.extensions["metrics_cache"]
-
-    profile = user_manager.get_profile(user_id)
-    logs = log_manager.list_logs(user_id)
-    if not logs:
-        return [], []
-
-    ordered_logs = sorted(logs, key=lambda log: log.date)
-    engine_inputs = log_manager.to_engine_inputs(ordered_logs)
-    goal = goal_plan_manager.get_active(user_id)
-    profile_params = goal_plan_manager.build_profile_params(profile, goal)
-    results = metrics_cache.get_or_compute_series(profile_params, ordered_logs, engine_inputs)
-    return ordered_logs, results
+    return compute_series_for_user(current_app, user_id)
 
 
 @metrics_bp.get("/latest")

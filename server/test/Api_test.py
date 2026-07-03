@@ -390,6 +390,73 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(exported["goal_history"]), 2)
         self.assertGreaterEqual(len(exported["audit_log"]), 1)
 
+    def test_alerts_empty_without_logs(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get("/api/alerts", headers=self._auth_header(token))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), [])
+
+    def test_alerts_flags_an_implausible_weekly_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # >8% down in one week
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/alerts", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        alerts = response.get_json()
+        implausible = [a for a in alerts if a["type"] == "implausible_change"]
+        self.assertEqual(len(implausible), 1)
+        self.assertEqual(implausible[0]["date"], "2026-01-04")
+        self.assertEqual(implausible[0]["severity"], "warning")
+
+    def test_alerts_flags_a_significant_goal_deviation(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        # weekly_rate=-0.005 on 97.0kg objects ~90.545g change; logging a
+        # weight far above that objective should trip the deviation alert.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 98.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/alerts", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        alerts = response.get_json()
+        deviation = [a for a in alerts if a["type"] == "deviation"]
+        self.assertTrue(any(a["date"] == "2026-01-11" for a in deviation))
+
 
 if __name__ == "__main__":
     unittest.main()
