@@ -257,19 +257,41 @@ full detail, status per item, and the recommended data model are in
   this plan" reuses the existing `PUT /api/users/me` (`GoalPlanManager`,
   historized as in Phase 1.1); the preview endpoint never writes.
 
-### Phase 1.3 — Alerts & feedback engine
+### Phase 1.3 — Alerts & feedback engine (done)
 
-- Surface the existing implausible-weekly-change guard
-  (`CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT`, today only a Python
-  `warnings.warn`) as a structured API/UI alert.
-- Add stagnation/plateau detection (N consecutive weeks with `|dW|` under
-  a configurable threshold).
-- Add excessive-lean-mass-loss detection (lean mass falling faster than a
-  configurable share of total weight lost).
-- Add significant-deviation alerts (actual weight diverging from `Wobj`
-  by more than a configurable margin).
-- Expose all of the above through a notifications endpoint and a UI
-  alerts panel/banner.
+- A new pure `services/composition/Alerts.py` module runs four detectors
+  over an already-computed metrics series — no new engine computation and
+  no `ENGINE_VERSION` bump, since every detector reads fields
+  `CompositionEngine.compute_row` already produces:
+  - **Implausible change**: surfaces the existing
+    `CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT` guard (previously
+    only a Python `warnings.warn`) as a structured `warning` alert, reusing
+    `weight_delta_pct`.
+  - **Stagnation/plateau**: `STAGNATION_WEEKS` (3) consecutive real weeks
+    with `|dW|` under `STAGNATION_THRESHOLD_KG` (0.15 kg).
+  - **Excessive lean-mass loss**: over a `LEAN_LOSS_WINDOW_WEEKS` (4) real-week
+    rolling window, lean mass makes up more than `MAX_LEAN_MASS_LOSS_SHARE`
+    (35%) of a *net* weight loss (skipped entirely on a net gain).
+  - **Significant deviation**: `|weight_gap_kg|` (`K_i`, actual weight vs.
+    the weekly objective `Wobj`) beyond `SIGNIFICANT_DEVIATION_KG` (1.0 kg).
+
+  All five thresholds are named constants in `constants.py`, next to the
+  energy-model ones, as candidates for Phase 1.5's per-profile
+  configurability.
+- `GET /api/alerts` (`server/src/api/alerts_routes.py`) computes a user's
+  series via a new shared `services/MetricsSeriesService.compute_series_for_user`
+  (extracted from `/api/metrics`'s route, which had the same logic inlined)
+  and runs `Alerts.detect_alerts` over it. Nothing new is persisted —
+  alerts are recomputed on every read from existing logs/snapshots, the
+  same way `/api/metrics/series` is.
+- The Dashboard gained an alerts panel (`#dashboard-alerts`) above the stat
+  tiles: `views.js`'s `renderAlerts` draws one bordered banner row per
+  alert (red for `warning`, blue for `info`) and stays empty/hidden with no
+  alerts, so a clean week costs no screen space.
+- 11 `Alerts_test.py` cases (pure detector logic against synthetic
+  `CompositionResult` series) plus 3 new `Api_test.py` cases covering
+  `GET /api/alerts` end-to-end (empty with no logs, an implausible-change
+  swing, a goal-trajectory deviation).
 
 ### Phase 1.4 — Adherence & reporting
 
@@ -288,6 +310,12 @@ full detail, status per item, and the recommended data model are in
   `charts.js` still has no date-axis labels, gridlines or hover tooltips
   (points are index-spaced, not date-spaced); worth a pass once there are
   more chart types than screen real estate for a 4-week-old account.
+- Alert history/acknowledgement, noticed while building Phase 1.3:
+  `GET /api/alerts` recomputes fresh on every read (nothing is persisted),
+  so there's no way to dismiss an alert, see whether it was already shown,
+  or look back at what fired in a past week. Worth a small `alert_log`-style
+  table if that history turns out to matter once there's more than a
+  handful of weeks of data.
 
 ### Phase 1.5 — Account & model completeness
 
@@ -297,8 +325,10 @@ full detail, status per item, and the recommended data model are in
   either add the female variants or explicitly declare the male-only
   scope in the product.
 - Make the energy constants (`KCAL_PER_KG_FAT`, `TEF`, the NEAT step
-  factor) configurable per profile/admin rather than fixed code
-  constants.
+  factor) and the Phase 1.3 alert thresholds (`STAGNATION_WEEKS`,
+  `STAGNATION_THRESHOLD_KG`, `LEAN_LOSS_WINDOW_WEEKS`,
+  `MAX_LEAN_MASS_LOSS_SHARE`, `SIGNIFICANT_DEVIATION_KG`) configurable per
+  profile/admin rather than fixed code constants.
 - Make the projection's activity assumption configurable (today steps
   are always carried forward as a constant).
 

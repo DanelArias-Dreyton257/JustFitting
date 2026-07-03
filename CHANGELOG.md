@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.3: alerts & feedback engine (see README's roadmap).
+  - A new pure `server/src/services/composition/Alerts.py` module runs four
+    detectors over an already-computed metrics series, adding no new
+    computation to the compute-order chain (no `ENGINE_VERSION` bump):
+    implausible week-over-week change (surfaces the existing
+    `CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT` guard, previously
+    only a Python `warnings.warn`, reusing `weight_delta_pct`); stagnation/
+    plateau (`STAGNATION_WEEKS` consecutive real weeks with `|dW|` under
+    `STAGNATION_THRESHOLD_KG`); excessive lean-mass loss (lean mass share
+    of a *net* weight loss over a `LEAN_LOSS_WINDOW_WEEKS` rolling window
+    exceeding `MAX_LEAN_MASS_LOSS_SHARE`); and significant deviation from
+    the goal trajectory (`|weight_gap_kg|` beyond `SIGNIFICANT_DEVIATION_KG`).
+    All five thresholds are named constants in
+    `composition/constants.py`.
+  - `GET /api/alerts` (`server/src/api/alerts_routes.py`, `AlertDTO`)
+    computes a user's series via a new shared
+    `services/MetricsSeriesService.compute_series_for_user` (extracted from
+    `/api/metrics`'s route, which had the identical helper inlined) and
+    runs `Alerts.detect_alerts` over it — nothing new is persisted, alerts
+    recompute on every read from existing logs/snapshots exactly like
+    `/api/metrics/series` does.
+  - The Dashboard gained an alerts panel (`#dashboard-alerts`) above the
+    stat tiles: `views.js`'s new `renderAlerts` draws one bordered banner
+    row per alert (red for `warning`, blue for `info`) and stays
+    empty/hidden with no alerts, so a clean week costs no screen space.
+    `api.js` gained `alerts()`; `app.js`'s `refreshDashboard` fetches and
+    renders them alongside the existing stats/series/logs calls.
+  - 11 new `Alerts_test.py` cases (pure detector logic against synthetic
+    `CompositionResult` series) and 3 new `Api_test.py` cases covering
+    `GET /api/alerts` end-to-end.
+  - `docs/product_capabilities_spec.md` and the README roadmap updated to
+    mark Phase 1.3's §14/§14.1/§16.1 items done, plus an additive note
+    (alert history/acknowledgement isn't persisted yet) folded into
+    Phase 1.4, and the new alert thresholds folded into Phase 1.5's
+    configurable-constants item.
 - Phase 1.2: visual tracking & UX completeness (see README's roadmap).
   - Dashboard chart grid grew from 4 to 7 cards: waist/neck perimeters
     (`chart-perimeters`) and daily steps (`chart-steps`) join weight, body
@@ -199,6 +234,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bumped the PWA service worker's `CACHE_NAME` again
+  (`client/src/webapp/static/sw.js`, `justfitting-shell-v2` -> `-v3`) for
+  Phase 1.3's Dashboard alerts panel, same reasoning as the `-v1` -> `-v2`
+  bump below.
 - Bumped the PWA service worker's `CACHE_NAME`
   (`client/src/webapp/static/sw.js`, `justfitting-shell-v1` ->
   `-v2`) so browsers that had the app open before Phase 1.2 stop
