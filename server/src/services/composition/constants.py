@@ -28,3 +28,22 @@ DAYS_PER_WEEK = 7
 
 SEX_MALE = 1
 SEX_FEMALE = 0
+
+#: Alerts & feedback thresholds (see services/composition/Alerts.py). All
+#: are candidates for Phase 1.5's per-profile/admin configurability, same as
+#: TEF/KCAL_PER_KG_FAT above -- named here rather than inlined for now.
+
+#: Consecutive real weeks with |dW| under this many kg counts as a plateau.
+STAGNATION_WEEKS = 3
+STAGNATION_THRESHOLD_KG = 0.15
+
+#: Rolling window (real weeks) used to judge the lean-vs-total split of
+#: recent weight change.
+LEAN_LOSS_WINDOW_WEEKS = 4
+#: Flag when lean mass makes up more than this share of a net weight loss
+#: over the window.
+MAX_LEAN_MASS_LOSS_SHARE = 0.35
+
+#: |actual weight - weekly objective (Wobj)| beyond this many kg is a
+#: significant deviation from the goal trajectory.
+SIGNIFICANT_DEVIATION_KG = 1.0
