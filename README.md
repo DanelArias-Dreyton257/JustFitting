@@ -80,8 +80,8 @@ git push origin vX.Y.Z
 
 ## Architecture
 
-Python-only, no Node.js, no build step. Server and client are both small
-Flask apps that talk over HTTP:
+The server and client runtime is Python-only: no Node.js, no build step.
+Server and client are both small Flask apps that talk over HTTP:
 
 - **Server** (`http://localhost:5000`) — persistence, business logic, the
   calculation engine. Bearer-token auth with DB-persisted, sliding-expiry
@@ -104,16 +104,25 @@ formula lives in its own module (`Anthropometry`, `BodyFat`, `EnergyModel`,
 **The Composition Model** below and `docs/composition_spec.md` for the
 full, authoritative spec.
 
+Node.js/Capacitor (`package.json`, `capacitor.config.json`) is a dev-time
+packaging tool for the Android app, not a runtime dependency — it bundles
+the same static `dist/` client the web deployment already builds. See
+**Android app** below.
+
 ### Repository layout
 
 ```
 JustFitting/
 ├── environment.yml
+├── package.json               # Capacitor Android packaging (dev-time only)
+├── capacitor.config.json
 ├── render.yaml
 ├── CHANGELOG.md
 ├── docs/composition_spec.md
 ├── .github/workflows/{ci,release}.yml
 ├── scripts/
+├── dist/                       # generated static client, gitignored
+├── android/                    # generated Capacitor project (after `npm run android:add`), committed
 ├── client/
 │   ├── src/
 │   │   ├── Client.py            # Flask entry point (port 5500)
@@ -426,71 +435,133 @@ full detail, status per item, and the recommended data model are in
 - Weighted or non-linear projection models beyond OLS.
 - Playwright JS unit tests for `views.js`/`api.js`.
 - A fully-native client using the `remote/RemoteFacade` seam directly, as
-  a longer-term alternative to the PWA/TWA Android app below — not
+  a longer-term alternative to the Capacitor Android app below — not
   planned, just kept possible.
 
 ## Android app
 
-Phase 2 (not yet built): ship the existing hosted web client as an
-installable Android app via a **Trusted Web Activity (TWA)**, built with
-Google's **Bubblewrap** CLI. No on-device Flask, no WebView, no native
-HTTP client — the Android app is a thin wrapper that opens the same
-hosted PWA in Chrome, with the browser UI hidden once the domain is
-verified:
+Phase 2 (scaffolding done; on-device build is a local step, see below):
+ship the existing web client as an installable Android app by bundling
+the same static `dist/` build **inside** the APK/AAB with
+**[Capacitor](https://capacitorjs.com/)**, rather than opening a hosted
+URL in a browser wrapper.
+
+This repo's Android plan changed twice before landing here (see
+`CHANGELOG.md` for the earlier Chaquopy + on-device-Flask attempt): the
+most recent prior plan was a **Trusted Web Activity (TWA)** via Google's
+Bubblewrap CLI — a thin Chrome wrapper that just opens the hosted PWA,
+with the browser UI hidden once the domain is verified. Capacitor
+replaces that: the UI ships inside the package instead of depending on a
+reachable hosted client URL at runtime, while still keeping the API
+remote over plain HTTP(S) — no on-device Flask, no WebView-only wrapper,
+and no native UI rewrite. The Flask API stays exactly as deployed today
+(Deployment, above); only the client is bundled differently.
 
 ```
-Flask backend + HTML/CSS/JS
+scripts/build_static_site.py <API_URL>   # same build the web deploy uses
         |
-Hosted at https://yourdomain.com  (client on GitHub Pages, API on Render
-        |                          -- both already set up, see Deployment)
-PWA manifest + service worker
+dist/  (HTML/CSS/JS, api_base_url baked into index.html)
         |
-Bubblewrap generates Android project
+capacitor.config.json  (webDir: "dist")
         |
-Android app opens your Flask PWA as a TWA
+npx cap sync android    # copies dist/ into the native Android project
+        |
+Android app: local UI, HTTP(S) calls to <API_URL>
 ```
 
-Steps:
+### Setup
 
-1. **PWA groundwork** (done) — `client/src/webapp/static/manifest.json`
-   (name, icons, `start_url: "/"`, `display: standalone`, theme/background
-   color, `scope: "/"`) and an app-shell service worker (`static/sw.js`,
-   stale-while-revalidate for this site's own static assets; API calls to
-   a different origin are left untouched). Both are served at the site
-   *root* — `GET /manifest.json` and `GET /sw.js` in `Client.py`, not
-   under `/static/`, since a service worker's default scope is the
-   directory it's served from and Bubblewrap wants a stable
-   `/manifest.json` URL — and linked/registered from `index.html`.
-   `scripts/build_static_site.py` resolves the same `url_for(...)` calls
-   and copies both files to the built site's root for GitHub Pages, which
-   has no Flask routes to serve them dynamically. This already makes the
-   client installable and usable offline, independent of Android.
+```bash
+npm install                 # @capacitor/core, @capacitor/cli, @capacitor/android
+npm run android:add         # one-time: scaffolds android/ via `npx cap add android`
+```
 
-   **Cache-busting**: `sw.js` caches the app shell (`index.html`, CSS,
-   every JS module) under `CACHE_NAME`, stale-while-revalidate — a
-   browser that already has the app open keeps serving its cached shell
-   until `sw.js`'s own bytes change, which is what makes it install a
-   new worker and purge the old cache. **Bump `CACHE_NAME` (e.g.
-   `justfitting-shell-v1` -> `-v2`) on any change to the static JS/CSS/
-   HTML**, or returning users keep seeing stale assets after a deploy
-   until they manually clear site data.
-2. **HTTPS hosting + Digital Asset Links** (not started): the client must
-   be served over HTTPS at a stable domain (the existing GitHub Pages
-   deploy in `release.yml` already qualifies, or any custom domain
-   pointed at it). Add `/.well-known/assetlinks.json` at that origin,
-   declaring the Android app's package name and signing-key fingerprint,
-   so Android can verify the app owns the site and hide the address bar
-   (this is what makes it a TWA rather than just "a browser bookmark").
-   Can't be filled in until step 3 produces a package name + keystore.
-3. **Generate the Android project** (not started): `npx @bubblewrap/cli
-   init --manifest=https://yourdomain.com/manifest.json` scaffolds an
-   Android Studio project pointed at the hosted PWA; `bubblewrap build`
-   produces a signed APK/AAB ready for internal testing or the Play
-   Store.
+### Building the client for each target
 
-Because the client and API are already deployed as two independently
-hosted HTTPS services (Deployment, above), no server-side changes are
-needed for this — the same production deployment *is* the PWA.
+The API base URL is injected the same way as the web build
+(`scripts/build_static_site.py`, `window.JUSTFITTING_API_BASE_URL` in
+`api.js`) — nothing new to learn, just a different target URL per case:
+
+| Target | Command |
+| --- | --- |
+| Production (real device/release build) | `python scripts/build_static_site.py https://YOUR_PRODUCTION_API_URL` |
+| Android emulator | `python scripts/build_static_site.py http://10.0.2.2:5000` (the emulator's alias for the host machine's `localhost`) — also `npm run build:web:android` |
+| Real device on the same LAN | `python scripts/build_static_site.py http://LOCAL_MACHINE_LAN_IP:5000` |
+
+Then sync the build into the native project and open it in Android Studio:
+
+```bash
+npm run android:sync        # build:web:android + `npx cap sync android`
+npm run android:open        # `npx cap open android`
+```
+
+Run the app from Android Studio onto an emulator or a connected device.
+After editing web client code, re-run `android:sync` (with whichever
+`build_static_site.py` target you need) to refresh the bundled `dist/`
+inside `android/`.
+
+For a production release, run `build_static_site.py` with the production
+URL, then `npx cap sync android` (skip the emulator-default script) before
+building the signed AAB/APK in Android Studio.
+
+### Network notes
+
+- **Production must use HTTPS.** `capacitor.config.json` ships with no
+  `cleartext` override, so Android's default cleartext-traffic block
+  applies — this is intentional, not an oversight.
+- **Local HTTP dev (emulator/LAN) needs cleartext enabled explicitly.**
+  Android blocks plain-HTTP network requests by default since API 28. To
+  test against `http://10.0.2.2:5000` or a LAN IP, temporarily add
+  `"server": {"cleartext": true}` to `capacitor.config.json`, re-run
+  `npx cap sync android`, and **revert it before any release build** —
+  never ship `cleartext: true`.
+- **CORS**: the server already reads `JUSTFITTING_CORS_ORIGINS` (see
+  `server/src/api/app.py`) instead of hardcoding origins. Capacitor's
+  Android WebView serves the bundled UI from the `https://localhost`
+  origin by default, so if you lock `JUSTFITTING_CORS_ORIGINS` down to an
+  allowlist (rather than the default `*`), include `https://localhost` in
+  it or the app's API calls will be blocked by CORS.
+
+### What's not built yet
+
+- `android/` isn't in this repo — it's generated locally by
+  `npm run android:add` and should then be committed (Capacitor's own
+  convention: the native project holds Gradle/signing/manifest
+  customizations that `cap sync` doesn't regenerate).
+- Actually running the app on an emulator/device is a local step that
+  needs Node.js and Android Studio/SDK installed — not something this
+  repo's CI or a hosted environment can do for you.
+
+### Future: local/offline data mode (design note, not implemented)
+
+Today the Android app is purely a remote-API client, same as the web
+app. A natural next step once this ships is a data-access layer inside
+the client JS that can choose between **remote API mode** (today's
+behavior, unchanged), **local storage mode** (logs/metrics cached or
+entered offline, most likely via a Capacitor storage/SQLite plugin), and
+a future **sync mode** reconciling the two. This is *only* a design
+direction, not scoped work — running the full Flask server on-device is
+explicitly out of scope unless a strong reason emerges later.
+
+### Phase 2.1 — native capabilities (ideas, unscheduled)
+
+Going native (even just as a Capacitor wrapper) unlocks a few
+device-level capabilities that a browser tab can't offer, in service of
+the project's core goal — full tracking with good visual feedback, and
+full access to the computed body-report metrics. None of these are
+scoped or scheduled; they're recorded here so they aren't lost:
+
+- **Weekly-log reminder notifications** (`@capacitor/local-notifications`)
+  — a scheduled local reminder to log the week's measurements, which
+  today relies entirely on the user remembering to open the app.
+- **Native share sheet for the Report view** — the existing `GET
+  /api/users/me/report` + Print/Save-as-PDF flow (Phase 1.4) could use
+  `@capacitor/share` to hand the exported report straight to another app
+  (e.g. to a trainer or nutritionist) instead of only browser print.
+- **Automatic steps import** (Android Health Connect / Google Fit) to
+  replace today's manually-entered weekly step average with a real daily
+  reading — directly improves the NEAT/TDEE inputs' accuracy.
+- **Local/offline data mode** — see the design note above.
 
 ## The Team
 
