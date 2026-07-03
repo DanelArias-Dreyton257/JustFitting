@@ -1,11 +1,10 @@
 """Placeholder seam for a possible future fully-native client of this API.
 
 Not used by the Flask server, the web client, or the Android app (a
-Trusted Web Activity wrapping the hosted web client, see README's
-"Android app" section) -- kept only as scaffolding so a hypothetical
-fully-native client could talk to ``JUSTFITTING_API_BASE_URL`` through
-one narrow surface instead of the routes being called ad hoc from
-multiple places.
+Capacitor-packaged build of the same web client, see README's "Android
+app" section) -- kept only as scaffolding so a hypothetical fully-native
+client could talk to ``JUSTFITTING_API_BASE_URL`` through one narrow
+surface instead of the routes being called ad hoc from multiple places.
 """
 
 from __future__ import annotations

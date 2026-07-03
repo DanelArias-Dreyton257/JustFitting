@@ -27,8 +27,8 @@ def index():
 
 @client_bp.get("/manifest.json")
 def manifest():
-    # Served at the root (not /static/manifest.json) so Bubblewrap and
-    # browsers can point at a clean, stable https://<domain>/manifest.json.
+    # Served at the root (not /static/manifest.json) so browsers can point
+    # at a clean, stable https://<domain>/manifest.json for PWA installs.
     return send_from_directory(
         str(WEBAPP_DIR / "static"),
         "manifest.json",

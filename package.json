@@ -1,0 +1,20 @@
+{
+  "name": "justfitting",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Capacitor Android packaging for the JustFitting static web client.",
+  "scripts": {
+    "build:web": "python scripts/build_static_site.py",
+    "build:web:android": "python scripts/build_static_site.py http://10.0.2.2:5000",
+    "android:add": "npx cap add android",
+    "android:sync": "npm run build:web:android && npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2"
+  }
+}
