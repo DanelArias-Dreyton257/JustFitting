@@ -36,6 +36,11 @@ python -m unittest discover -s server/test -p "*_test.py"
 python -m unittest discover -s client/test -p "*_test.py"
 ```
 
+The client suite includes Playwright browser tests (`client/test/browser/`,
+Phase 1.6) that need Chromium downloaded once:
+`python -m playwright install chromium`. `playwright` is already a Python
+dependency in `environment.yml` — no Node.js involved.
+
 ## Scripts
 
 All scripts live in `scripts/` and `cd` to the repo root themselves.
@@ -442,12 +447,17 @@ full detail, status per item, and the recommended data model are in
   (the API is usable today; a "Trend model" dropdown alongside the
   existing "Steps assumption" one in the Projection view is a natural
   follow-up).
-- **Browser tests (in progress)**: Python-driven Playwright tests
+- **Browser tests (done)**: Python-driven Playwright tests
   (`environment.yml` already listed `playwright` as a dependency ahead of
   this) exercising `views.js`'s DOM rendering and `api.js`'s network calls
-  against real, in-process Flask apps (`client/test/browser/`) -- not a
-  Node-based test runner, keeping this inside the existing conda/`unittest`
-  workflow.
+  against real, in-process Flask apps (`client/test/browser/`, a shared
+  `LiveServer` thread helper + a minimal test-harness Flask app pointed at
+  the real static JS) -- not a Node-based test runner, keeping this inside
+  the existing conda/`unittest` workflow. Run via the same
+  `python -m unittest discover -s client/test -p "*_test.py"` command as
+  every other client test, after a one-time
+  `python -m playwright install chromium`; CI installs it automatically
+  (`.github/workflows/ci.yml`).
 - A fully-native client using the `remote/RemoteFacade` seam directly, as
   a longer-term alternative to the Capacitor Android app below — not
   planned, just kept possible.

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>views.js test harness</title>
+</head>
+<body>
+  <p id="sex-disclaimer" hidden></p>
+  <div id="alerts-container" hidden></div>
+  <dl id="log-review"></dl>
+
+  <form id="log-form">
+    <div class="wizard-step" data-step="1"></div>
+    <div class="wizard-step" data-step="2" hidden></div>
+    <div class="wizard-step" data-step="3" hidden></div>
+    <div class="wizard-step" data-step="4" hidden></div>
+    <span class="wizard-step-label" data-step="1"></span>
+    <span class="wizard-step-label" data-step="2"></span>
+    <span class="wizard-step-label" data-step="3"></span>
+    <span class="wizard-step-label" data-step="4"></span>
+    <button type="button" id="log-back"></button>
+    <button type="button" id="log-next"></button>
+    <button type="submit" id="log-save"></button>
+  </form>
+
+  <script type="module">
+    import * as views from "/static/js/views.js";
+    window.__views = views;
+    window.__viewsReady = true;
+  </script>
+</body>
+</html>

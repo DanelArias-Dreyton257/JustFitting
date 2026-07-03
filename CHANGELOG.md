@@ -23,6 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selector yet -- API-only for now, same as how `activity_model` shipped
   its backend piece first.
 
+- Phase 1.6: Python-driven Playwright browser tests for `views.js`/`api.js`
+  (`client/test/browser/`) -- not a Node.js test runner; uses the
+  `playwright` dependency `environment.yml` already had, unused, ahead of
+  this. A shared `LiveServer` (`live_server.py`, a Flask app on a
+  `werkzeug.serving.make_server` background thread) and a minimal
+  `harness_app.py` (serves the real `client/src/webapp/static/js/*` plus a
+  tiny per-suite HTML fixture) let `Views_test.py` drive `views.js`'s pure
+  DOM-rendering exports in a real headless-Chromium tab, and `Api_test.py`
+  drive `api.js`'s exports against a real, separately-booted
+  `server/src/api/app.py` instance -- an actual browser `fetch()` round
+  trip, not a mock. Registers under the existing `*_test.py` glob, so
+  `python -m unittest discover -s client/test -p "*_test.py"` picks it up
+  automatically after a one-time `python -m playwright install chromium`.
+  `.github/workflows/ci.yml` now installs Chromium
+  (`playwright install --with-deps chromium`) before the client test step.
+
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
   README's "Android app" section) with a real installable app that bundles
