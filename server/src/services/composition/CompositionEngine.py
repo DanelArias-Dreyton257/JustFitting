@@ -18,9 +18,12 @@ from server.src.services.composition import (
     BodyFat,
     EnergyModel,
     Trajectory,
+    constants,
 )
 from server.src.services.composition.models import (
+    DEFAULT_ENGINE_CONSTANTS,
     CompositionResult,
+    EngineConstants,
     LogInput,
     ProfileParams,
 )
@@ -28,8 +31,10 @@ from server.src.services.composition.models import (
 ENGINE_VERSION = 1
 
 #: A week-over-week weight swing beyond this fraction of body weight is
-#: implausible for a single week and gets flagged (not blocked).
-IMPLAUSIBLE_WEEKLY_CHANGE_PCT = 0.08
+#: implausible for a single week and gets flagged (not blocked). Kept as a
+#: module attribute for backward compatibility (`Alerts.py` reads it);
+#: overridable per-user via `EngineConstants.implausible_weekly_change_pct`.
+IMPLAUSIBLE_WEEKLY_CHANGE_PCT = constants.IMPLAUSIBLE_WEEKLY_CHANGE_PCT
 
 
 def validate_log_input(log: LogInput) -> None:
@@ -56,18 +61,22 @@ def compute_row(
     profile: ProfileParams,
     log: LogInput,
     prev_weight_kg: Optional[float] = None,
+    engine_constants: Optional[EngineConstants] = None,
 ) -> CompositionResult:
     """Compute every derived metric for a single weekly row.
 
     ``prev_weight_kg`` is the raw weight of the previous chronological row
     (``None`` for the first row in a series), which drives the base cases
-    for dW, pct, Wobj and Pi.
+    for dW, pct, Wobj and Pi. ``engine_constants`` overrides the energy
+    model's fixed constants (TEF, kcal/kg fat, NEAT step factor, implausible
+    -change threshold); defaults to today's `constants.py` values.
     """
     validate_log_input(log)
+    ec = engine_constants or DEFAULT_ENGINE_CONSTANTS
 
     if prev_weight_kg is not None:
         pct = (log.weight_kg - prev_weight_kg) / prev_weight_kg
-        if abs(pct) > IMPLAUSIBLE_WEEKLY_CHANGE_PCT:
+        if abs(pct) > ec.implausible_weekly_change_pct:
             warnings.warn(
                 f"Implausible weekly weight change of {pct:.1%} on {log.date}",
                 stacklevel=2,
@@ -101,15 +110,19 @@ def compute_row(
     weight_to_shed_kg = Trajectory.compute_weight_to_shed(
         prev_weight_kg, weight_objective_kg
     )
-    weekly_deficit_kcal = Trajectory.compute_weekly_deficit(weight_to_shed_kg)
+    weekly_deficit_kcal = Trajectory.compute_weekly_deficit(
+        weight_to_shed_kg, ec.kcal_per_kg_fat
+    )
     daily_deficit_kcal = Trajectory.compute_daily_deficit(weekly_deficit_kcal)
     weeks_to_goal = Trajectory.compute_weeks_to_goal(
         log.weight_kg, final_weight_kg, profile.weekly_rate
     )
 
-    neat = EnergyModel.compute_neat(log.weight_kg, log.steps)
-    tdee = EnergyModel.compute_tdee(bmr, neat)
-    target_calories = EnergyModel.compute_target_calories(bmr, neat, daily_deficit_kcal)
+    neat = EnergyModel.compute_neat(log.weight_kg, log.steps, ec.neat_step_factor)
+    tdee = EnergyModel.compute_tdee(bmr, neat, ec.tef)
+    target_calories = EnergyModel.compute_target_calories(
+        bmr, neat, daily_deficit_kcal, ec.tef
+    )
     intake_diff = EnergyModel.compute_intake_diff(log.intake_kcal, target_calories)
 
     return CompositionResult(
@@ -144,13 +157,15 @@ def compute_row(
 
 
 def compute_series(
-    profile: ProfileParams, logs: Sequence[LogInput]
+    profile: ProfileParams,
+    logs: Sequence[LogInput],
+    engine_constants: Optional[EngineConstants] = None,
 ) -> List[CompositionResult]:
     """Compute derived metrics for a chronological series of weekly logs."""
     ordered = sorted(logs, key=lambda log: log.date)
     results: List[CompositionResult] = []
     prev_weight_kg: Optional[float] = None
     for log in ordered:
-        results.append(compute_row(profile, log, prev_weight_kg))
+        results.append(compute_row(profile, log, prev_weight_kg, engine_constants))
         prev_weight_kg = log.weight_kg
     return results

@@ -9,6 +9,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from server.src.services.composition import constants
+
+
+@dataclass(frozen=True)
+class EngineConstants:
+    """Per-user-overridable engine tunables (energy model + alert
+    thresholds). Defaults reproduce today's fixed `constants.py` values
+    exactly, so passing no override changes nothing (see Phase 1.5,
+    `services/EngineSettingsManager.py`)."""
+
+    tef: float = constants.TEF
+    kcal_per_kg_fat: float = constants.KCAL_PER_KG_FAT
+    neat_step_factor: float = constants.NEAT_STEP_FACTOR
+    implausible_weekly_change_pct: float = constants.IMPLAUSIBLE_WEEKLY_CHANGE_PCT
+    stagnation_weeks: int = constants.STAGNATION_WEEKS
+    stagnation_threshold_kg: float = constants.STAGNATION_THRESHOLD_KG
+    lean_loss_window_weeks: int = constants.LEAN_LOSS_WINDOW_WEEKS
+    max_lean_mass_loss_share: float = constants.MAX_LEAN_MASS_LOSS_SHARE
+    significant_deviation_kg: float = constants.SIGNIFICANT_DEVIATION_KG
+
+
+DEFAULT_ENGINE_CONSTANTS = EngineConstants()
+
 
 @dataclass(frozen=True)
 class ProfileParams:

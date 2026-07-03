@@ -11,6 +11,13 @@ TEF = 0.10
 #: weight-loss target into a caloric deficit.
 KCAL_PER_KG_FAT = 7700.0
 
+#: NEAT is estimated as this fraction of (weight_kg * steps/1000).
+NEAT_STEP_FACTOR = 0.5
+
+#: A week-over-week weight swing beyond this fraction of body weight is
+#: implausible for a single week and gets flagged (not blocked).
+IMPLAUSIBLE_WEEKLY_CHANGE_PCT = 0.08
+
 #: Weighted-mean coefficients for the headline body-fat percentage,
 #: combining RFM, the US Navy method and the Deurenberg formula.
 BF_WEIGHT_RFM = 0.50
@@ -29,9 +36,11 @@ DAYS_PER_WEEK = 7
 SEX_MALE = 1
 SEX_FEMALE = 0
 
-#: Alerts & feedback thresholds (see services/composition/Alerts.py). All
-#: are candidates for Phase 1.5's per-profile/admin configurability, same as
-#: TEF/KCAL_PER_KG_FAT above -- named here rather than inlined for now.
+#: Alerts & feedback thresholds (see services/composition/Alerts.py).
+#: These, plus TEF/KCAL_PER_KG_FAT/NEAT_STEP_FACTOR above, are the module
+#: defaults used when a user has no `EngineSettings` override (Phase 1.5,
+#: see `services/composition/models.EngineConstants` and
+#: `services/EngineSettingsManager.py`).
 
 #: Consecutive real weeks with |dW| under this many kg counts as a plateau.
 STAGNATION_WEEKS = 3

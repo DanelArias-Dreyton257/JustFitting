@@ -12,17 +12,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as date_type
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
-from server.src.services.composition import CompositionEngine
-from server.src.services.composition.constants import (
-    LEAN_LOSS_WINDOW_WEEKS,
-    MAX_LEAN_MASS_LOSS_SHARE,
-    SIGNIFICANT_DEVIATION_KG,
-    STAGNATION_THRESHOLD_KG,
-    STAGNATION_WEEKS,
+from server.src.services.composition.models import (
+    DEFAULT_ENGINE_CONSTANTS,
+    CompositionResult,
+    EngineConstants,
 )
-from server.src.services.composition.models import CompositionResult
 
 
 @dataclass(frozen=True)
@@ -37,12 +33,14 @@ class Alert:
     threshold: float
 
 
-def _implausible_change_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
+def _implausible_change_alerts(
+    results: Sequence[CompositionResult], thresholds: EngineConstants
+) -> List[Alert]:
     alerts = []
     for result in results:
         if result.source != "real":
             continue
-        if abs(result.weight_delta_pct) > CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT:
+        if abs(result.weight_delta_pct) > thresholds.implausible_weekly_change_pct:
             alerts.append(
                 Alert(
                     type="implausible_change",
@@ -53,40 +51,46 @@ def _implausible_change_alerts(results: Sequence[CompositionResult]) -> List[Ale
                         "more than expected -- double-check this log."
                     ),
                     value=result.weight_delta_pct,
-                    threshold=CompositionEngine.IMPLAUSIBLE_WEEKLY_CHANGE_PCT,
+                    threshold=thresholds.implausible_weekly_change_pct,
                 )
             )
     return alerts
 
 
-def _stagnation_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
+def _stagnation_alerts(
+    results: Sequence[CompositionResult], thresholds: EngineConstants
+) -> List[Alert]:
     real_results = [r for r in results if r.source == "real"]
     alerts = []
-    for i in range(STAGNATION_WEEKS - 1, len(real_results)):
-        window = real_results[i - STAGNATION_WEEKS + 1 : i + 1]
+    stagnation_weeks = thresholds.stagnation_weeks
+    for i in range(stagnation_weeks - 1, len(real_results)):
+        window = real_results[i - stagnation_weeks + 1 : i + 1]
         max_change = max(abs(r.weight_delta_kg) for r in window)
-        if max_change <= STAGNATION_THRESHOLD_KG:
+        if max_change <= thresholds.stagnation_threshold_kg:
             alerts.append(
                 Alert(
                     type="stagnation",
                     severity="info",
                     date=window[-1].date,
                     message=(
-                        f"Weight has moved less than {STAGNATION_THRESHOLD_KG} kg for "
-                        f"{STAGNATION_WEEKS} consecutive weeks -- possible plateau."
+                        f"Weight has moved less than {thresholds.stagnation_threshold_kg} kg "
+                        f"for {stagnation_weeks} consecutive weeks -- possible plateau."
                     ),
                     value=max_change,
-                    threshold=STAGNATION_THRESHOLD_KG,
+                    threshold=thresholds.stagnation_threshold_kg,
                 )
             )
     return alerts
 
 
-def _excessive_lean_loss_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
+def _excessive_lean_loss_alerts(
+    results: Sequence[CompositionResult], thresholds: EngineConstants
+) -> List[Alert]:
     real_results = [r for r in results if r.source == "real"]
     alerts = []
-    for i in range(LEAN_LOSS_WINDOW_WEEKS, len(real_results)):
-        start, end = real_results[i - LEAN_LOSS_WINDOW_WEEKS], real_results[i]
+    window_weeks = thresholds.lean_loss_window_weeks
+    for i in range(window_weeks, len(real_results)):
+        start, end = real_results[i - window_weeks], real_results[i]
         start_weight = start.fat_mass_kg + start.lean_mass_kg
         end_weight = end.fat_mass_kg + end.lean_mass_kg
         total_loss = start_weight - end_weight
@@ -94,7 +98,7 @@ def _excessive_lean_loss_alerts(results: Sequence[CompositionResult]) -> List[Al
             continue  # not a net loss over the window
         lean_loss = start.lean_mass_kg - end.lean_mass_kg
         share = lean_loss / total_loss
-        if share > MAX_LEAN_MASS_LOSS_SHARE:
+        if share > thresholds.max_lean_mass_loss_share:
             alerts.append(
                 Alert(
                     type="excessive_lean_loss",
@@ -102,22 +106,24 @@ def _excessive_lean_loss_alerts(results: Sequence[CompositionResult]) -> List[Al
                     date=end.date,
                     message=(
                         f"Lean mass made up {share:.0%} of the weight lost over the "
-                        f"last {LEAN_LOSS_WINDOW_WEEKS} weeks -- consider more protein "
+                        f"last {window_weeks} weeks -- consider more protein "
                         "or resistance training."
                     ),
                     value=share,
-                    threshold=MAX_LEAN_MASS_LOSS_SHARE,
+                    threshold=thresholds.max_lean_mass_loss_share,
                 )
             )
     return alerts
 
 
-def _deviation_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
+def _deviation_alerts(
+    results: Sequence[CompositionResult], thresholds: EngineConstants
+) -> List[Alert]:
     alerts = []
     for result in results:
         if result.source != "real":
             continue
-        if abs(result.weight_gap_kg) > SIGNIFICANT_DEVIATION_KG:
+        if abs(result.weight_gap_kg) > thresholds.significant_deviation_kg:
             alerts.append(
                 Alert(
                     type="deviation",
@@ -128,23 +134,29 @@ def _deviation_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
                         "week's objective."
                     ),
                     value=result.weight_gap_kg,
-                    threshold=SIGNIFICANT_DEVIATION_KG,
+                    threshold=thresholds.significant_deviation_kg,
                 )
             )
     return alerts
 
 
-def detect_alerts(results: Sequence[CompositionResult]) -> List[Alert]:
+def detect_alerts(
+    results: Sequence[CompositionResult],
+    thresholds: Optional[EngineConstants] = None,
+) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
     ``results`` need not be pre-sorted or pre-filtered to real rows --
-    each detector orders/filters what it needs.
+    each detector orders/filters what it needs. ``thresholds`` overrides
+    the per-user alert thresholds (Phase 1.5); defaults to today's fixed
+    `constants.py` values.
     """
+    thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
     alerts = (
-        _implausible_change_alerts(ordered)
-        + _stagnation_alerts(ordered)
-        + _excessive_lean_loss_alerts(ordered)
-        + _deviation_alerts(ordered)
+        _implausible_change_alerts(ordered, thresholds)
+        + _stagnation_alerts(ordered, thresholds)
+        + _excessive_lean_loss_alerts(ordered, thresholds)
+        + _deviation_alerts(ordered, thresholds)
     )
     return sorted(alerts, key=lambda a: a.date)

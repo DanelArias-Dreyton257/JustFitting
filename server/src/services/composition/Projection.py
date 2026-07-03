@@ -9,12 +9,13 @@ adherence metrics must only be computed over ``intake_is_real=True`` rows.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import List, Literal, Sequence, Tuple
+from typing import List, Literal, Optional, Sequence, Tuple
 
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.constants import DAYS_PER_WEEK
 from server.src.services.composition.models import (
     CompositionResult,
+    EngineConstants,
     LogInput,
     ProfileParams,
 )
@@ -51,12 +52,13 @@ def project_series(
     real_logs: Sequence[LogInput],
     weeks: int,
     base_regression: BaseRegression = "real_only",
+    engine_constants: Optional[EngineConstants] = None,
 ) -> List[CompositionResult]:
     """Forecast ``weeks`` future weekly rows beyond the last real log."""
     return [
         result
         for _, result in project_series_with_inputs(
-            profile, real_logs, weeks, base_regression
+            profile, real_logs, weeks, base_regression, engine_constants
         )
     ]
 
@@ -66,6 +68,7 @@ def project_series_with_inputs(
     real_logs: Sequence[LogInput],
     weeks: int,
     base_regression: BaseRegression = "real_only",
+    engine_constants: Optional[EngineConstants] = None,
 ) -> List[Tuple[LogInput, CompositionResult]]:
     """Same as ``project_series``, but also returns each forecasted row's raw
     ``LogInput`` (estimated weight/waist/neck) alongside its ``CompositionResult``
@@ -78,7 +81,7 @@ def project_series_with_inputs(
         raise ValueError("at least two real logs are required to project a trend")
 
     ordered_real = sorted(real_logs, key=lambda log: log.date)
-    real_results = CompositionEngine.compute_series(profile, ordered_real)
+    real_results = CompositionEngine.compute_series(profile, ordered_real, engine_constants)
 
     history: List[LogInput] = list(ordered_real)
     last_steps = ordered_real[-1].steps
@@ -107,7 +110,9 @@ def project_series_with_inputs(
             intake_is_real=False,
         )
 
-        result = CompositionEngine.compute_row(profile, projected_log, prev_weight_kg)
+        result = CompositionEngine.compute_row(
+            profile, projected_log, prev_weight_kg, engine_constants
+        )
         projected_pairs.append((projected_log, result))
 
         history.append(projected_log)

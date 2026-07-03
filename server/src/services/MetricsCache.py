@@ -8,12 +8,17 @@ goal-plan change invalidates the whole user's cache (see `LogManager` and
 
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 from server.src.data.db.MetricsSnapshotDAO import MetricsSnapshotDAO
 from server.src.data.domain.BodyLog import BodyLog
 from server.src.services.composition import CompositionEngine
-from server.src.services.composition.models import CompositionResult, LogInput, ProfileParams
+from server.src.services.composition.models import (
+    CompositionResult,
+    EngineConstants,
+    LogInput,
+    ProfileParams,
+)
 
 
 class MetricsCache:
@@ -25,6 +30,7 @@ class MetricsCache:
         profile: ProfileParams,
         logs: Sequence[BodyLog],
         engine_inputs: Sequence[LogInput],
+        engine_constants: Optional[EngineConstants] = None,
     ) -> List[CompositionResult]:
         ordered_logs = sorted(logs, key=lambda log: log.date)
         log_ids = [log.log_id for log in ordered_logs]
@@ -35,7 +41,7 @@ class MetricsCache:
         if len(cached) == len(log_ids):
             return [cached[log_id] for log_id in log_ids]
 
-        results = CompositionEngine.compute_series(profile, engine_inputs)
+        results = CompositionEngine.compute_series(profile, engine_inputs, engine_constants)
         for log, result in zip(ordered_logs, results):
             self.snapshot_dao.upsert(log.log_id, CompositionEngine.ENGINE_VERSION, result)
         return results

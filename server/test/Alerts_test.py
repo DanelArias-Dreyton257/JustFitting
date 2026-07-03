@@ -7,7 +7,7 @@ import unittest
 from datetime import date, timedelta
 
 from server.src.services.composition import Alerts
-from server.src.services.composition.models import CompositionResult
+from server.src.services.composition.models import CompositionResult, EngineConstants
 
 BASE_DATE = date(2026, 1, 4)
 
@@ -151,6 +151,36 @@ class DetectAlertsOrderingTest(unittest.TestCase):
         alerts = Alerts.detect_alerts(list(reversed(results)))
         dates = [a.date for a in alerts]
         self.assertEqual(dates, sorted(dates))
+
+
+class CustomThresholdsTest(unittest.TestCase):
+    """Phase 1.5: per-user alert thresholds. Omitting `thresholds` must
+    reproduce today's fixed `constants.py` behavior (the other test classes
+    above already pin that); this covers that an override actually shifts
+    the detection boundary."""
+
+    def test_tighter_deviation_threshold_flags_a_gap_the_default_would_not(self):
+        results = [make_result(0, weight_gap_kg=0.5)]
+        default_alerts = Alerts.detect_alerts(results)
+        self.assertFalse(any(a.type == "deviation" for a in default_alerts))
+
+        tighter = Alerts.detect_alerts(
+            results, EngineConstants(significant_deviation_kg=0.3)
+        )
+        self.assertTrue(any(a.type == "deviation" for a in tighter))
+
+    def test_shorter_stagnation_window_flags_two_flat_weeks(self):
+        results = [
+            make_result(0, weight_delta_kg=0.0),
+            make_result(1, weight_delta_kg=0.05),
+        ]
+        default_alerts = Alerts.detect_alerts(results)
+        self.assertFalse(any(a.type == "stagnation" for a in default_alerts))
+
+        shorter_window = Alerts.detect_alerts(
+            results, EngineConstants(stagnation_weeks=2)
+        )
+        self.assertTrue(any(a.type == "stagnation" for a in shorter_window))
 
 
 if __name__ == "__main__":

@@ -178,6 +178,28 @@ MIGRATIONS: List[Tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS idx_alert_log_user ON alert_log(user_id, date);
         """,
     ),
+    (
+        9,
+        """
+        CREATE TABLE IF NOT EXISTS engine_settings (
+            settings_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            tef REAL NOT NULL,
+            kcal_per_kg_fat REAL NOT NULL,
+            neat_step_factor REAL NOT NULL,
+            implausible_weekly_change_pct REAL NOT NULL,
+            stagnation_weeks INTEGER NOT NULL,
+            stagnation_threshold_kg REAL NOT NULL,
+            lean_loss_window_weeks INTEGER NOT NULL,
+            max_lean_mass_loss_share REAL NOT NULL,
+            significant_deviation_kg REAL NOT NULL,
+            start_date TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_engine_settings_user_active ON engine_settings(user_id, active);
+        """,
+    ),
 ]
 
 

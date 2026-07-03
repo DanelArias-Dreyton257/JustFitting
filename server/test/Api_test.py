@@ -586,6 +586,122 @@ class ApiTestCase(unittest.TestCase):
         self.assertIsNotNone(report["latest_metrics"])
         self.assertEqual(len(report["goal_history"]), 1)
 
+    def test_settings_default_before_any_override(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/users/me/settings", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["is_default"])
+        self.assertEqual(body["stagnation_weeks"], 3)
+
+    def test_settings_update_and_history(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"stagnation_weeks": 2, "significant_deviation_kg": 0.5},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertFalse(body["is_default"])
+        self.assertEqual(body["stagnation_weeks"], 2)
+        self.assertEqual(body["significant_deviation_kg"], 0.5)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        self.assertEqual(get_response.get_json()["stagnation_weeks"], 2)
+
+        history_response = self.client.get(
+            "/api/users/me/settings/history", headers=headers
+        )
+        self.assertEqual(len(history_response.get_json()), 1)
+
+    def test_settings_update_rejects_invalid_value(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef": 1.5},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_custom_alert_threshold_changes_detection(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        # Default significant_deviation_kg is 1.0; a small ~0.5kg gap
+        # shouldn't trip it, but a tightened 0.1kg threshold should.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        default_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(any(a["type"] == "deviation" for a in default_alerts))
+
+        self.client.put(
+            "/api/users/me/settings",
+            json={"significant_deviation_kg": 0.1},
+            headers=headers,
+        )
+        tightened_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertTrue(any(a["type"] == "deviation" for a in tightened_alerts))
+
+    def test_alert_history_includes_acknowledged_alerts(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # implausible swing
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        # This scenario trips both the implausible-change and deviation
+        # detectors -- acknowledge everything currently open.
+        open_alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertGreaterEqual(len(open_alerts), 1)
+        for alert in open_alerts:
+            self.client.post(
+                f"/api/alerts/{alert['alert_id']}/acknowledge", headers=headers
+            )
+
+        default_view = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertEqual(default_view, [])
+
+        full_history = self.client.get(
+            "/api/alerts?include_acknowledged=true", headers=headers
+        ).get_json()
+        self.assertEqual(len(full_history), len(open_alerts))
+        self.assertTrue(all(a["acknowledged_at"] is not None for a in full_history))
+
 
 if __name__ == "__main__":
     unittest.main()

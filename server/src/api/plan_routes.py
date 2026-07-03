@@ -24,6 +24,7 @@ def preview():
     user_manager = current_app.extensions["user_manager"]
     log_manager = current_app.extensions["log_manager"]
     goal_plan_manager = current_app.extensions["goal_plan_manager"]
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
 
     profile = user_manager.get_profile(g.user_id)
     goal = goal_plan_manager.get_active(g.user_id)
@@ -50,10 +51,13 @@ def preview():
 
     engine_inputs = log_manager.to_engine_inputs(real_logs)
     prev_weight_kg = engine_inputs[-2].weight_kg if len(engine_inputs) > 1 else None
+    engine_constants = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(g.user_id)
+    )
 
     try:
         result = CompositionEngine.compute_row(
-            candidate_profile, engine_inputs[-1], prev_weight_kg
+            candidate_profile, engine_inputs[-1], prev_weight_kg, engine_constants
         )
     except (ValueError, ZeroDivisionError) as exc:
         return jsonify({"error": str(exc)}), 400

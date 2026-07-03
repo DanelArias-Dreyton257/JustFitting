@@ -13,11 +13,13 @@ from server.src.api.log_routes import log_bp
 from server.src.api.metrics_routes import metrics_bp
 from server.src.api.plan_routes import plan_bp
 from server.src.api.projection_routes import projection_bp
+from server.src.api.settings_routes import settings_bp
 from server.src.api.user_routes import user_bp
 from server.src.data.db.AlertLogDAO import AlertLogDAO
 from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.DB import DB
+from server.src.data.db.EngineSettingsDAO import EngineSettingsDAO
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.MetricsSnapshotDAO import MetricsSnapshotDAO
 from server.src.data.db.ProjectionDAO import ProjectionDAO
@@ -25,6 +27,7 @@ from server.src.data.db.SessionDAO import SessionDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.services import DemoSeeder
 from server.src.services.AuthService import AuthService
+from server.src.services.EngineSettingsManager import EngineSettingsManager
 from server.src.services.GoalPlanManager import GoalPlanManager
 from server.src.services.LogManager import LogManager
 from server.src.services.MetricsCache import MetricsCache
@@ -47,6 +50,9 @@ def create_app(config: Optional[dict] = None) -> Flask:
     goal_plan_manager = GoalPlanManager(
         GoalPlanDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
     )
+    engine_settings_manager = EngineSettingsManager(
+        EngineSettingsDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
+    )
     user_manager = UserManager(
         UserDAO(db), goal_plan_manager, audit_log_dao=audit_log_dao
     )
@@ -61,6 +67,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.extensions["auth_service"] = auth_service
     app.extensions["log_manager"] = log_manager
     app.extensions["goal_plan_manager"] = goal_plan_manager
+    app.extensions["engine_settings_manager"] = engine_settings_manager
     app.extensions["audit_log_dao"] = audit_log_dao
     app.extensions["alert_log_dao"] = alert_log_dao
     app.extensions["metrics_cache"] = metrics_cache
@@ -77,6 +84,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.register_blueprint(projection_bp)
     app.register_blueprint(plan_bp)
     app.register_blueprint(alerts_bp)
+    app.register_blueprint(settings_bp)
 
     @app.get("/api/health")
     def health():

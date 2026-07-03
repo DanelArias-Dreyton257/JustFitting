@@ -19,6 +19,7 @@ def compute_series_for_user(
     user_manager = app.extensions["user_manager"]
     log_manager = app.extensions["log_manager"]
     goal_plan_manager = app.extensions["goal_plan_manager"]
+    engine_settings_manager = app.extensions["engine_settings_manager"]
     metrics_cache = app.extensions["metrics_cache"]
 
     profile = user_manager.get_profile(user_id)
@@ -30,5 +31,10 @@ def compute_series_for_user(
     engine_inputs = log_manager.to_engine_inputs(ordered_logs)
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
-    results = metrics_cache.get_or_compute_series(profile_params, ordered_logs, engine_inputs)
+    engine_constants = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(user_id)
+    )
+    results = metrics_cache.get_or_compute_series(
+        profile_params, ordered_logs, engine_inputs, engine_constants
+    )
     return ordered_logs, results
