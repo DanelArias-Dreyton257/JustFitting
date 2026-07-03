@@ -341,32 +341,47 @@ aren't lost:
 - **Local/offline data mode** — see the design note in the Android app
   section below.
 
-### Phase 3 — Oleada 2: bulk/volume engine foundation (planned)
+### Phase 3 — Oleada 2: bulk/volume engine foundation (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F1, F4, F8). Lands the
 per-account configuration and BMR model choice everything else in Oleada 2
 builds on, without touching any existing (cut-mode) computed values:
 
 - Goal engine grows a `direction = cut | bulk` label derived from
-  `weekly_rate`'s sign; a bulk goal validates against the recommended
-  `[0.25%, 0.5%]` weekly-rate range and warns (not blocks) outside it.
-- A second BMR model, Mifflin–St Jeor, selectable per request/account
-  alongside the existing Cunningham model (`bmr_model`).
-- `EngineSettings` grows Oleada 2's calibration constants (fat offset,
-  FFMI coefficient, lean-tissue kcal/kg, ideal fat ratio), historized like
-  every other per-account constant — defaulting to values that reproduce
-  today's numbers exactly, never Sergio's own calibration. The weighted
-  body-fat formula's RFM/Navy/Deurenberg weights (today a fixed,
-  shared-by-everyone `constants.py` triple) become overridable the same
-  way, since the offset alone already establishes that this formula needs
-  per-account correction — the weights must still sum to 1.
+  `weekly_rate`'s sign (`GoalPlan.direction`, a `@property`, no new
+  column), exposed on `GET /api/users/me` and `GET /api/users/me/goals`. A
+  new `bulk_rate_out_of_range` detector (`services/composition/Alerts.py`)
+  flags — via the existing persisted/dismissible `GET /api/alerts`, not a
+  blocking exception — a bulk goal whose `weekly_rate` falls outside the
+  recommended `[0.25%, 0.5%]` range. The Plan view relabels the existing
+  deficit figure as "Daily surplus" for a bulk goal and shows a
+  Cut/Bulk badge; the Goal history table gains a Direction column.
+- A second BMR model, Mifflin–St Jeor (`EnergyModel.compute_bmr_mifflin`),
+  selectable via `bmr_model` (`"cunningham"` default | `"mifflin"`) on the
+  same per-account `EngineSettings` object as every other energy-model
+  constant — not a per-request query param like `trend_model`/
+  `activity_model`, since BMR choice affects every metrics computation, not
+  just an ephemeral forecast.
+- `EngineSettings` grows Oleada 2's calibration constants — `delta` (fat
+  offset), `ffmi_coef` (promoted from a literal in `Anthropometry.py`),
+  `w_rfm`/`w_navy`/`w_deur` (promoted from fixed `constants.py` globals,
+  guarded to sum to `1.0` when all three are overridden together),
+  `lean_tissue_kcal_per_kg` and `fat_ratio_ideal` (both unused until Phase
+  3.2/3.1 respectively, shipped now so `engine_settings` doesn't need a
+  second migration later) — historized like every other per-account
+  constant (migration 12), defaulting to values that reproduce today's
+  numbers exactly, never Sergio's own calibration. `GET`/`PUT
+  /api/users/me/settings` pick up all seven fields automatically (the
+  route is driven off `EngineSettingsManager.FIELDS`); the Settings view
+  gained a "Body-fat & BMR calibration" section.
 - Bulk mode reuses the existing deficit/target-calorie formula chain
   unmodified — `Pi_i` already goes negative (a surplus) when the weekly
-  rate is positive. `docs/composition_spec.md`'s "Formula reconciliation"
-  works out why TEF should stay a divisor (not the multiplier the source
-  spreadsheet uses) for both directions, so the only actual formula
-  addition across all of Oleada 2 is the cardio/EAT term from Phase 3.1
-  below, default `0`.
+  rate is positive (verified in `CompositionEngine_test.py` with a
+  Mifflin-BMR bulk profile). `docs/composition_spec.md`'s "Formula
+  reconciliation" works out why TEF should stay a divisor (not the
+  multiplier the source spreadsheet uses) for both directions, so the only
+  actual formula addition across all of Oleada 2 is the cardio/EAT term
+  from Phase 3.1 below, default `0`.
 
 ### Phase 3.1 — Oleada 2: cardio input & gain-quality tracking (planned)
 

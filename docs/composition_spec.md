@@ -159,7 +159,7 @@ base-case row (`dW=pct=Pi=0`, `Wobj_1=W_1`, deficit 0 => `TargetCal==TDEE`),
 the Navy guard (`waist <= neck` raises `ValueError`), and a projection case
 (dates advance by 7, `intake_is_real=false`, metrics recompute).
 
-## Oleada 2 — bulk/volume model (the "Sergio" spec, planned, not yet implemented)
+## Oleada 2 — bulk/volume model (the "Sergio" spec)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (v1.0, 2026-07-02). This is a
 second worked profile on top of the same core estimators above (RFM, Navy,

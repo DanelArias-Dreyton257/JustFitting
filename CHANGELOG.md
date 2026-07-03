@@ -9,6 +9,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 3: Oleada 2 bulk/volume engine foundation (see README's roadmap).
+  - **Cut/bulk direction**: `GoalPlan.direction` (a `@property`, `"bulk"`
+    iff `weekly_rate > 0`, no new column) is now exposed on
+    `GET /api/users/me` and `GET /api/users/me/goals`. A new
+    `bulk_rate_out_of_range` detector in `services/composition/Alerts.py`
+    flags -- via the existing persisted/dismissible `GET /api/alerts`, not
+    a blocking exception -- a bulk goal whose `weekly_rate` falls outside
+    the recommended `[0.25%, 0.5%]` range (`constants.BULK_RATE_MIN/MAX`);
+    `AlertSyncService.sync_alerts` now also fetches the active `GoalPlan`
+    to feed it. The client's Plan view relabels the existing
+    `daily_deficit_kcal` figure as "Daily surplus" (absolute value) and
+    shows a Cut/Bulk direction tile for a bulk goal -- the same computed
+    number, sign-flipped for display, not a new formula; the Goal history
+    table (and the printable Report view's copy of it) gained a Direction
+    column.
+  - **Second BMR model (Mifflin-St Jeor)**:
+    `EnergyModel.compute_bmr_mifflin(weight_kg, height_cm, age, sex)` joins
+    the existing Cunningham `compute_bmr`. Selectable via a new
+    `EngineConstants.bmr_model` field (`"cunningham"` default |
+    `"mifflin"`) on the same per-account, historized `EngineSettings`
+    object as every other energy-model constant -- not a per-request query
+    param like `trend_model`/`activity_model`, since BMR choice affects
+    every metrics computation, not just an ephemeral forecast.
+    `CompositionEngine.compute_row` branches on it at the same call site
+    that used to always call Cunningham.
+  - **Oleada 2 calibration constants**: `EngineConstants`/`EngineSettings`
+    grow `delta` (fat-percentage offset, default `0.0`), `ffmi_coef`
+    (default `6.3`, promoted from a literal previously hardcoded in
+    `Anthropometry.py`), `w_rfm`/`w_navy`/`w_deur` (defaults
+    `0.50`/`0.25`/`0.25`, promoted from fixed `constants.py` module
+    globals to per-account overrides, guarded in
+    `EngineSettingsManager.update_settings` to sum to `1.0` when all three
+    are overridden together in the same call), `lean_tissue_kcal_per_kg`
+    (default `2100`, unused until Phase 3.2's energy reconciliation) and
+    `fat_ratio_ideal` (default `0.25`, unused until Phase 3.1's
+    gain-quality panel) -- all reproducing today's Danel numbers exactly
+    by default. `BodyFat.compute_body_fat` and
+    `Anthropometry.compute_ffmi_adjusted` gained trailing, defaulted
+    parameters for the new weights/offset/coefficient; migration 12 adds
+    the seven `engine_settings` columns. `GET`/`PUT
+    /api/users/me/settings` pick up all of them automatically, since that
+    route is already driven off `EngineSettingsManager.FIELDS` rather than
+    a hardcoded field list; the Settings view gained a "Body-fat & BMR
+    calibration" form section and a BMR-model column in the settings
+    history table.
+  - Every new engine parameter trails existing ones with a
+    default-preserving value, so no `ENGINE_VERSION` bump was needed and
+    every pre-existing golden-value test in `CompositionEngine_test.py`/
+    `EnergyModel_test.py`/`BodyFat_test.py`/`Anthropometry_test.py` stays
+    unchanged; a new `EngineConstantsOverrideTest` case per knob (plus a
+    Mifflin-BMR bulk-profile integration test, proving `Pi_i`/
+    `daily_deficit_kcal` go negative for `weekly_rate > 0`) covers the
+    override path. New/extended test coverage: `BodyFat_test.py`,
+    `Anthropometry_test.py`, `EnergyModel_test.py`,
+    `CompositionEngine_test.py`, `Alerts_test.py` (new
+    `BulkRateAlertTest`), `EngineSettingsManager_test.py` (bound rejection
+    per new field, invalid-`bmr_model` rejection, the weights-sum-to-1
+    guard), `GoalPlanManager_test.py` (`.direction` for both signs), and
+    `Api_test.py` (settings round-trip for the new fields, `direction` in
+    the goals response, an out-of-range bulk rate producing a dismissible
+    alert end-to-end).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v5` -> `-v6`) for the Settings/Plan/
+    Goal-history UI changes, same reasoning as every prior static-asset
+    change.
 - Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
   `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
   `trend_model: "ols" | "weighted_ols"` parameter threads through
