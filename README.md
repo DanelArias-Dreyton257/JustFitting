@@ -293,29 +293,45 @@ full detail, status per item, and the recommended data model are in
   `GET /api/alerts` end-to-end (empty with no logs, an implausible-change
   swing, a goal-trajectory deviation).
 
-### Phase 1.4 — Adherence & reporting
+### Phase 1.4 — Adherence & reporting (done)
 
-- Add `GET /api/metrics/adherence` (or fold it into `/latest`) surfacing
-  `LogManager.compute_adherence` — mean `IntakeDiff` over
-  `intake_is_real=true` rows only — and show it on the Dashboard.
-- Add exportable technical reports/summaries for the user, a trainer, or
-  a nutritionist (e.g. a printable/PDF report), beyond today's raw JSON
-  export/import.
-- Surface the historized goal-plan timeline (`GET /api/users/me/goals`,
-  implemented in Phase 1.1 but still unused by the client) in the UI —
-  e.g. mark plan-change dates on the new goal-trajectory chart (Phase 1.2)
-  or list past plans in the Account/Plan view — so a user can see *when*
-  and *why* their target calories shifted, not just the current plan.
-- Basic chart affordances noticed while building Phase 1.2's charts:
-  `charts.js` still has no date-axis labels, gridlines or hover tooltips
-  (points are index-spaced, not date-spaced); worth a pass once there are
-  more chart types than screen real estate for a 4-week-old account.
-- Alert history/acknowledgement, noticed while building Phase 1.3:
-  `GET /api/alerts` recomputes fresh on every read (nothing is persisted),
-  so there's no way to dismiss an alert, see whether it was already shown,
-  or look back at what fired in a past week. Worth a small `alert_log`-style
-  table if that history turns out to matter once there's more than a
-  handful of weeks of data.
+- `GET /api/metrics/adherence` (`metrics_routes.py`, new `AdherenceDTO`)
+  surfaces `LogManager.compute_adherence` — mean `IntakeDiff` over
+  `intake_is_real=true` rows only, plus the real-log count so the client
+  can tell "no real-intake logs yet" apart from "0 kcal/day average" —
+  and the Dashboard's stat-tile row now shows an "Adherence" tile
+  (`±N kcal/day`) alongside the existing stats.
+- Alerts are now persisted instead of recomputed and forgotten on every
+  read: a new `alert_log` table (migration v8, `data/db/AlertLogDAO.py`,
+  domain `AlertLog`, `AlertLogDTO`) records each detection deduped on
+  `(user_id, type, date)`, via a shared `services/AlertSyncService
+  .sync_alerts` (mirroring how `MetricsSeriesService` is already shared
+  between `/api/metrics` and `/api/alerts`). `GET /api/alerts` now
+  excludes acknowledged alerts by default (`?include_acknowledged=true`
+  to see the full history) and a new `POST
+  /api/alerts/<id>/acknowledge` dismisses one; the Dashboard's alerts
+  panel gained a dismiss (×) button per alert.
+- A new `GET /api/users/me/report` endpoint (`user_routes.py`) bundles
+  profile, latest metrics, adherence, the full goal-plan history, the
+  complete weekly series, and open alerts into one payload — richer
+  than the existing raw JSON `/export` (which is unchanged and stays
+  the backup/restore contract). A new "Report" view renders it as a
+  readable summary with a **Print / Save as PDF** button
+  (`window.print()` plus a `@media print` stylesheet that hides the
+  nav/footer) — no new Python dependency, consistent with this repo's
+  "no Node.js, no build step" architecture.
+- The historized goal-plan timeline (`GET /api/users/me/goals`,
+  implemented in Phase 1.1) is now surfaced in the UI: a "Goal history"
+  table in the Plan view (start date, target BF%, weekly rate,
+  active/past badge), and the same goal-change dates are drawn as
+  dashed vertical markers on the Dashboard's goal-trajectory chart —
+  so a user can see *when* and *why* their target calories shifted.
+- `charts.js`'s three draw functions were reworked from index-spaced to
+  date-spaced points: a date-based x-scale, ~4 gridlines/axis labels per
+  axis, and hover tooltips (a small per-card `.chart-tooltip` div driven
+  by `mousemove`, showing the date and each series' value under the
+  cursor) — this was also the prerequisite for the goal-change markers
+  above.
 
 ### Phase 1.5 — Account & model completeness
 
@@ -331,6 +347,12 @@ full detail, status per item, and the recommended data model are in
   profile/admin rather than fixed code constants.
 - Make the projection's activity assumption configurable (today steps
   are always carried forward as a constant).
+- A dedicated alert-history browser, noticed while building Phase 1.4:
+  `GET /api/alerts?include_acknowledged=true` already returns the full
+  history including dismissed alerts, but no UI browses it — today a
+  user can only see currently-open alerts on the Dashboard. Worth a
+  small view/table once there's more than a handful of weeks of
+  acknowledged alerts to look back at.
 
 ### Phase 1.6 — Testing groundwork
 

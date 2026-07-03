@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 1.4: adherence & reporting (see README's roadmap).
+  - `GET /api/metrics/adherence` (`metrics_routes.py`, new
+    `data/dto/AdherenceDTO.py`) surfaces `LogManager.compute_adherence`
+    (mean `IntakeDiff` over `intake_is_real=true` rows), which previously
+    existed and was unit-tested but wasn't wired to any route. The
+    Dashboard's stat-tile row gained an "Adherence" tile
+    (`±N kcal/day`, or "no real-intake logs yet").
+  - Alerts are now persisted instead of recomputed fresh (and forgotten)
+    on every `GET /api/alerts`: a new `alert_log` table (migration
+    version 8 in `data/db/DB.py`), `data/domain/AlertLog.py`,
+    `data/db/AlertLogDAO.py` (dedupes detections on `(user_id, type,
+    date)` via `INSERT OR IGNORE`, so re-detecting the same alert is a
+    no-op), and `data/dto/AlertLogDTO.py`. A new
+    `services/AlertSyncService.sync_alerts` (detect → persist → list)
+    is shared by `alerts_routes.py` and the new report endpoint, mirroring
+    how `MetricsSeriesService` is already shared between `/api/metrics`
+    and `/api/alerts`. `GET /api/alerts` now excludes acknowledged
+    alerts by default (`?include_acknowledged=true` to see the full
+    history) and a new `POST /api/alerts/<id>/acknowledge` dismisses
+    one (404 if not found/not owned); the Dashboard's alerts panel
+    gained a dismiss (×) button per alert (`views.js`'s `renderAlerts`,
+    a delegated click handler in `app.js`).
+  - A new `GET /api/users/me/report` (`user_routes.py`) bundles profile,
+    latest metrics, adherence, the full goal-plan history, the complete
+    weekly series, and open alerts into one payload — richer than the
+    existing raw JSON `/export` (unchanged, still the backup/restore
+    contract). A new "Report" nav view (`views.js`'s `renderReport`)
+    renders it as a readable summary with a **Print / Save as PDF**
+    button (`window.print()` plus a `@media print` block in
+    `style.css` that hides the nav/footer/print button) — no new Python
+    dependency, consistent with this repo's "no Node.js, no build step"
+    architecture.
+  - The historized goal-plan timeline (`GET /api/users/me/goals`,
+    implemented in Phase 1.1 but unused by the client until now) is
+    surfaced in two places: a "Goal history" table in the Plan view
+    (`views.js`'s `renderGoalHistory`, start date/target BF/weekly
+    rate/active-or-past badge) and dashed vertical markers at each
+    goal-change date on the Dashboard's goal-trajectory chart.
+  - `charts.js`'s `drawLineChart`, `drawMultiLineChart` and
+    `drawStackedBars` were reworked from index-spaced to date-spaced
+    points: a date-based x-scale (parses each row's `.date`), ~4
+    gridlines/axis-tick labels per axis (asymmetric padding to make
+    room for them), and hover tooltips (a per-`.chart-card`
+    `.chart-tooltip` div driven by `mousemove`/`mouseleave` on the
+    `<svg>`, showing the date and each series' value nearest the
+    cursor) — this date-scale rework was also the prerequisite for the
+    goal-change markers above. `app.js`'s chart-building calls were
+    updated to pass `date` through and per-line `label`s for the
+    tooltip.
+  - 8 new `Api_test.py` cases: adherence with/without logs, an
+    acknowledge round-trip (dismiss removes an alert from the default
+    list, `?include_acknowledged=true` still shows it with
+    `acknowledged_at` set), acknowledging another user's alert 404s,
+    and a `GET /api/users/me/report` smoke test.
+  - Fixed a pre-existing bug in `scripts/seed_demo_data.py` (unrelated
+    to this phase, found while regenerating demo data for manual
+    testing): it still constructed `UserManager`/`LogManager` with their
+    pre-Phase-1.1 signatures, missing the `goal_plan_manager`/
+    `audit_log_dao` dependencies added when `GoalPlan` was historized —
+    `TypeError: UserManager.__init__() missing 1 required positional
+    argument: 'goal_plan_manager'` on every run. Now wires it up the
+    same way `api/app.py` does.
+  - `docs/product_capabilities_spec.md` and the README roadmap updated
+    to mark Phase 1.4's §14/§14.1/§16/§16.1 items done, plus an
+    additive note (a dedicated alert-history browser UI — the
+    `?include_acknowledged=true` data is available but nothing browses
+    it yet) folded into Phase 1.5.
 - Phase 1.3: alerts & feedback engine (see README's roadmap).
   - A new pure `server/src/services/composition/Alerts.py` module runs four
     detectors over an already-computed metrics series, adding no new
@@ -234,6 +301,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bumped the PWA service worker's `CACHE_NAME` again
+  (`client/src/webapp/static/sw.js`, `justfitting-shell-v3` -> `-v4`) for
+  Phase 1.4's new Report view, goal-history table, and reworked charts,
+  same reasoning as the bumps below.
 - Bumped the PWA service worker's `CACHE_NAME` again
   (`client/src/webapp/static/sw.js`, `justfitting-shell-v2` -> `-v3`) for
   Phase 1.3's Dashboard alerts panel, same reasoning as the `-v1` -> `-v2`
