@@ -121,6 +121,7 @@ JustFitting/
 ├── environment.yml
 ├── package.json               # Capacitor Android packaging (dev-time only)
 ├── capacitor.config.json
+├── Dockerfile.capacitor        # optional: Node/Capacitor CLI, isolated from conda
 ├── render.yaml
 ├── CHANGELOG.md
 ├── docs/composition_spec.md
@@ -499,6 +500,24 @@ Android app: local UI, HTTP(S) calls to <API_URL>
 npm install                 # @capacitor/core, @capacitor/cli, @capacitor/android
 npm run android:add         # one-time: scaffolds android/ via `npx cap add android`
 ```
+
+**Running these in Docker instead of installing Node locally**: `Dockerfile.capacitor`
+at the repo root isolates the Node/Capacitor CLI toolchain from the
+conda-managed Python env (it includes a bare `python3` too, since the npm
+scripts shell out to `scripts/build_static_site.py`, which is stdlib-only —
+no pip deps needed for that to work in the container):
+
+```bash
+docker build -f Dockerfile.capacitor -t justfitting-capacitor .
+docker run --rm -v "$PWD":/app justfitting-capacitor install
+docker run --rm -v "$PWD":/app justfitting-capacitor run android:add
+docker run --rm -v "$PWD":/app justfitting-capacitor run android:sync
+```
+
+This covers `install`/`android:add`/`android:sync` (they only touch files
+under `node_modules/`, `dist/`, and `android/`). `npm run android:open`
+launches Android Studio, a GUI app, and must be run natively on the host
+afterward — it isn't a Docker command.
 
 ### Building the client for each target
 

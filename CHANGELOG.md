@@ -39,6 +39,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.github/workflows/ci.yml` now installs Chromium
   (`playwright install --with-deps chromium`) before the client test step.
 
+- `Dockerfile.capacitor`: isolates the Node/Capacitor CLI toolchain (`npm
+  install`, `npx cap add android`, `npx cap sync android`) from the
+  conda-managed Python env, as an alternative to installing Node.js
+  directly on the host. Includes a bare `python3`/`python` (no pip deps)
+  since those npm scripts shell out to `scripts/build_static_site.py`,
+  which is stdlib-only. Deliberately excludes the Android SDK/emulator/
+  Android Studio -- those need a GUI and hardware-accelerated
+  virtualization that don't containerize well on Windows, so `npm run
+  android:open` still runs natively. README's "Android app" Setup section
+  documents both paths. Not built/run in this change (no Docker installed
+  in the environment this was authored in) -- verify locally with `docker
+  build -f Dockerfile.capacitor -t justfitting-capacitor .`.
+
 - Phase 2: Android app packaging via **Capacitor**, replacing the
   previously-planned Trusted Web Activity (TWA)/Bubblewrap approach (see
   README's "Android app" section) with a real installable app that bundles
