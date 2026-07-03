@@ -86,3 +86,152 @@ engine's formulas or compute order ever change.
 
 See `README.md`'s roadmap section for how these gaps are grouped into
 implementation phases.
+
+## Oleada 2 — new functional capabilities (source: `docs/JustFitting_Oleada2_Sergio.pdf`, v1.0)
+
+Everything above (§14–§16) comes from the original "Danel" (cut/deficit)
+spec and is implemented. This section records a **second** source
+document — a bulk/volume ("Sergio") profile verified against a separate
+spreadsheet — that specifies eight new capabilities, **none implemented
+yet**. See `docs/composition_spec.md`'s "Oleada 2" section for the full
+formulas, including its "Formula reconciliation" note: the source
+document's literal TDEE/target-calorie formulas look different from
+Danel's (TEF as a multiplier, a different weight basis for the surplus),
+but working through the physiology (TEF as % of *total* TDEE, not of
+non-food expenditure) shows the existing divisor formula was already
+correct, and the real difference is just one additive term — cardio/EAT,
+`0` by default. Read that reconciliation before scoping F1/F4 below; it's
+why their "planned action" cells say "extend," not "fork."
+
+A **third** source document, `docs/JustFitting_TEF_Macronutrientes.pdf`
+(v1.0), specifies a ninth capability (F9, below): it replaces the flat
+10% TEF approximation the reconciliation above justifies with a value
+computed from actually-logged carb/fat/protein grams, once F6's daily
+granularity is in place. It's the biggest single accuracy upgrade in
+Oleada 2 — two accounts with identical calories/steps/weight but
+different macro splits get genuinely different, physiologically-grounded
+energy estimates instead of the same flat number.
+
+### Capabilities (F1–F8)
+
+| # | Capability | Technical description | Status | Planned action |
+| --- | --- | --- | --- | --- |
+| F1 | Surplus/bulk mode | Goal engine generalized to a positive weekly rate `rho > 0`; weekly/daily surplus in kcal (the same `Pi_i`/deficit figure already computed, sign-flipped and relabeled); recommended-range validation `[0.25%, 0.5%]`. | Not implemented. `GoalPlan.weekly_rate` already accepts a signed value and the underlying `Pi_i` math already generalizes to it, but nothing derives a `direction` label, validates the bulk range, or relabels the deficit figure as a surplus. | New `direction = cut \| bulk` derived from `weekly_rate`'s sign; display-layer relabeling of the existing `weekly_deficit_kcal`/`daily_deficit_kcal`, no new surplus formula (see `composition_spec.md`'s reconciliation note). |
+| F2 | Cardio (EAT) as input | New field, kcal spent on exercise, on either a daily or weekly log (F6); adds one term (`EAT_i`, default `0`) to the existing TDEE/target-calorie formulas. | Not implemented — `BodyLog` has no exercise field. | Add `cardio_kcal` to `BodyLog`; include as `+ EAT_i` in `EnergyModel.py`'s existing TDEE/TargetCal formulas. With `EAT_i=0` every existing log computes identically to today. |
+| F3 | Gain quality (lean/fat partition) | Weekly and cumulative lean-vs-fat split of the weight *change*; ideal ratio 25/75 (fat share ≤ 25%). | Not implemented — the app tracks levels (fat %, fat/lean mass) but not the composition of week-over-week *change*. | New `GainQuality` engine output (`delta_lean_kg`, `delta_fat_kg`, cumulative, `fat_ratio`); reuses the already-computed `weight_delta_kg`. |
+| F4 | Second BMR model (Mifflin–St Jeor) | `bmr_model = cunningham \| mifflin`, selectable; Mifflin depends only on weight/height/age (correctly sex-specific, unlike RFM/Navy), and avoids feeding BMR off a lean-mass estimate that's comparatively noisy early in a bulk. | Not implemented — only Cunningham exists. | Add `Mifflin` to `EnergyModel.py`; expose `bmr_model` the same way `trend_model`/`activity_model` are exposed today. Feeds the same shared TDEE/TargetCal formula as F2 — a model choice, not a separate formula. |
+| F5 | Energy reconciliation ("Error") | Compares surplus implied by intake (`E_i - TDEE_i`) against surplus implied by the *next* week's tissue change; flags a large gap for recalibration. | Not implemented — no cross-check exists between the energy model and the measured composition change. | New `EnergyReconciliation` module; new `k_L` (lean-tissue kcal/kg) constant; inherently one-week-lagged (needs week `i+1`). |
+| F6 | Daily/weekly log coexistence | Optional daily capture (weigh-in, steps, cardio); a weekly *view* of daily logs takes the median weight / mean steps+cardio for the week; a daily *view* of a weekly log copy-pastes that log's values across every day since the previous one. Both directions, same mechanism. | Not implemented — `BodyLog` is one row per week with no granularity tag. | Add `granularity = daily \| weekly` to `BodyLog` (same pattern as the existing `source = real \| projected` tag) instead of a separate `DailyEntry` entity; `CompositionEngine` resolves whichever weekly view it needs on the fly. Degrades to today's single-value behavior for an account that only ever logs weekly. Also the natural data path for the README's unscheduled "automatic steps import" idea (Phase 2.1). |
+| F7 | Real-increment analytics | Actual week-over-week weight increment vs. the goal rate; running mean; normalized deviation. | Partial — `weight_delta_pct` already computes the same underlying figure (`composition_spec.md` confirms the identity); no running mean or goal-relative deviation is surfaced. | Derived-analytics layer only, no new base computation: `mean(weight_delta_pct)` and `Desv_i = (rho - weight_delta_pct_i) / rho`. |
+| F8 | Per-user calibration constants | Fat-percentage offset `delta`, FFMI coefficient, lean-tissue kcal/kg `k_L`, ideal fat-ratio ceiling — all account-overridable, historized like existing `EngineSettings`. | Not implemented (new fields); the *mechanism* (historized per-account constants) already exists from Phase 1.5. | Extend `EngineSettings`/`EngineConstants` with `fat_offset` (default `0.0`), `ffmi_coef` (default `6.3`, promoting today's `Anthropometry.py` literal to a named, overridable constant), `lean_tissue_kcal_per_kg` (default `2100`), `fat_ratio_ideal` (default `0.25`), and, going a step beyond the source doc: promote `bf_weight_rfm`/`bf_weight_navy`/`bf_weight_deurenberg` (today `constants.py` module globals, defaults `0.50/0.25/0.25`, shared by every account) into the same per-account override set, since Sergio's doc already establishes that the weighted body-fat formula needs a personal correction and there's no principled reason the offset is overridable but the weights it's added to aren't. Defaults must reproduce today's Danel numbers exactly. |
+
+### Capability F9 — TEF by macronutrients (source: `docs/JustFitting_TEF_Macronutrientes.pdf`)
+
+| # | Capability | Technical description | Status | Planned action |
+| --- | --- | --- | --- | --- |
+| F9 | TEF by macronutrients | Daily TEF = `kappa_C*carbs_g + kappa_G*fat_g + kappa_P*protein_g` (kcal), weekly TEF = mean of the week's days; replaces the flat `/(1-TEF)` estimate additively (`TDEE = BMR+NEAT+EAT+TEF`) once macros are logged; falls back to flat per-week when they aren't. | Not implemented — `BodyLog`/daily rows have no macro fields, and `EnergyModel.py` has only the flat TEF path. | Add `carbs_g, fat_g, protein_g` to the daily-granularity log row (F6) — no new entity needed, since F6 already generalized daily capture onto `BodyLog` itself. New `Tef` module (`daily_tef`, `weekly_tef`, not persisted — derived on read). `EnergyModel` gains `tef_mode = flat \| macros`. See `composition_spec.md`'s F9 section for the full formulas and a numeric inconsistency flagged in the source doc's own worked example. |
+
+### New/changed data model
+
+| Entity | Change | Purpose |
+| --- | --- | --- |
+| `BodyLog` | `+ cardio_kcal, + granularity (daily \| weekly), + carbs_g, fat_g, protein_g` (macros only meaningful on daily-granularity rows) | F2/F6/F9: one table, no separate `DailyEntry`/`DailyMacroEntry` entity — F6's granularity tag was already the right foundation for F9's macro fields too. |
+| `GoalPlan` | `direction` derived from `weekly_rate`'s sign (no new column needed, unless a UI wants to store the user's intent independent of the numeric rate) | F1: cut vs. bulk labeling. |
+| `EngineSettings` | `+ fat_offset, bf_weight_rfm, bf_weight_navy, bf_weight_deurenberg, ffmi_coef, lean_tissue_kcal_per_kg, fat_ratio_ideal, kappa_C, kappa_G, kappa_P, tef_mode` | F8/F9, all historized/overridable like the Phase 1.5 fields. |
+| `CalculatedMetrics` snapshot | `+ delta_lean_kg, delta_fat_kg, fat_ratio, fat_ratio_cumulative, energy_reconciliation_error, tef_kcal, tef_mode` (bulk-mode rows only) | F3/F5/F9 outputs, same snapshot-per-`(log_id, engine_version)` pattern as today. |
+
+### API additions (planned)
+
+- `GET /api/metrics/gain-quality` — F3 partition and ratios.
+- `GET /api/metrics/energy-balance` — F5 ingested-vs-tissue surplus and error.
+- `GET /api/metrics/tef` — F9 daily and weekly TEF, broken down by macro.
+- `bmr_model=cunningham|mifflin` parameter on the metrics/projection endpoints that compute BMR — F4.
+- `POST /api/logs` accepts `cardio_kcal`, `granularity`, and (on daily rows) `carbs_g, fat_g, protein_g`; a daily-granularity log is posted the same way a weekly one is today, just tagged and dated per-day (F6/F9).
+- `tef_mode=flat|macros` parameter alongside `bmr_model` on the same metrics/projection endpoints — F9.
+- `EngineSettings` read/write endpoints (`GET`/`PUT /api/users/me/settings`, already existing) extended with the F8 fields.
+
+### Validations, assumptions and limitations (Oleada 2)
+
+- **One shared formula, not a fork**: the source doc's literal TDEE/
+  target-calorie formulas look structurally different from Danel's (TEF as
+  a multiplier; a this-week weight basis for the surplus), but
+  `composition_spec.md`'s "Formula reconciliation" works through why the
+  existing divisor-based formula is the physiologically correct one (TEF
+  as % of *total* TDEE) and why the existing `Pi_i`-based deficit already
+  generalizes to a surplus unmodified. The only real addition is `+ EAT_i`
+  (default `0`). Implement F1/F2/F4 as extensions of the shared
+  `EnergyModel.py` chain, not a parallel `direction=bulk` codepath — with
+  `EAT_i=0` every existing log computes byte-for-byte identically, so
+  `CompositionEngine_test.py`'s golden values don't drift and
+  `ENGINE_VERSION` doesn't need to bump for this alone. Recomputing the
+  source doc's own worked example with the corrected formula gives ≈2796
+  kcal vs. its printed 2724.5 kcal (≈2.6%, from the TEF fix) — an
+  intentional, documented deviation from the literal spreadsheet, not a
+  bug to chase.
+- **Defaults preserve Danel exactly**: `fat_offset=0.0`, `ffmi_coef=6.3`,
+  and `bf_weight_rfm/navy/deurenberg=0.50/0.25/0.25` are the new defaults,
+  not Sergio's calibrated `0.02`/`6.1` — a user with no override must see
+  identical numbers to today. Same "no row = today's behavior" contract as
+  every other `EngineSettings` field. Sergio's `0.02`/`6.1` are one
+  account's calibration, not a claimed universal constant, per the source
+  doc's own caution — and note his document doesn't actually change the
+  RFM/Navy/Deurenberg weights, only adds the offset; making the weights
+  overridable too is this repo's own generalization, not something the
+  source doc asked for.
+- **Body-fat weights must sum to 1**: if `bf_weight_rfm`,
+  `bf_weight_navy`, and `bf_weight_deurenberg` are overridden, validate
+  they sum to `1.0` (within tolerance) so `BF_i` stays a proper weighted
+  mean rather than silently rescaling.
+- **Reconciliation is one-week-lagged**: F5's `Error_i` needs week `i+1`'s
+  data and can never be computed for the most recent logged week — an
+  a-posteriori check, not a same-week metric.
+  Recommend a rolling-mean view, per the source doc.
+- **Gain-quality ratio is undefined at zero weight change**: `FatRatio_i`
+  divides by `delta_lean + delta_fat` (== `weight_delta_kg`); guard
+  against `weight_delta_kg == 0` rather than computing a `NaN`/divide error, and treat the ratio as meaningful only when the week is a net
+  gain (`weight_delta_kg > 0`).
+- **Granularity is per-log, not per-account**: F6's `granularity` tag lives
+  on each `BodyLog` row, not as an account-level setting — a user can log
+  daily some weeks and weekly others, and both resolve correctly (median
+  weight / mean steps+cardio for a weekly *view* of a daily week; the
+  logged value copy-pasted across the days a weekly log covers, for a
+  daily *view*). An account that only ever logs weekly sees no behavior
+  change; `median(w^(1), ...)` degrades to a single value with one
+  weigh-in, identical to today.
+- **Mifflin's sex term is already correct**: `+5` (male) / `-161`
+  (female) is a real per-sex coefficient, unlike RFM/Navy's male-only
+  constants — F4 does not inherit the existing "Known limitations"
+  disclaimer, and should not display it.
+- **New alerts** (extending Phase 1.3's `Alerts.py`): fat ratio above
+  `fat_ratio_ideal` on a bulk week ("dirty bulk"); reconciliation error
+  above a configurable threshold ("recalibrate"); `weekly_rate` outside
+  the recommended bulk range `[0.25%, 0.5%]`.
+- **F9 depends on F6, not the other way around**: macro-based TEF only
+  has data to compute from on daily-granularity log rows (F6); a week
+  logged only at weekly granularity has no per-day macro grams, so
+  `tef_mode` silently resolves to `"flat"` for that week even on an
+  account set to `"macros"` — never a blocking error.
+- **F9's worked example doesn't fully reconcile numerically**: the source
+  doc's own TDEE integration example (`BMR=1892.5, NEAT=159.4,
+  EAT=478.6, TEF=288.3` stated to sum to `2854.8`) actually sums to
+  `2818.8` by the stated formula — a ~36 kcal gap, most likely from
+  rounding the displayed subtotals before printing. Treat the additive
+  formula (`composition_spec.md`, F9) as authoritative, not that specific
+  printed total, when writing a golden-reference test for this feature.
+- **F9's weekly average over partial weeks is an open decision**: the
+  source doc raises, but doesn't resolve, whether a week's TEF should
+  average only the days with macros logged or require a complete week.
+  Recommend averaging whatever's logged (minimum 1 day), consistent with
+  how F6's median weight already degrades gracefully with partial data.
+- **F9's coefficients are Atwater-standard and literature averages**:
+  `kappa_C/G/P` (or the underlying `e_m`/`tau_m`) don't account for
+  alcohol or fiber, and vary by individual — hence overridable, same
+  historized mechanism as every other engine constant. A soft (flag, not
+  block) coherence check between declared `kcal` and `4*carbs_g +
+  9*fat_g + 4*protein_g` is worth surfacing, not enforcing.
+- **Health disclaimer** (unchanged scope): energy balances and fat
+  estimates remain population-level approximations, not medical or
+  nutritional prescriptions — same footer disclaimer applies to Oleada 2
+  figures.
+
+See `README.md`'s roadmap for how F1–F9 are grouped into phases.

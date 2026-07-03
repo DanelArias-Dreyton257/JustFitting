@@ -240,6 +240,16 @@ status per item, and the recommended data model are in
 order that unlocked the most value first — all of Phase 1's sub-phases are
 done.
 
+A second source document, `docs/JustFitting_Oleada2_Sergio.pdf` (v1.0),
+specifies an entirely new bulk/volume module (eight capabilities, F1–F8)
+on top of the same core engine; see Phase 3 below, and the "Oleada 2"
+sections of `docs/composition_spec.md` (formulas) and
+`docs/product_capabilities_spec.md` (capabilities, data model,
+validations) for the full spec. A **third** source document,
+`docs/JustFitting_TEF_Macronutrientes.pdf` (v1.0), adds a ninth
+capability (F9) on top of that module: real TEF computed from logged
+carb/fat/protein grams instead of a flat 10% guess — see Phase 3.4.
+
 ### Phase 1 — Core engine (done)
 
 The calculation engine, server, and client, end-to-end, verified against
@@ -330,6 +340,101 @@ aren't lost:
   reading — directly improves the NEAT/TDEE inputs' accuracy.
 - **Local/offline data mode** — see the design note in the Android app
   section below.
+
+### Phase 3 — Oleada 2: bulk/volume engine foundation (planned)
+
+Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F1, F4, F8). Lands the
+per-account configuration and BMR model choice everything else in Oleada 2
+builds on, without touching any existing (cut-mode) computed values:
+
+- Goal engine grows a `direction = cut | bulk` label derived from
+  `weekly_rate`'s sign; a bulk goal validates against the recommended
+  `[0.25%, 0.5%]` weekly-rate range and warns (not blocks) outside it.
+- A second BMR model, Mifflin–St Jeor, selectable per request/account
+  alongside the existing Cunningham model (`bmr_model`).
+- `EngineSettings` grows Oleada 2's calibration constants (fat offset,
+  FFMI coefficient, lean-tissue kcal/kg, ideal fat ratio), historized like
+  every other per-account constant — defaulting to values that reproduce
+  today's numbers exactly, never Sergio's own calibration. The weighted
+  body-fat formula's RFM/Navy/Deurenberg weights (today a fixed,
+  shared-by-everyone `constants.py` triple) become overridable the same
+  way, since the offset alone already establishes that this formula needs
+  per-account correction — the weights must still sum to 1.
+- Bulk mode reuses the existing deficit/target-calorie formula chain
+  unmodified — `Pi_i` already goes negative (a surplus) when the weekly
+  rate is positive. `docs/composition_spec.md`'s "Formula reconciliation"
+  works out why TEF should stay a divisor (not the multiplier the source
+  spreadsheet uses) for both directions, so the only actual formula
+  addition across all of Oleada 2 is the cardio/EAT term from Phase 3.1
+  below, default `0`.
+
+### Phase 3.1 — Oleada 2: cardio input & gain-quality tracking (planned)
+
+Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F2, F3). The central new
+capability of the module — "is this bulk clean?":
+
+- A weekly `cardio_kcal` (EAT) field, folded into TDEE for bulk-mode
+  accounts.
+- A gain-quality panel: weekly and cumulative lean/fat split of the
+  week-over-week weight change, with a 25/75 ideal-ratio indicator.
+
+### Phase 3.2 — Oleada 2: energy reconciliation & increment analytics (planned)
+
+Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F5, F7). Closes the loop
+between the energy model and what's actually being measured:
+
+- An energy-reconciliation check comparing the surplus implied by intake
+  against the surplus implied by next week's measured tissue change, with
+  its error (and a rolling mean) surfaced to the user.
+- Real-increment analytics: a running mean of the actual weekly increment
+  and its normalized deviation from the goal rate.
+- Two new alerts extending Phase 1.3's engine: a high fat-ratio week
+  ("dirty bulk") and a reconciliation error above threshold
+  ("recalibrate").
+
+### Phase 3.3 — Oleada 2: daily and weekly logs coexist (planned)
+
+Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F6), generalized beyond
+what the source doc specifies. The natural foundation for the Phase 2.1
+"automatic steps import" idea:
+
+- A log row gets a `granularity = daily | weekly` tag (same pattern as
+  the existing `source = real | projected` tag) instead of a separate
+  daily-entry table that only exists to feed a forced weekly rollup.
+  Every week can be logged either way, and even mix over an account's
+  history.
+- Each **view** resamples whatever's actually stored, in both directions:
+  a weekly view of a daily-logged week takes the median weight / mean
+  steps+cardio across its days (more robust to daily water/sodium swings
+  than a single weigh-in); a daily view of a weekly-logged week
+  copy-pastes that log's values across every day since the previous one
+  — the same "hold the last known value" idea the projection module
+  already uses going forward (`activity_model="constant"`), just applied
+  backward across days a single log already covers.
+- An account that only ever logs weekly sees no change in behavior.
+
+### Phase 3.4 — Oleada 2: TEF by macronutrients (planned)
+
+Source: `docs/JustFitting_TEF_Macronutrientes.pdf` (F9). The single
+biggest precision upgrade in Oleada 2's energy model — comes last in the
+sequence because it needs Phase 3.3's daily granularity to have somewhere
+to read macros from, not because it's minor:
+
+- Daily carb/fat/protein grams (on a daily-granularity log row — no new
+  table, just three more optional fields on the same row Phase 3.3
+  introduced) produce a directly-computed daily and weekly TEF in kcal,
+  replacing the flat 10% guess: protein costs far more to digest than
+  carbs or fat, so two accounts eating the same calories with different
+  macro splits get genuinely different, not identical, energy estimates
+  — materially relevant for a high-protein bulk.
+- `tef_mode = flat | macros`, account setting + optional per-request
+  override; a week with no macros logged falls back to the flat estimate
+  automatically, regardless of the account's preferred mode — this
+  feature is additive, never blocking.
+- The TEF-per-gram coefficients (protein highest, fat lowest) are
+  literature averages, so they're per-account overridable like every
+  other engine constant, alongside a new `GET /api/metrics/tef` view
+  breaking a week's TEF down by macro.
 
 ## Android app
 
