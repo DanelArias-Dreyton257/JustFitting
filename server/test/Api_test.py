@@ -457,6 +457,135 @@ class ApiTestCase(unittest.TestCase):
         deviation = [a for a in alerts if a["type"] == "deviation"]
         self.assertTrue(any(a["date"] == "2026-01-11" for a in deviation))
 
+    def test_adherence_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/adherence", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_adherence_reflects_real_logs_only(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/adherence", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["real_log_count"], 2)
+        self.assertIsNotNone(body["mean_intake_diff_kcal"])
+
+    def test_acknowledge_alert_removes_it_from_the_default_list(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,  # >8% down in one week
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        implausible = [a for a in alerts if a["type"] == "implausible_change"][0]
+        self.assertIsNone(implausible["acknowledged_at"])
+
+        ack_response = self.client.post(
+            f"/api/alerts/{implausible['alert_id']}/acknowledge", headers=headers
+        )
+        self.assertEqual(ack_response.status_code, 200)
+        self.assertIsNotNone(ack_response.get_json()["acknowledged_at"])
+
+        after_default = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(
+            any(a["alert_id"] == implausible["alert_id"] for a in after_default)
+        )
+
+        after_all = self.client.get(
+            "/api/alerts?include_acknowledged=true", headers=headers
+        ).get_json()
+        acked = [a for a in after_all if a["alert_id"] == implausible["alert_id"]]
+        self.assertEqual(len(acked), 1)
+        self.assertIsNotNone(acked[0]["acknowledged_at"])
+
+    def test_acknowledge_alert_not_owned_by_user_returns_404(self):
+        token_a = self._register().get_json()["token"]
+        headers_a = self._auth_header(token_a)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers_a,
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-04",
+                "weight_kg": 89.0,
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2000.0,
+                "steps": 6000,
+            },
+            headers=headers_a,
+        )
+        alerts = self.client.get("/api/alerts", headers=headers_a).get_json()
+        alert_id = alerts[0]["alert_id"]
+
+        token_b = self._register(
+            username="other", email="other@example.com"
+        ).get_json()["token"]
+        headers_b = self._auth_header(token_b)
+        response = self.client.post(
+            f"/api/alerts/{alert_id}/acknowledge", headers=headers_b
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_report_includes_all_sections(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/users/me/report", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        report = response.get_json()
+        for key in (
+            "profile",
+            "latest_metrics",
+            "adherence",
+            "goal_history",
+            "series",
+            "alerts",
+            "generated_at",
+        ):
+            self.assertIn(key, report)
+        self.assertEqual(len(report["series"]), 2)
+        self.assertIsNotNone(report["latest_metrics"])
+        self.assertEqual(len(report["goal_history"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

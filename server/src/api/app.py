@@ -14,6 +14,7 @@ from server.src.api.metrics_routes import metrics_bp
 from server.src.api.plan_routes import plan_bp
 from server.src.api.projection_routes import projection_bp
 from server.src.api.user_routes import user_bp
+from server.src.data.db.AlertLogDAO import AlertLogDAO
 from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.DB import DB
@@ -41,6 +42,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     db = DB(db_path)
 
     audit_log_dao = AuditLogDAO(db)
+    alert_log_dao = AlertLogDAO(db)
     metrics_cache = MetricsCache(MetricsSnapshotDAO(db))
     goal_plan_manager = GoalPlanManager(
         GoalPlanDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
@@ -60,6 +62,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.extensions["log_manager"] = log_manager
     app.extensions["goal_plan_manager"] = goal_plan_manager
     app.extensions["audit_log_dao"] = audit_log_dao
+    app.extensions["alert_log_dao"] = alert_log_dao
     app.extensions["metrics_cache"] = metrics_cache
     app.extensions["projection_service"] = projection_service
 

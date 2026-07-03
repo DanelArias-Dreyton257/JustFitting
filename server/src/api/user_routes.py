@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timezone
 
 from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
+from server.src.data.dto.AdherenceDTO import AdherenceDTO
+from server.src.data.dto.AlertLogDTO import AlertLogDTO
 from server.src.data.dto.AuditEntryDTO import AuditEntryDTO
 from server.src.data.dto.BodyLogDTO import BodyLogDTO
 from server.src.data.dto.GoalPlanDTO import GoalPlanDTO
+from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProfileDTO import ProfileDTO
+from server.src.services.AlertSyncService import sync_alerts
+from server.src.services.composition import CompositionEngine
 from server.src.services.GoalPlanManager import GoalPlanManagerError
+from server.src.services.MetricsSeriesService import compute_series_for_user
 from server.src.services.UserManager import UserManagerError
 
 user_bp = Blueprint("users", __name__, url_prefix="/api")
@@ -176,6 +182,46 @@ def export_data():
             "audit_log": [
                 asdict(AuditEntryDTO.from_domain(entry)) for entry in audit_entries
             ],
+        }
+    )
+
+
+@user_bp.get("/users/me/report")
+@require_auth
+def report():
+    profile_dto = _profile_dto(g.user_id)
+    if profile_dto is None:
+        return jsonify({"error": "user not found"}), 404
+
+    logs, results = compute_series_for_user(current_app, g.user_id)
+    series = [
+        asdict(
+            MetricsDTO.from_domain(
+                result, log_id=log.log_id, engine_version=CompositionEngine.ENGINE_VERSION
+            )
+        )
+        for log, result in zip(logs, results)
+    ]
+    latest_metrics = series[-1] if series else None
+
+    mean_intake_diff_kcal = _log_manager().compute_adherence(logs, results) if logs else None
+    real_log_count = sum(1 for log in logs if log.intake_is_real)
+    adherence_dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
+
+    goal_history = _goal_plan_manager().list_history(g.user_id)
+    open_alerts = sync_alerts(current_app, g.user_id, include_acknowledged=False)
+
+    return jsonify(
+        {
+            "profile": asdict(profile_dto),
+            "latest_metrics": latest_metrics,
+            "adherence": asdict(adherence_dto),
+            "goal_history": [
+                asdict(GoalPlanDTO.from_domain(goal)) for goal in goal_history
+            ],
+            "series": series,
+            "alerts": [asdict(AlertLogDTO.from_domain(alert)) for alert in open_alerts],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
     )
 

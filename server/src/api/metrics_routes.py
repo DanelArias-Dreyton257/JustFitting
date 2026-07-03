@@ -7,6 +7,7 @@ from dataclasses import asdict
 from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
+from server.src.data.dto.AdherenceDTO import AdherenceDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
 from server.src.services.MetricsSeriesService import compute_series_for_user
@@ -52,3 +53,16 @@ def series():
     if metric:
         payload = [{"date": row["date"], metric: row.get(metric)} for row in payload]
     return jsonify(payload)
+
+
+@metrics_bp.get("/adherence")
+@require_auth
+def adherence():
+    logs, results = _compute_results(g.user_id)
+    if not logs:
+        return jsonify({"error": "no logs yet"}), 404
+    log_manager = current_app.extensions["log_manager"]
+    mean_intake_diff_kcal = log_manager.compute_adherence(logs, results)
+    real_log_count = sum(1 for log in logs if log.intake_is_real)
+    dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
+    return jsonify(asdict(dto))

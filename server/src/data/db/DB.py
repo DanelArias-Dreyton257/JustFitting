@@ -159,6 +159,25 @@ MIGRATIONS: List[Tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS idx_projections_user_run ON projections(user_id, run_id);
         """,
     ),
+    (
+        8,
+        """
+        CREATE TABLE IF NOT EXISTS alert_log (
+            alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            date TEXT NOT NULL,
+            message TEXT NOT NULL,
+            value REAL NOT NULL,
+            threshold REAL NOT NULL,
+            detected_at TEXT NOT NULL,
+            acknowledged_at TEXT,
+            UNIQUE(user_id, type, date)
+        );
+        CREATE INDEX IF NOT EXISTS idx_alert_log_user ON alert_log(user_id, date);
+        """,
+    ),
 ]
 
 
