@@ -25,6 +25,14 @@ class EngineSettings:
     lean_loss_window_weeks: int
     max_lean_mass_loss_share: float
     significant_deviation_kg: float
+    bmr_model: str
+    w_rfm: float
+    w_navy: float
+    w_deur: float
+    delta: float
+    ffmi_coef: float
+    lean_tissue_kcal_per_kg: float
+    fat_ratio_ideal: float
     start_date: date
     active: bool
     created_at: datetime
@@ -43,6 +51,14 @@ class EngineSettings:
             lean_loss_window_weeks=row["lean_loss_window_weeks"],
             max_lean_mass_loss_share=row["max_lean_mass_loss_share"],
             significant_deviation_kg=row["significant_deviation_kg"],
+            bmr_model=row["bmr_model"],
+            w_rfm=row["w_rfm"],
+            w_navy=row["w_navy"],
+            w_deur=row["w_deur"],
+            delta=row["delta"],
+            ffmi_coef=row["ffmi_coef"],
+            lean_tissue_kcal_per_kg=row["lean_tissue_kcal_per_kg"],
+            fat_ratio_ideal=row["fat_ratio_ideal"],
             start_date=date.fromisoformat(row["start_date"]),
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),

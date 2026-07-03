@@ -21,6 +21,12 @@ class GoalPlan:
     active: bool
     created_at: datetime
 
+    @property
+    def direction(self) -> str:
+        """"bulk" for a positive weekly rate (surplus), "cut" otherwise --
+        derived from the sign, no stored column needed (Phase 3, F1)."""
+        return "bulk" if self.weekly_rate > 0 else "cut"
+
     @staticmethod
     def from_row(row) -> "GoalPlan":
         return GoalPlan(

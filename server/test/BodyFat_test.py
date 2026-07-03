@@ -27,6 +27,18 @@ class BodyFatTest(unittest.TestCase):
         bf = BodyFat.compute_body_fat(rfm=0.20, navy=0.10, deurenberg=0.30)
         self.assertAlmostEqual(bf, 0.5 * 0.20 + 0.25 * 0.10 + 0.25 * 0.30)
 
+    def test_compute_body_fat_with_custom_weights_and_offset(self):
+        bf = BodyFat.compute_body_fat(
+            rfm=0.20,
+            navy=0.10,
+            deurenberg=0.30,
+            w_rfm=0.6,
+            w_navy=0.2,
+            w_deur=0.2,
+            delta=0.02,
+        )
+        self.assertAlmostEqual(bf, 0.6 * 0.20 + 0.2 * 0.10 + 0.2 * 0.30 + 0.02)
+
     def test_fat_and_lean_mass_sum_to_weight(self):
         weight_kg = 90.7
         body_fat = 0.1991

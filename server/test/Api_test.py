@@ -269,6 +269,19 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(goals), 2)
         self.assertTrue(goals[0]["active"])
         self.assertFalse(goals[1]["active"])
+        self.assertEqual(goals[0]["direction"], "cut")
+
+    def test_goal_direction_is_bulk_for_a_positive_weekly_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        update_response = self.client.put(
+            "/api/users/me",
+            json={"weekly_rate": 0.003},
+            headers=headers,
+        )
+        self.assertEqual(update_response.get_json()["direction"], "bulk")
+        goals = self.client.get("/api/users/me/goals", headers=headers).get_json()
+        self.assertEqual(goals[0]["direction"], "bulk")
 
     def test_log_edit_is_recorded_in_the_audit_log(self):
         token = self._register().get_json()["token"]
@@ -595,6 +608,9 @@ class ApiTestCase(unittest.TestCase):
         body = response.get_json()
         self.assertTrue(body["is_default"])
         self.assertEqual(body["stagnation_weeks"], 3)
+        self.assertEqual(body["bmr_model"], "cunningham")
+        self.assertAlmostEqual(body["w_rfm"], 0.50)
+        self.assertAlmostEqual(body["ffmi_coef"], 6.3)
 
     def test_settings_update_and_history(self):
         token = self._register().get_json()["token"]
@@ -627,6 +643,55 @@ class ApiTestCase(unittest.TestCase):
             headers=self._auth_header(token),
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_bmr_model_and_bf_weights(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"bmr_model": "mifflin", "w_rfm": 0.6, "w_navy": 0.2, "w_deur": 0.2},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["bmr_model"], "mifflin")
+        self.assertAlmostEqual(body["w_rfm"], 0.6)
+
+    def test_settings_update_rejects_bf_weights_not_summing_to_one(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"w_rfm": 0.6, "w_navy": 0.3, "w_deur": 0.3},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_rejects_invalid_bmr_model(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"bmr_model": "not_a_model"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.put(
+            "/api/users/me", json={"weekly_rate": 0.02}, headers=headers
+        )
+        alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        bulk_alerts = [a for a in alerts if a["type"] == "bulk_rate_out_of_range"]
+        self.assertEqual(len(bulk_alerts), 1)
+
+        ack_response = self.client.post(
+            f"/api/alerts/{bulk_alerts[0]['alert_id']}/acknowledge", headers=headers
+        )
+        self.assertEqual(ack_response.status_code, 200)
+        remaining = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(any(a["type"] == "bulk_rate_out_of_range" for a in remaining))
 
     def test_custom_alert_threshold_changes_detection(self):
         token = self._register().get_json()["token"]

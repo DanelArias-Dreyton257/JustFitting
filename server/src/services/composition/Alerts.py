@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from typing import List, Optional, Sequence
 
+from server.src.data.domain.GoalPlan import GoalPlan
+from server.src.services.composition import constants
 from server.src.services.composition.models import (
     DEFAULT_ENGINE_CONSTANTS,
     CompositionResult,
@@ -25,7 +27,8 @@ from server.src.services.composition.models import (
 class Alert:
     """A single user-facing feedback item anchored to one log's date."""
 
-    type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" | "deviation"
+    type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
+    # "deviation" | "bulk_rate_out_of_range"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -140,16 +143,48 @@ def _deviation_alerts(
     return alerts
 
 
+def _bulk_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
+    """Flag (not block) a bulk goal whose weekly rate falls outside the
+    recommended range (Phase 3, F1) -- a single, goal-level check, not a
+    per-week one, so it's anchored to the goal's own `start_date`."""
+    if goal is None or goal.direction != "bulk":
+        return []
+    if constants.BULK_RATE_MIN <= goal.weekly_rate <= constants.BULK_RATE_MAX:
+        return []
+    threshold = (
+        constants.BULK_RATE_MAX
+        if goal.weekly_rate > constants.BULK_RATE_MAX
+        else constants.BULK_RATE_MIN
+    )
+    return [
+        Alert(
+            type="bulk_rate_out_of_range",
+            severity="info",
+            date=goal.start_date,
+            message=(
+                f"Weekly bulk rate {goal.weekly_rate:+.2%} is outside the "
+                f"recommended {constants.BULK_RATE_MIN:.2%}-"
+                f"{constants.BULK_RATE_MAX:.2%} range."
+            ),
+            value=goal.weekly_rate,
+            threshold=threshold,
+        )
+    ]
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
+    goal: Optional[GoalPlan] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
     ``results`` need not be pre-sorted or pre-filtered to real rows --
     each detector orders/filters what it needs. ``thresholds`` overrides
     the per-user alert thresholds (Phase 1.5); defaults to today's fixed
-    `constants.py` values.
+    `constants.py` values. ``goal`` is the account's active goal plan, used
+    only by the bulk-rate-range detector (Phase 3); omitting it just skips
+    that one detector.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -158,5 +193,6 @@ def detect_alerts(
         + _stagnation_alerts(ordered, thresholds)
         + _excessive_lean_loss_alerts(ordered, thresholds)
         + _deviation_alerts(ordered, thresholds)
+        + _bulk_rate_alerts(goal)
     )
     return sorted(alerts, key=lambda a: a.date)

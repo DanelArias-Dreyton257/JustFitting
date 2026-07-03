@@ -26,6 +26,11 @@ class AnthropometryTest(unittest.TestCase):
         ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, 176)
         self.assertAlmostEqual(ffmi_adj, 23.70, delta=0.01)
 
+    def test_compute_ffmi_adjusted_with_custom_coef(self):
+        ffmi = Anthropometry.compute_ffmi(72.64, 176)
+        ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, 176, ffmi_coef=6.1)
+        self.assertAlmostEqual(ffmi_adj, ffmi + 6.1 * (1.80 - 1.76), delta=0.001)
+
 
 if __name__ == "__main__":
     unittest.main()

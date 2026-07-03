@@ -60,6 +60,18 @@ class GoalPlanManagerTest(unittest.TestCase):
         # deactivate(1) + target_bf(2) + weekly_rate(2) = 5 entries total.
         self.assertEqual(len(entries), 5)
 
+    def test_direction_is_bulk_for_a_positive_weekly_rate(self):
+        goal = self.manager.create_goal_plan(self.user_id, 0.15, 0.005)
+        self.assertEqual(goal.direction, "bulk")
+
+    def test_direction_is_cut_for_a_negative_weekly_rate(self):
+        goal = self.manager.create_goal_plan(self.user_id, 0.15, -0.005)
+        self.assertEqual(goal.direction, "cut")
+
+    def test_direction_is_cut_for_a_zero_weekly_rate(self):
+        goal = self.manager.create_goal_plan(self.user_id, 0.15, 0.0)
+        self.assertEqual(goal.direction, "cut")
+
     def test_metrics_cache_is_invalidated_on_goal_change(self):
         calls = []
 

@@ -7,6 +7,18 @@ class EnergyModelTest(unittest.TestCase):
     def test_compute_bmr(self):
         self.assertAlmostEqual(EnergyModel.compute_bmr(72.64), 2098.08, delta=0.01)
 
+    def test_compute_bmr_mifflin_male(self):
+        # 10*90.7 + 6.25*176 - 5*24 + 5
+        self.assertAlmostEqual(
+            EnergyModel.compute_bmr_mifflin(90.7, 176, 24, sex=1), 1892.0, delta=0.01
+        )
+
+    def test_compute_bmr_mifflin_female(self):
+        # 10*90.7 + 6.25*176 - 5*24 - 161
+        self.assertAlmostEqual(
+            EnergyModel.compute_bmr_mifflin(90.7, 176, 24, sex=0), 1726.0, delta=0.01
+        )
+
     def test_compute_neat(self):
         self.assertAlmostEqual(EnergyModel.compute_neat(90.7, 5000), 226.75, delta=0.01)
 

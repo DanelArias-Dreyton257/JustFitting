@@ -23,7 +23,8 @@ def sync_alerts(
     thresholds = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)
     )
-    detected = Alerts.detect_alerts(results, thresholds)
+    goal = app.extensions["goal_plan_manager"].get_active(user_id)
+    detected = Alerts.detect_alerts(results, thresholds, goal)
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)
     return alert_log_dao.list_for_user(user_id, include_acknowledged=include_acknowledged)

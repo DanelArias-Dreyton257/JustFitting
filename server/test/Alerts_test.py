@@ -6,10 +6,25 @@ already-computed fields (see Alerts.py's module docstring)."""
 import unittest
 from datetime import date, timedelta
 
+from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import Alerts
 from server.src.services.composition.models import CompositionResult, EngineConstants
 
 BASE_DATE = date(2026, 1, 4)
+
+
+def make_goal(weekly_rate: float, **overrides) -> GoalPlan:
+    defaults = dict(
+        goal_id=1,
+        user_id=1,
+        target_bf=0.15,
+        weekly_rate=weekly_rate,
+        start_date=BASE_DATE,
+        active=True,
+        created_at=BASE_DATE,
+    )
+    defaults.update(overrides)
+    return GoalPlan(**defaults)
 
 
 def make_result(week_offset: int = 0, **overrides) -> CompositionResult:
@@ -181,6 +196,38 @@ class CustomThresholdsTest(unittest.TestCase):
             results, EngineConstants(stagnation_weeks=2)
         )
         self.assertTrue(any(a.type == "stagnation" for a in shorter_window))
+
+
+class BulkRateAlertTest(unittest.TestCase):
+    """Phase 3, F1: a bulk goal's weekly rate outside the recommended
+    [0.25%, 0.5%] range is flagged (not blocked)."""
+
+    def test_in_range_bulk_rate_is_not_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(0.003))
+        self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
+
+    def test_below_range_bulk_rate_is_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(0.001))
+        flagged = [a for a in alerts if a.type == "bulk_rate_out_of_range"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_above_range_bulk_rate_is_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(0.01))
+        self.assertTrue(any(a.type == "bulk_rate_out_of_range" for a in alerts))
+
+    def test_cut_direction_is_never_flagged_regardless_of_rate(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(-0.01))
+        self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
+
+    def test_no_goal_is_never_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=None)
+        self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
 
 
 if __name__ == "__main__":

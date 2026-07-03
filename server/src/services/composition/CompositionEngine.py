@@ -88,16 +88,23 @@ def compute_row(
     rfm = BodyFat.compute_rfm(profile.height_cm, log.waist_cm)
     navy = BodyFat.compute_navy(profile.height_cm, log.waist_cm, log.neck_cm)
     deurenberg = BodyFat.compute_deurenberg(bmi, age, profile.sex)
-    body_fat = BodyFat.compute_body_fat(rfm, navy, deurenberg)
+    body_fat = BodyFat.compute_body_fat(
+        rfm, navy, deurenberg, ec.w_rfm, ec.w_navy, ec.w_deur, ec.delta
+    )
 
     fat_mass_kg = BodyFat.compute_fat_mass(log.weight_kg, body_fat)
     lean_mass_kg = BodyFat.compute_lean_mass(log.weight_kg, body_fat)
     above_target = BodyFat.compute_above_target(body_fat, profile.target_bf)
 
     ffmi = Anthropometry.compute_ffmi(lean_mass_kg, profile.height_cm)
-    ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, profile.height_cm)
+    ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, profile.height_cm, ec.ffmi_coef)
     final_weight_kg = Trajectory.compute_final_weight(lean_mass_kg, profile.target_bf)
-    bmr = EnergyModel.compute_bmr(lean_mass_kg)
+    if ec.bmr_model == "mifflin":
+        bmr = EnergyModel.compute_bmr_mifflin(
+            log.weight_kg, profile.height_cm, age, profile.sex
+        )
+    else:
+        bmr = EnergyModel.compute_bmr(lean_mass_kg)
 
     weight_delta_kg = Trajectory.compute_weight_delta(log.weight_kg, prev_weight_kg)
     weight_delta_pct = Trajectory.compute_weight_delta_pct(

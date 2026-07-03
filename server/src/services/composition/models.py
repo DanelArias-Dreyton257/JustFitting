@@ -29,6 +29,17 @@ class EngineConstants:
     max_lean_mass_loss_share: float = constants.MAX_LEAN_MASS_LOSS_SHARE
     significant_deviation_kg: float = constants.SIGNIFICANT_DEVIATION_KG
 
+    # Oleada 2 (Phase 3) calibration constants -- see constants.py for the
+    # rationale of each default.
+    bmr_model: str = "cunningham"  # "cunningham" | "mifflin"
+    w_rfm: float = constants.BF_WEIGHT_RFM
+    w_navy: float = constants.BF_WEIGHT_NAVY
+    w_deur: float = constants.BF_WEIGHT_DEURENBERG
+    delta: float = constants.BF_FAT_OFFSET
+    ffmi_coef: float = constants.FFMI_COEF
+    lean_tissue_kcal_per_kg: float = constants.LEAN_TISSUE_KCAL_PER_KG
+    fat_ratio_ideal: float = constants.FAT_RATIO_IDEAL
+
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
 

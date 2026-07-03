@@ -17,6 +17,7 @@ class ProfileDTO:
     birthdate: str
     target_bf: Optional[float]
     weekly_rate: Optional[float]
+    direction: Optional[str]
     units: str
     created_at: str
 
@@ -33,6 +34,7 @@ class ProfileDTO:
             birthdate=profile.birthdate.isoformat(),
             target_bf=goal.target_bf if goal else None,
             weekly_rate=goal.weekly_rate if goal else None,
+            direction=goal.direction if goal else None,
             units=profile.units,
             created_at=profile.created_at.isoformat(),
         )

@@ -8,7 +8,12 @@ with a tolerance of +/-0.01 (+/-0.5 kcal for calorie figures).
 import unittest
 from datetime import date
 
-from server.src.services.composition import CompositionEngine, Projection
+from server.src.services.composition import (
+    Anthropometry,
+    CompositionEngine,
+    EnergyModel,
+    Projection,
+)
 from server.src.services.composition.models import EngineConstants, LogInput, ProfileParams
 
 PROFILE = ProfileParams(
@@ -229,6 +234,97 @@ class EngineConstantsOverrideTest(unittest.TestCase):
                 prev_weight_kg=prior_week.weight_kg,
                 engine_constants=EngineConstants(implausible_weekly_change_pct=0.03),
             )
+
+    def test_custom_bmr_model_switches_to_mifflin(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        custom = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants(bmr_model="mifflin")
+        )
+        age = Anthropometry.compute_age(self.LOG.date, PROFILE.birthdate)
+        expected_bmr = EnergyModel.compute_bmr_mifflin(
+            self.LOG.weight_kg, PROFILE.height_cm, age, PROFILE.sex
+        )
+        self.assertAlmostEqual(custom.bmr, expected_bmr, delta=0.01)
+        self.assertNotAlmostEqual(custom.bmr, default_result.bmr, delta=0.5)
+
+    def test_custom_bf_weights_change_body_fat(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        custom = CompositionEngine.compute_row(
+            PROFILE,
+            self.LOG,
+            engine_constants=EngineConstants(w_rfm=1.0, w_navy=0.0, w_deur=0.0),
+        )
+        self.assertAlmostEqual(custom.body_fat, default_result.rfm, delta=0.001)
+        self.assertNotAlmostEqual(custom.body_fat, default_result.body_fat, delta=1e-4)
+
+    def test_custom_delta_offsets_body_fat(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        custom = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants(delta=0.02)
+        )
+        self.assertAlmostEqual(
+            custom.body_fat, default_result.body_fat + 0.02, delta=0.001
+        )
+
+    def test_custom_ffmi_coef_changes_ffmi_adjusted(self):
+        default_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        custom = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=EngineConstants(ffmi_coef=10.0)
+        )
+        height_m = PROFILE.height_cm / 100
+        expected_delta = (10.0 - 6.3) * (1.80 - height_m)
+        self.assertAlmostEqual(
+            custom.ffmi_adj, default_result.ffmi_adj + expected_delta, delta=0.001
+        )
+
+    def test_bulk_profile_uses_reconciled_formula_with_mifflin_bmr(self):
+        """Phase 3, F1/F4: a bulk goal (weekly_rate > 0) reuses the exact
+        same Pi_i/deficit chain (which goes negative, i.e. a surplus) and
+        the Mifflin BMR model wires through the same compute_row path as
+        the default cut/Cunningham profile above."""
+        bulk_profile = ProfileParams(
+            height_cm=194,
+            sex=1,
+            birthdate=date(2001, 4, 5),
+            target_bf=0.15,
+            weekly_rate=0.005,
+        )
+        prior = LogInput(
+            date=date(2026, 6, 19),
+            weight_kg=95.0,
+            waist_cm=90.0,
+            neck_cm=40.0,
+            intake_kcal=3200.0,
+            steps=8000,
+        )
+        log = LogInput(
+            date=date(2026, 6, 26),
+            weight_kg=95.3,
+            waist_cm=90.1,
+            neck_cm=40.0,
+            intake_kcal=3200.0,
+            steps=8000,
+        )
+        ec = EngineConstants(bmr_model="mifflin")
+        results = CompositionEngine.compute_series(
+            bulk_profile, [prior, log], engine_constants=ec
+        )
+        result = results[-1]
+
+        age = Anthropometry.compute_age(log.date, bulk_profile.birthdate)
+        expected_bmr = EnergyModel.compute_bmr_mifflin(
+            log.weight_kg, bulk_profile.height_cm, age, bulk_profile.sex
+        )
+        self.assertAlmostEqual(result.bmr, expected_bmr, delta=0.01)
+
+        expected_neat = EnergyModel.compute_neat(log.weight_kg, log.steps, ec.neat_step_factor)
+        expected_tdee = EnergyModel.compute_tdee(expected_bmr, expected_neat, ec.tef)
+        self.assertAlmostEqual(result.tdee, expected_tdee, delta=0.01)
+
+        # Bulk: Pi_i = W_{i-1} - Wobj_i goes negative (a surplus), since
+        # Wobj_i = W_{i-1}*(1+rho) > W_{i-1} for rho > 0.
+        self.assertLess(result.weight_to_shed_kg, 0)
+        self.assertLess(result.daily_deficit_kcal, 0)
 
 
 if __name__ == "__main__":

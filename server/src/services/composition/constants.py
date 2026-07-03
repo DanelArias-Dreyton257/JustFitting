@@ -62,3 +62,32 @@ SIGNIFICANT_DEVIATION_KG = 1.0
 #: older than the most recent one in the regression window is weighted by
 #: this factor, two weeks older by its square, and so on.
 WEIGHTED_TREND_DECAY = 0.85
+
+#: Oleada 2 (Phase 3) calibration constants -- see docs/composition_spec.md's
+#: "Oleada 2" section, F8. All default to values that reproduce today's
+#: Danel numbers exactly; every field below is promoted to a per-account
+#: overridable `EngineConstants`/`EngineSettings` field (Phase 3), same
+#: "no row = today's behavior" contract as every constant above.
+
+#: Fat-percentage offset added to the weighted body-fat mean (`delta`).
+BF_FAT_OFFSET = 0.0
+
+#: FFMI adjustment coefficient -- promotes the literal `6.3` previously
+#: hardcoded in Anthropometry.py to a named, overridable constant.
+FFMI_COEF = 6.3
+
+#: Lean-tissue energy density (kcal/kg), used by Phase 3.2's energy
+#: reconciliation (F5) -- not consumed until then, but the constant/setting
+#: ships now alongside the rest of F8's calibration surface.
+LEAN_TISSUE_KCAL_PER_KG = 2100.0
+
+#: Ideal ceiling on the fat share of a weight gain (Phase 3.1's gain-quality
+#: panel, F3) -- a "clean" bulk keeps the fat share of the gain at or below
+#: this fraction.
+FAT_RATIO_IDEAL = 0.25
+
+#: Recommended weekly bulk-rate range (Phase 3, F1) -- a bulk goal outside
+#: this range is flagged (not blocked), mirroring
+#: IMPLAUSIBLE_WEEKLY_CHANGE_PCT's flag-not-block pattern.
+BULK_RATE_MIN = 0.0025
+BULK_RATE_MAX = 0.005

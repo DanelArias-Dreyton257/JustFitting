@@ -212,6 +212,19 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE projections ADD COLUMN trend_model TEXT NOT NULL DEFAULT 'ols';
         """,
     ),
+    (
+        12,
+        """
+        ALTER TABLE engine_settings ADD COLUMN bmr_model TEXT NOT NULL DEFAULT 'cunningham';
+        ALTER TABLE engine_settings ADD COLUMN w_rfm REAL NOT NULL DEFAULT 0.50;
+        ALTER TABLE engine_settings ADD COLUMN w_navy REAL NOT NULL DEFAULT 0.25;
+        ALTER TABLE engine_settings ADD COLUMN w_deur REAL NOT NULL DEFAULT 0.25;
+        ALTER TABLE engine_settings ADD COLUMN delta REAL NOT NULL DEFAULT 0.0;
+        ALTER TABLE engine_settings ADD COLUMN ffmi_coef REAL NOT NULL DEFAULT 6.3;
+        ALTER TABLE engine_settings ADD COLUMN lean_tissue_kcal_per_kg REAL NOT NULL DEFAULT 2100.0;
+        ALTER TABLE engine_settings ADD COLUMN fat_ratio_ideal REAL NOT NULL DEFAULT 0.25;
+        """,
+    ),
 ]
 
 

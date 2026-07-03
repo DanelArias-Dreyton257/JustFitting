@@ -17,6 +17,14 @@ class EngineSettingsDTO:
     lean_loss_window_weeks: int
     max_lean_mass_loss_share: float
     significant_deviation_kg: float
+    bmr_model: str
+    w_rfm: float
+    w_navy: float
+    w_deur: float
+    delta: float
+    ffmi_coef: float
+    lean_tissue_kcal_per_kg: float
+    fat_ratio_ideal: float
     is_default: bool
     settings_id: Optional[int] = None
     start_date: Optional[str] = None
@@ -39,6 +47,14 @@ class EngineSettingsDTO:
                 lean_loss_window_weeks=defaults.lean_loss_window_weeks,
                 max_lean_mass_loss_share=defaults.max_lean_mass_loss_share,
                 significant_deviation_kg=defaults.significant_deviation_kg,
+                bmr_model=defaults.bmr_model,
+                w_rfm=defaults.w_rfm,
+                w_navy=defaults.w_navy,
+                w_deur=defaults.w_deur,
+                delta=defaults.delta,
+                ffmi_coef=defaults.ffmi_coef,
+                lean_tissue_kcal_per_kg=defaults.lean_tissue_kcal_per_kg,
+                fat_ratio_ideal=defaults.fat_ratio_ideal,
                 is_default=True,
             )
         return EngineSettingsDTO(
@@ -51,6 +67,14 @@ class EngineSettingsDTO:
             lean_loss_window_weeks=settings.lean_loss_window_weeks,
             max_lean_mass_loss_share=settings.max_lean_mass_loss_share,
             significant_deviation_kg=settings.significant_deviation_kg,
+            bmr_model=settings.bmr_model,
+            w_rfm=settings.w_rfm,
+            w_navy=settings.w_navy,
+            w_deur=settings.w_deur,
+            delta=settings.delta,
+            ffmi_coef=settings.ffmi_coef,
+            lean_tissue_kcal_per_kg=settings.lean_tissue_kcal_per_kg,
+            fat_ratio_ideal=settings.fat_ratio_ideal,
             is_default=False,
             settings_id=settings.settings_id,
             start_date=settings.start_date.isoformat(),

@@ -24,6 +24,14 @@ class EngineSettingsDAO:
         lean_loss_window_weeks: int,
         max_lean_mass_loss_share: float,
         significant_deviation_kg: float,
+        bmr_model: str,
+        w_rfm: float,
+        w_navy: float,
+        w_deur: float,
+        delta: float,
+        ffmi_coef: float,
+        lean_tissue_kcal_per_kg: float,
+        fat_ratio_ideal: float,
         start_date: date,
         active: bool = True,
     ) -> EngineSettings:
@@ -35,8 +43,10 @@ class EngineSettingsDAO:
                  implausible_weekly_change_pct, stagnation_weeks,
                  stagnation_threshold_kg, lean_loss_window_weeks,
                  max_lean_mass_loss_share, significant_deviation_kg,
+                 bmr_model, w_rfm, w_navy, w_deur, delta, ffmi_coef,
+                 lean_tissue_kcal_per_kg, fat_ratio_ideal,
                  start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -49,6 +59,14 @@ class EngineSettingsDAO:
                 lean_loss_window_weeks,
                 max_lean_mass_loss_share,
                 significant_deviation_kg,
+                bmr_model,
+                w_rfm,
+                w_navy,
+                w_deur,
+                delta,
+                ffmi_coef,
+                lean_tissue_kcal_per_kg,
+                fat_ratio_ideal,
                 start_date.isoformat(),
                 int(active),
                 created_at,
