@@ -17,6 +17,7 @@ class BodyLog:
     intake_kcal: float
     intake_is_real: bool
     steps: float
+    cardio_kcal: float
     source: str  # "real" | "projected"
     created_at: datetime
 
@@ -32,6 +33,7 @@ class BodyLog:
             intake_kcal=row["intake_kcal"],
             intake_is_real=bool(row["intake_is_real"]),
             steps=row["steps"],
+            cardio_kcal=row["cardio_kcal"],
             source=row["source"],
             created_at=datetime.fromisoformat(row["created_at"]),
         )

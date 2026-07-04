@@ -260,6 +260,7 @@ def import_data():
                     intake_kcal=float(entry["intake_kcal"]),
                     steps=float(entry["steps"]),
                     intake_is_real=bool(entry.get("intake_is_real", True)),
+                    cardio_kcal=float(entry.get("cardio_kcal", 0.0)),
                     source=entry.get("source", "real"),
                 )
             )

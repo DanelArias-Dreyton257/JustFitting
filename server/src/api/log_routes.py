@@ -38,6 +38,7 @@ def create_log():
             intake_kcal=float(payload["intake_kcal"]),
             steps=float(payload["steps"]),
             intake_is_real=bool(payload.get("intake_is_real", True)),
+            cardio_kcal=float(payload.get("cardio_kcal", 0.0)),
             source=payload.get("source", "real"),
         )
     except (KeyError, ValueError) as exc:
@@ -61,6 +62,7 @@ def update_log(log_id: int):
         "intake_kcal",
         "steps",
         "intake_is_real",
+        "cardio_kcal",
         "source",
     ):
         if key in payload:

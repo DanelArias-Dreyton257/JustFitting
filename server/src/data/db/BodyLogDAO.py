@@ -22,6 +22,7 @@ class BodyLogDAO:
         intake_kcal: float,
         intake_is_real: bool,
         steps: float,
+        cardio_kcal: float = 0.0,
         source: str = "real",
     ) -> BodyLog:
         created_at = datetime.now(timezone.utc).isoformat()
@@ -29,8 +30,8 @@ class BodyLogDAO:
             """
             INSERT INTO body_logs
                 (user_id, date, weight_kg, waist_cm, neck_cm, intake_kcal,
-                 intake_is_real, steps, source, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 intake_is_real, steps, cardio_kcal, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -41,6 +42,7 @@ class BodyLogDAO:
                 intake_kcal,
                 int(intake_is_real),
                 steps,
+                cardio_kcal,
                 source,
                 created_at,
             ),

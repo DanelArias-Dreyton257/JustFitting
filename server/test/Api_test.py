@@ -139,6 +139,49 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(missing_update.status_code, 404)
 
+    def test_log_create_and_update_persist_cardio_kcal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "cardio_kcal": 300.0,
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertAlmostEqual(body["cardio_kcal"], 300.0)
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"cardio_kcal": 450.0}, headers=headers
+        )
+        self.assertAlmostEqual(update_response.get_json()["cardio_kcal"], 450.0)
+
+    def test_log_create_defaults_cardio_kcal_to_zero(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertAlmostEqual(response.get_json()["cardio_kcal"], 0.0)
+
     def test_log_create_rejects_invalid_navy_ratio(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -487,6 +530,29 @@ class ApiTestCase(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(body["real_log_count"], 2)
         self.assertIsNotNone(body["mean_intake_diff_kcal"])
+
+    def test_gain_quality_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/gain-quality", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_gain_quality_reflects_the_lean_fat_split_of_the_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/gain-quality", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["delta_lean_kg"], 0.0)
+        self.assertEqual(rows[0]["delta_fat_kg"], 0.0)
+        self.assertAlmostEqual(
+            rows[1]["delta_lean_kg"] + rows[1]["delta_fat_kg"], 96.4 - 97.0, delta=0.02
+        )
+        self.assertAlmostEqual(rows[1]["fat_ratio_ideal"], 0.25)
 
     def test_acknowledge_alert_removes_it_from_the_default_list(self):
         token = self._register().get_json()["token"]

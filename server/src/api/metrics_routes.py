@@ -8,8 +8,9 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
 from server.src.data.dto.AdherenceDTO import AdherenceDTO
+from server.src.data.dto.GainQualityDTO import GainQualityDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
-from server.src.services.composition import CompositionEngine
+from server.src.services.composition import CompositionEngine, GainQuality
 from server.src.services.MetricsSeriesService import compute_series_for_user
 
 metrics_bp = Blueprint("metrics", __name__, url_prefix="/api/metrics")
@@ -66,3 +67,19 @@ def adherence():
     real_log_count = sum(1 for log in logs if log.intake_is_real)
     dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
     return jsonify(asdict(dto))
+
+
+@metrics_bp.get("/gain-quality")
+@require_auth
+def gain_quality():
+    _, results = _compute_results(g.user_id)
+    if not results:
+        return jsonify({"error": "no logs yet"}), 404
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    ec = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(g.user_id)
+    )
+    rows = GainQuality.compute_gain_quality(results)
+    return jsonify(
+        [asdict(GainQualityDTO.from_domain(row, ec.fat_ratio_ideal)) for row in rows]
+    )

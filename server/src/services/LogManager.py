@@ -22,6 +22,7 @@ LOG_EDITABLE_FIELDS = (
     "intake_kcal",
     "intake_is_real",
     "steps",
+    "cardio_kcal",
     "source",
 )
 
@@ -89,6 +90,7 @@ class LogManager:
         intake_kcal: float,
         steps: float,
         intake_is_real: bool = True,
+        cardio_kcal: float = 0.0,
         source: str = "real",
     ) -> BodyLog:
         candidate = LogInput(
@@ -99,6 +101,7 @@ class LogManager:
             intake_kcal=intake_kcal,
             steps=steps,
             intake_is_real=intake_is_real,
+            cardio_kcal=cardio_kcal,
         )
         validate_log_input(candidate)
         log = self.log_dao.create(
@@ -110,6 +113,7 @@ class LogManager:
             intake_kcal=intake_kcal,
             intake_is_real=intake_is_real,
             steps=steps,
+            cardio_kcal=cardio_kcal,
             source=source,
         )
         if self.metrics_cache is not None:
@@ -134,6 +138,7 @@ class LogManager:
             intake_kcal=fields.get("intake_kcal", existing.intake_kcal),
             steps=fields.get("steps", existing.steps),
             intake_is_real=fields.get("intake_is_real", existing.intake_is_real),
+            cardio_kcal=fields.get("cardio_kcal", existing.cardio_kcal),
         )
         validate_log_input(merged)
 
@@ -174,6 +179,7 @@ class LogManager:
                 intake_kcal=log.intake_kcal,
                 steps=log.steps,
                 intake_is_real=log.intake_is_real,
+                cardio_kcal=log.cardio_kcal,
             )
             for log in sorted(logs, key=lambda log: log.date)
         ]

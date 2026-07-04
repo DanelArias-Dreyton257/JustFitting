@@ -66,6 +66,7 @@ class LogInput:
     intake_kcal: float
     steps: float
     intake_is_real: bool = True
+    cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Danel exactly
 
 
 @dataclass(frozen=True)

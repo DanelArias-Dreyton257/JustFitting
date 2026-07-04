@@ -126,9 +126,9 @@ def compute_row(
     )
 
     neat = EnergyModel.compute_neat(log.weight_kg, log.steps, ec.neat_step_factor)
-    tdee = EnergyModel.compute_tdee(bmr, neat, ec.tef)
+    tdee = EnergyModel.compute_tdee(bmr, neat, ec.tef, log.cardio_kcal)
     target_calories = EnergyModel.compute_target_calories(
-        bmr, neat, daily_deficit_kcal, ec.tef
+        bmr, neat, daily_deficit_kcal, ec.tef, log.cardio_kcal
     )
     intake_diff = EnergyModel.compute_intake_diff(log.intake_kcal, target_calories)
 

@@ -326,6 +326,42 @@ class EngineConstantsOverrideTest(unittest.TestCase):
         self.assertLess(result.weight_to_shed_kg, 0)
         self.assertLess(result.daily_deficit_kcal, 0)
 
+    def test_cardio_kcal_raises_tdee_and_target_calories(self):
+        """Phase 3.1, F2: cardio_kcal (EAT) folds into TDEE/target-calories
+        as an additive term -- with cardio_kcal=0 (every pre-existing log)
+        this is byte-for-byte identical to before (the golden tests above
+        already pin that); this covers the nonzero case."""
+        no_cardio = LogInput(
+            date=self.LOG.date,
+            weight_kg=self.LOG.weight_kg,
+            waist_cm=self.LOG.waist_cm,
+            neck_cm=self.LOG.neck_cm,
+            intake_kcal=self.LOG.intake_kcal,
+            steps=self.LOG.steps,
+            cardio_kcal=0.0,
+        )
+        with_cardio = LogInput(
+            date=self.LOG.date,
+            weight_kg=self.LOG.weight_kg,
+            waist_cm=self.LOG.waist_cm,
+            neck_cm=self.LOG.neck_cm,
+            intake_kcal=self.LOG.intake_kcal,
+            steps=self.LOG.steps,
+            cardio_kcal=300.0,
+        )
+        base_result = CompositionEngine.compute_row(PROFILE, no_cardio)
+        cardio_result = CompositionEngine.compute_row(PROFILE, with_cardio)
+
+        expected_increase = 300.0 / (1 - EngineConstants().tef)
+        self.assertAlmostEqual(
+            cardio_result.tdee, base_result.tdee + expected_increase, delta=0.01
+        )
+        self.assertAlmostEqual(
+            cardio_result.target_calories,
+            base_result.target_calories + expected_increase,
+            delta=0.01,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

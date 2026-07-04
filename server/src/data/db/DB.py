@@ -225,6 +225,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE engine_settings ADD COLUMN fat_ratio_ideal REAL NOT NULL DEFAULT 0.25;
         """,
     ),
+    (
+        13,
+        """
+        ALTER TABLE body_logs ADD COLUMN cardio_kcal REAL NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

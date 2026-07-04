@@ -16,6 +16,7 @@ class BodyLogDTO:
     intake_kcal: float
     intake_is_real: bool
     steps: float
+    cardio_kcal: float
     source: str
 
     @staticmethod
@@ -30,5 +31,6 @@ class BodyLogDTO:
             intake_kcal=log.intake_kcal,
             intake_is_real=log.intake_is_real,
             steps=log.steps,
+            cardio_kcal=log.cardio_kcal,
             source=log.source,
         )

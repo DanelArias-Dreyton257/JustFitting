@@ -29,14 +29,22 @@ def compute_neat(
     return neat_step_factor * weight_kg * (steps / 1000)
 
 
-def compute_tdee(bmr: float, neat: float, tef: float = TEF) -> float:
-    return (bmr + neat) / (1 - tef)
+def compute_tdee(bmr: float, neat: float, tef: float = TEF, eat: float = 0.0) -> float:
+    """`eat` is cardio/exercise activity thermogenesis (Phase 3.1, F2) --
+    default 0 reproduces the pre-Phase-3.1 formula exactly. See
+    docs/composition_spec.md's "Formula reconciliation" for why TEF stays a
+    divisor (not a multiplier) once EAT is added to the numerator."""
+    return (bmr + neat + eat) / (1 - tef)
 
 
 def compute_target_calories(
-    bmr: float, neat: float, daily_deficit: float, tef: float = TEF
+    bmr: float,
+    neat: float,
+    daily_deficit: float,
+    tef: float = TEF,
+    eat: float = 0.0,
 ) -> float:
-    return (bmr + neat - daily_deficit) / (1 - tef)
+    return (bmr + neat + eat - daily_deficit) / (1 - tef)
 
 
 def compute_intake_diff(intake_kcal: float, target_calories: float) -> float:
