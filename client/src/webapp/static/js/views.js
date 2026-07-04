@@ -178,6 +178,9 @@ export function fillSettingsForm(form, dto) {
   form.kappa_fat.value = dto.kappa_fat;
   form.kappa_protein.value = dto.kappa_protein;
   form.macro_mismatch_pct.value = (dto.macro_kcal_mismatch_pct * 100).toFixed(0);
+  form.protein_target_g_per_kg.value = dto.protein_target_g_per_kg;
+  form.fat_target_g_per_kg.value = dto.fat_target_g_per_kg;
+  form.macro_target_deviation_pct.value = (dto.macro_target_deviation_pct * 100).toFixed(0);
 }
 
 export function renderSettingsStatus(container, dto) {

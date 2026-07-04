@@ -147,6 +147,16 @@
           </div>
           <svg id="chart-tef" class="chart"></svg>
         </div>
+        <div class="chart-card">
+          <h3>Calorie split by macronutrient: target vs actual (kcal)</h3>
+          <p class="disclaimer">The "Actual" column only appears once this week's macros are logged.</p>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Protein</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f0b94d"></span>Fat</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#7ee787"></span>Carbs</span>
+          </div>
+          <svg id="chart-macro-split" class="chart"></svg>
+        </div>
       </div>
     </section>
 
@@ -340,6 +350,17 @@
         <label>Fat coefficient (kcal/g) <input name="kappa_fat" type="number" step="0.001" min="0" required /></label>
         <label>Protein coefficient (kcal/g) <input name="kappa_protein" type="number" step="0.001" min="0" required /></label>
         <label>Macro/intake mismatch threshold (%) <input name="macro_mismatch_pct" type="number" step="1" min="0" required /></label>
+
+        <h2>Macro targets</h2>
+        <p class="disclaimer">
+          Evidence-based per-kg-bodyweight targets: roughly 1.6-2.2 g/kg
+          protein and 0.5-0.8 g/kg fat for a cut, 1.5-2.0 g/kg protein and
+          0.7-1.0 g/kg fat for a bulk. Carbs always fill the remainder of
+          target calories -- there's no separate carbs setting.
+        </p>
+        <label>Protein target (g/kg body mass) <input name="protein_target_g_per_kg" type="number" step="0.05" min="0" required /></label>
+        <label>Fat target (g/kg body mass) <input name="fat_target_g_per_kg" type="number" step="0.05" min="0" required /></label>
+        <label>Protein/fat deviation threshold (%) <input name="macro_target_deviation_pct" type="number" step="1" min="0" required /></label>
 
         <button type="submit">Save settings</button>
         <p class="form-error" data-for="settings-form"></p>

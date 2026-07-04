@@ -57,6 +57,7 @@ export const api = {
   energyBalance: () => request("GET", "/api/metrics/energy-balance"),
   incrementAnalytics: () => request("GET", "/api/metrics/increment-analytics"),
   tef: () => request("GET", "/api/metrics/tef"),
+  macroTargets: () => request("GET", "/api/metrics/macro-targets"),
   alerts: (includeAcknowledged = false) =>
     request("GET", `/api/alerts?include_acknowledged=${includeAcknowledged}`),
   acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),

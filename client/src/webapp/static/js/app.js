@@ -25,7 +25,10 @@ import {
   drawStackedBars,
   drawMultiLineChart,
   drawDivergingBars,
+  drawMacroSplitBars,
 } from "./charts.js";
+
+const MACRO_COLORS = { protein: "#5eb3ff", fat: "#f0b94d", carbs: "#7ee787" };
 
 const state = {
   profile: null,
@@ -89,6 +92,7 @@ async function refreshDashboard() {
     energyBalance,
     incrementAnalytics,
     tef,
+    macroTargets,
   ] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
@@ -100,6 +104,7 @@ async function refreshDashboard() {
     api.energyBalance().catch(() => []),
     api.incrementAnalytics().catch(() => []),
     api.tef().catch(() => []),
+    api.macroTargets().catch(() => []),
   ]);
   state.series = series;
   renderDashboardStats(
@@ -239,6 +244,33 @@ async function refreshDashboard() {
       { accessor: (row) => row.tef_kcal_macros, color: "#f0b94d", label: "From macros" },
     ]
   );
+
+  const latestMacroTargets = macroTargets[macroTargets.length - 1];
+  const macroBars = latestMacroTargets
+    ? [
+        {
+          label: "Target",
+          segments: [
+            { label: "Protein", value: latestMacroTargets.protein_target_kcal, color: MACRO_COLORS.protein },
+            { label: "Fat", value: latestMacroTargets.fat_target_kcal, color: MACRO_COLORS.fat },
+            { label: "Carbs", value: latestMacroTargets.carbs_target_kcal, color: MACRO_COLORS.carbs },
+          ],
+        },
+        ...(latestMacroTargets.has_actual
+          ? [
+              {
+                label: "Actual",
+                segments: [
+                  { label: "Protein", value: latestMacroTargets.protein_actual_kcal, color: MACRO_COLORS.protein },
+                  { label: "Fat", value: latestMacroTargets.fat_actual_kcal, color: MACRO_COLORS.fat },
+                  { label: "Carbs", value: latestMacroTargets.carbs_actual_kcal, color: MACRO_COLORS.carbs },
+                ],
+              },
+            ]
+          : []),
+      ]
+    : [];
+  drawMacroSplitBars(document.getElementById("chart-macro-split"), macroBars);
 }
 
 async function refreshLogs() {
@@ -577,6 +609,9 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     kappa_fat: Number(raw.kappa_fat),
     kappa_protein: Number(raw.kappa_protein),
     macro_kcal_mismatch_pct: Number(raw.macro_mismatch_pct) / 100,
+    protein_target_g_per_kg: Number(raw.protein_target_g_per_kg),
+    fat_target_g_per_kg: Number(raw.fat_target_g_per_kg),
+    macro_target_deviation_pct: Number(raw.macro_target_deviation_pct) / 100,
   };
   try {
     await api.updateSettings(payload);

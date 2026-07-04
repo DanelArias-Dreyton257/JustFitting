@@ -250,6 +250,92 @@ export function drawMultiLineChart(svg, series, lines, { isProjected = () => fal
   );
 }
 
+// Two 100%-comparable columns ("Target" vs "Actual"), each stacked by
+// macronutrient (protein/fat/carbs kcal) -- a 2px surface-color gap
+// separates touching segments, same convention as any other stacked mark.
+// `bars`: [{ label, segments: [{ label, value, color }] }].
+export function drawMacroSplitBars(svg, bars) {
+  svg.innerHTML = "";
+  if (!bars.length) {
+    attachHoverTooltip(svg, [], () => "");
+    return;
+  }
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const SEGMENT_GAP = 2;
+  const totals = bars.map((bar) => bar.segments.reduce((sum, seg) => sum + seg.value, 0));
+  const maxTotal = Math.max(...totals) || 1;
+  const yScale = scaleLinear([0, maxTotal], [height - LAYOUT.bottom, LAYOUT.top]);
+  const slotWidth = (width - LAYOUT.left - LAYOUT.right) / bars.length;
+  const barWidth = Math.min(64, slotWidth * 0.5);
+  const xPositions = bars.map((_, i) => LAYOUT.left + i * slotWidth + slotWidth / 2);
+
+  niceValueTicks(0, maxTotal, Y_TICK_COUNT).forEach((tick) => {
+    const y = yScale(tick);
+    svg.appendChild(
+      svgEl("line", {
+        x1: LAYOUT.left,
+        x2: width - LAYOUT.right,
+        y1: y,
+        y2: y,
+        class: "chart-gridline",
+      })
+    );
+    const label = svgEl("text", { x: 2, y: y + 3, class: "chart-axis-label" });
+    label.textContent = formatValueTick(tick);
+    svg.appendChild(label);
+  });
+
+  const hoverPoints = [];
+  bars.forEach((bar, i) => {
+    const x = xPositions[i] - barWidth / 2;
+    let cumulative = 0;
+    bar.segments.forEach((segment, segIndex) => {
+      const yTop = yScale(cumulative + segment.value);
+      const yBottom = yScale(cumulative);
+      const gapTop = segIndex < bar.segments.length - 1 ? SEGMENT_GAP / 2 : 0;
+      const gapBottom = segIndex > 0 ? SEGMENT_GAP / 2 : 0;
+      svg.appendChild(
+        svgEl("rect", {
+          x,
+          y: yTop + gapTop,
+          width: barWidth,
+          height: Math.max(0, yBottom - yTop - gapTop - gapBottom),
+          fill: segment.color,
+        })
+      );
+      cumulative += segment.value;
+    });
+
+    const label = svgEl("text", {
+      x: xPositions[i],
+      y: height - 6,
+      class: "chart-axis-label",
+      "text-anchor": "middle",
+    });
+    label.textContent = bar.label;
+    svg.appendChild(label);
+
+    hoverPoints.push({ x: xPositions[i], datum: bar });
+  });
+
+  attachHoverTooltip(svg, hoverPoints, (bar) => {
+    const total = bar.segments.reduce((sum, seg) => sum + seg.value, 0) || 1;
+    const rows = bar.segments
+      .map(
+        (seg) =>
+          `<span style="color:${seg.color}">●</span> ${seg.label}: ${seg.value.toFixed(
+            0
+          )} kcal (${((seg.value / total) * 100).toFixed(0)}%)`
+      )
+      .join("<br>");
+    return `<strong>${bar.label}</strong><br>${rows}<br>Total: ${total.toFixed(0)} kcal`;
+  });
+}
+
 export function drawStackedBars(svg, series) {
   svg.innerHTML = "";
   if (!series.length) {
