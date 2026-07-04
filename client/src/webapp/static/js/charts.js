@@ -250,6 +250,92 @@ export function drawMultiLineChart(svg, series, lines, { isProjected = () => fal
   );
 }
 
+// Two 100%-comparable columns ("Target" vs "Actual"), each stacked by
+// macronutrient (protein/fat/carbs kcal) -- a 2px surface-color gap
+// separates touching segments, same convention as any other stacked mark.
+// `bars`: [{ label, segments: [{ label, value, color }] }].
+export function drawMacroSplitBars(svg, bars) {
+  svg.innerHTML = "";
+  if (!bars.length) {
+    attachHoverTooltip(svg, [], () => "");
+    return;
+  }
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const SEGMENT_GAP = 2;
+  const totals = bars.map((bar) => bar.segments.reduce((sum, seg) => sum + seg.value, 0));
+  const maxTotal = Math.max(...totals) || 1;
+  const yScale = scaleLinear([0, maxTotal], [height - LAYOUT.bottom, LAYOUT.top]);
+  const slotWidth = (width - LAYOUT.left - LAYOUT.right) / bars.length;
+  const barWidth = Math.min(64, slotWidth * 0.5);
+  const xPositions = bars.map((_, i) => LAYOUT.left + i * slotWidth + slotWidth / 2);
+
+  niceValueTicks(0, maxTotal, Y_TICK_COUNT).forEach((tick) => {
+    const y = yScale(tick);
+    svg.appendChild(
+      svgEl("line", {
+        x1: LAYOUT.left,
+        x2: width - LAYOUT.right,
+        y1: y,
+        y2: y,
+        class: "chart-gridline",
+      })
+    );
+    const label = svgEl("text", { x: 2, y: y + 3, class: "chart-axis-label" });
+    label.textContent = formatValueTick(tick);
+    svg.appendChild(label);
+  });
+
+  const hoverPoints = [];
+  bars.forEach((bar, i) => {
+    const x = xPositions[i] - barWidth / 2;
+    let cumulative = 0;
+    bar.segments.forEach((segment, segIndex) => {
+      const yTop = yScale(cumulative + segment.value);
+      const yBottom = yScale(cumulative);
+      const gapTop = segIndex < bar.segments.length - 1 ? SEGMENT_GAP / 2 : 0;
+      const gapBottom = segIndex > 0 ? SEGMENT_GAP / 2 : 0;
+      svg.appendChild(
+        svgEl("rect", {
+          x,
+          y: yTop + gapTop,
+          width: barWidth,
+          height: Math.max(0, yBottom - yTop - gapTop - gapBottom),
+          fill: segment.color,
+        })
+      );
+      cumulative += segment.value;
+    });
+
+    const label = svgEl("text", {
+      x: xPositions[i],
+      y: height - 6,
+      class: "chart-axis-label",
+      "text-anchor": "middle",
+    });
+    label.textContent = bar.label;
+    svg.appendChild(label);
+
+    hoverPoints.push({ x: xPositions[i], datum: bar });
+  });
+
+  attachHoverTooltip(svg, hoverPoints, (bar) => {
+    const total = bar.segments.reduce((sum, seg) => sum + seg.value, 0) || 1;
+    const rows = bar.segments
+      .map(
+        (seg) =>
+          `<span style="color:${seg.color}">●</span> ${seg.label}: ${seg.value.toFixed(
+            0
+          )} kcal (${((seg.value / total) * 100).toFixed(0)}%)`
+      )
+      .join("<br>");
+    return `<strong>${bar.label}</strong><br>${rows}<br>Total: ${total.toFixed(0)} kcal`;
+  });
+}
+
 export function drawStackedBars(svg, series) {
   svg.innerHTML = "";
   if (!series.length) {
@@ -303,5 +389,76 @@ export function drawStackedBars(svg, series) {
     series.map((point, i) => ({ x: xPositions[i], datum: point })),
     (point) =>
       `<strong>${formatDateTick(point.date)}</strong><br>Fat: ${point.fat.toFixed(1)} kg<br>Lean: ${point.lean.toFixed(1)} kg`
+  );
+}
+
+// Like drawStackedBars, but each of `fat`/`lean` can be negative (a loss
+// week) -- segments stack outward from a zero baseline instead of always
+// upward from the bottom, so a lean gain alongside a fat loss in the same
+// week renders as two bars on opposite sides of zero, not one merged into
+// the other's sign.
+export function drawDivergingBars(svg, series) {
+  svg.innerHTML = "";
+  if (!series.length) {
+    attachHoverTooltip(svg, [], () => "");
+    return;
+  }
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const maxPositive = Math.max(0, ...series.map((p) => Math.max(p.fat, 0) + Math.max(p.lean, 0)));
+  const minNegative = Math.min(0, ...series.map((p) => Math.min(p.fat, 0) + Math.min(p.lean, 0)));
+  const yDomain = [minNegative, maxPositive];
+  const yScale = scaleLinear(yDomain, [height - LAYOUT.bottom, LAYOUT.top]);
+  const barWidth = (width - LAYOUT.left - LAYOUT.right) / series.length;
+  const xPositions = series.map((_, i) => LAYOUT.left + i * barWidth + (barWidth * 0.7) / 2);
+
+  drawAxes(svg, { series, xPositions, yScale, yDomain, width, height });
+
+  const zeroY = yScale(0);
+  svg.appendChild(
+    svgEl("line", {
+      x1: LAYOUT.left,
+      x2: width - LAYOUT.right,
+      y1: zeroY,
+      y2: zeroY,
+      class: "chart-gridline",
+    })
+  );
+
+  series.forEach((point, i) => {
+    const x = LAYOUT.left + i * barWidth;
+    let posOffset = 0;
+    let negOffset = 0;
+    [
+      { value: point.lean, color: "#5eb3ff" },
+      { value: point.fat, color: "#e5686b" },
+    ].forEach(({ value, color }) => {
+      if (value === 0) return;
+      if (value > 0) {
+        const y = yScale(posOffset + value);
+        const barHeight = yScale(posOffset) - y;
+        svg.appendChild(
+          svgEl("rect", { x, y, width: barWidth * 0.7, height: barHeight, fill: color })
+        );
+        posOffset += value;
+      } else {
+        const y = yScale(negOffset);
+        const barHeight = yScale(negOffset + value) - y;
+        svg.appendChild(
+          svgEl("rect", { x, y, width: barWidth * 0.7, height: barHeight, fill: color })
+        );
+        negOffset += value;
+      }
+    });
+  });
+
+  attachHoverTooltip(
+    svg,
+    series.map((point, i) => ({ x: xPositions[i], datum: point })),
+    (point) =>
+      `<strong>${formatDateTick(point.date)}</strong><br>Lean: ${point.lean.toFixed(2)} kg<br>Fat: ${point.fat.toFixed(2)} kg`
   );
 }

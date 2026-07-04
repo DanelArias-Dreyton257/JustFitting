@@ -23,7 +23,14 @@ function formatAdherence(adherence) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
 }
 
-export function renderDashboardStats(container, metrics, adherence) {
+export function renderDashboardStats(
+  container,
+  metrics,
+  adherence,
+  gainQualityLatest,
+  energyBalanceLatest,
+  incrementAnalyticsLatest
+) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
@@ -38,6 +45,45 @@ export function renderDashboardStats(container, metrics, adherence) {
   ];
   if (adherence) {
     tiles.push(["Adherence", formatAdherence(adherence)]);
+  }
+  if (metrics.tef_kcal != null) {
+    tiles.push([
+      "TEF (this week)",
+      `${metrics.tef_kcal.toFixed(0)} kcal <span class="badge ${
+        metrics.tef_mode === "macros" ? "active" : "inactive"
+      }">${metrics.tef_mode}</span>`,
+    ]);
+  }
+  if (gainQualityLatest && gainQualityLatest.fat_ratio_cumulative != null) {
+    const pct = gainQualityLatest.fat_ratio_cumulative * 100;
+    const idealPct = gainQualityLatest.fat_ratio_ideal * 100;
+    const clean = pct <= idealPct;
+    tiles.push([
+      "Cumulative fat ratio",
+      `<span class="badge ${clean ? "active" : "inactive"}">${pct.toFixed(0)}% (ideal ≤${idealPct.toFixed(0)}%)</span>`,
+    ]);
+  }
+  if (energyBalanceLatest && energyBalanceLatest.error_rolling_mean_kcal != null) {
+    const err = energyBalanceLatest.error_rolling_mean_kcal;
+    const overThreshold = err > energyBalanceLatest.error_threshold_kcal;
+    tiles.push([
+      "Energy-balance error (rolling)",
+      `<span class="badge ${overThreshold ? "inactive" : "active"}">${err.toFixed(0)} kcal/day</span>`,
+    ]);
+  }
+  if (incrementAnalyticsLatest) {
+    tiles.push([
+      "Avg weekly increment",
+      `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}% (goal ${(
+        incrementAnalyticsLatest.goal_weekly_rate * 100
+      ).toFixed(2)}%)`,
+    ]);
+    if (incrementAnalyticsLatest.deviation_pct != null) {
+      tiles.push([
+        "Deviation from goal rate",
+        `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`,
+      ]);
+    }
   }
   container.innerHTML = tiles
     .map(
@@ -118,6 +164,23 @@ export function fillSettingsForm(form, dto) {
   form.lean_loss_window_weeks.value = dto.lean_loss_window_weeks;
   form.max_lean_loss_pct.value = (dto.max_lean_mass_loss_share * 100).toFixed(0);
   form.significant_deviation_kg.value = dto.significant_deviation_kg;
+  form.bmr_model.value = dto.bmr_model;
+  form.w_rfm.value = dto.w_rfm;
+  form.w_navy.value = dto.w_navy;
+  form.w_deur.value = dto.w_deur;
+  form.delta_pct.value = (dto.delta * 100).toFixed(1);
+  form.ffmi_coef.value = dto.ffmi_coef;
+  form.lean_tissue_kcal_per_kg.value = dto.lean_tissue_kcal_per_kg;
+  form.fat_ratio_ideal_pct.value = (dto.fat_ratio_ideal * 100).toFixed(0);
+  form.reconciliation_error_threshold_kcal.value = dto.reconciliation_error_threshold_kcal;
+  form.tef_mode.value = dto.tef_mode;
+  form.kappa_carbs.value = dto.kappa_carbs;
+  form.kappa_fat.value = dto.kappa_fat;
+  form.kappa_protein.value = dto.kappa_protein;
+  form.macro_mismatch_pct.value = (dto.macro_kcal_mismatch_pct * 100).toFixed(0);
+  form.protein_target_g_per_kg.value = dto.protein_target_g_per_kg;
+  form.fat_target_g_per_kg.value = dto.fat_target_g_per_kg;
+  form.macro_target_deviation_pct.value = (dto.macro_target_deviation_pct * 100).toFixed(0);
 }
 
 export function renderSettingsStatus(container, dto) {
@@ -136,6 +199,8 @@ export function renderSettingsHistory(tbody, history) {
         <td>${row.kcal_per_kg_fat}</td>
         <td>${row.stagnation_weeks}</td>
         <td>${(row.max_lean_mass_loss_share * 100).toFixed(0)}%</td>
+        <td>${row.bmr_model}</td>
+        <td><span class="badge ${row.tef_mode === "macros" ? "active" : "inactive"}">${row.tef_mode}</span></td>
         <td><span class="badge ${row.active ? "active" : "inactive"}">${
           row.active ? "active" : "past"
         }</span></td>
@@ -152,12 +217,20 @@ export function renderGoalHistory(tbody, goals) {
         <td>${goal.start_date}</td>
         <td>${(goal.target_bf * 100).toFixed(1)}%</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td><span class="badge ${goal.direction === "bulk" ? "active" : "inactive"}">${
+          goal.direction
+        }</span></td>
         <td><span class="badge ${goal.active ? "active" : "inactive"}">${
           goal.active ? "active" : "past"
         }</span></td>
       </tr>`
     )
     .join("");
+}
+
+function formatMacros(log) {
+  if (log.carbs_g == null || log.fat_g == null || log.protein_g == null) return "—";
+  return `${log.carbs_g}/${log.fat_g}/${log.protein_g}`;
 }
 
 export function renderLogTable(tbody, logs) {
@@ -171,7 +244,10 @@ export function renderLogTable(tbody, logs) {
         <td>${log.neck_cm}</td>
         <td>${log.intake_kcal}</td>
         <td>${log.steps}</td>
+        <td>${log.cardio_kcal}</td>
+        <td>${formatMacros(log)}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
+        <td><span class="badge ${log.granularity}">${log.granularity}</span></td>
         <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
       </tr>`
     )
@@ -218,28 +294,43 @@ export function showWizardStep(form, step, totalSteps) {
 export function renderLogReview(container, values) {
   const rows = [
     ["Date", values.date],
+    ["Granularity", values.granularity],
     ["Weight", values.weight_kg && `${values.weight_kg} kg`],
     ["Waist", values.waist_cm && `${values.waist_cm} cm`],
     ["Neck", values.neck_cm && `${values.neck_cm} cm`],
     ["Intake", values.intake_kcal && `${values.intake_kcal} kcal`],
     ["Steps", values.steps],
+    ["Cardio", values.cardio_kcal && `${values.cardio_kcal} kcal`],
+    ["Carbs", values.carbs_g && `${values.carbs_g} g`],
+    ["Fat", values.fat_g && `${values.fat_g} g`],
+    ["Protein", values.protein_g && `${values.protein_g} g`],
   ];
   container.innerHTML = rows
     .map(([label, value]) => `<dt>${label}</dt><dd>${value || "—"}</dd>`)
     .join("");
 }
 
-export function renderPlanStats(container, metrics) {
+export function renderPlanStats(container, metrics, direction) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to preview a plan.</p>`;
     return;
   }
+  // A bulk goal's Pi_i/daily_deficit_kcal goes negative by construction
+  // (composition_spec.md's "Formula reconciliation") -- same computed
+  // figure, sign-flipped and relabeled "surplus" for display (Phase 3, F1).
+  const isBulk = direction === "bulk";
   const tiles = [
     ["Target calories", `${metrics.target_calories.toFixed(0)} kcal`],
-    ["Daily deficit", `${metrics.daily_deficit_kcal.toFixed(0)} kcal`],
+    [
+      isBulk ? "Daily surplus" : "Daily deficit",
+      `${Math.abs(metrics.daily_deficit_kcal).toFixed(0)} kcal`,
+    ],
     ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
     ["Goal weight", `${metrics.final_weight_kg.toFixed(1)} kg`],
   ];
+  if (direction) {
+    tiles.push(["Direction", isBulk ? "Bulk" : "Cut"]);
+  }
   container.innerHTML = tiles
     .map(
       ([label, value]) => `
@@ -252,7 +343,20 @@ export function renderPlanStats(container, metrics) {
 }
 
 export function renderReport(container, report) {
-  const { profile, latest_metrics, adherence, goal_history, series, alerts, generated_at } = report;
+  const {
+    profile,
+    latest_metrics,
+    adherence,
+    goal_history,
+    series,
+    alerts,
+    gain_quality,
+    energy_balance,
+    increment_analytics,
+    tef,
+    macro_targets,
+    generated_at,
+  } = report;
 
   const profileRows = [
     ["Height", `${profile.height_cm} cm`],
@@ -300,6 +404,7 @@ export function renderReport(container, report) {
         <td>${goal.start_date}</td>
         <td>${(goal.target_bf * 100).toFixed(1)}%</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
+        <td>${goal.direction}</td>
         <td><span class="badge ${goal.active ? "active" : "inactive"}">${
           goal.active ? "active" : "past"
         }</span></td>
@@ -318,6 +423,68 @@ export function renderReport(container, report) {
         )
         .join("")
     : `<p class="disclaimer">No open alerts.</p>`;
+
+  const fmt = (value, digits = 1) => (value == null ? "—" : value.toFixed(digits));
+
+  const gainQualityRows = (gain_quality || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${fmt(row.delta_lean_kg, 2)}</td>
+        <td>${fmt(row.delta_fat_kg, 2)}</td>
+        <td>${row.fat_ratio == null ? "—" : `${(row.fat_ratio * 100).toFixed(0)}%`}</td>
+      </tr>`
+    )
+    .join("");
+
+  const energyBalanceRows = (energy_balance || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${fmt(row.surplus_ingested_kcal, 0)}</td>
+        <td>${fmt(row.surplus_tissue_kcal, 0)}</td>
+        <td>${fmt(row.error_kcal, 0)}</td>
+      </tr>`
+    )
+    .join("");
+
+  const incrementRows = (increment_analytics || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${(row.incr_real_pct * 100).toFixed(2)}%</td>
+        <td>${(row.goal_weekly_rate * 100).toFixed(2)}%</td>
+        <td>${row.deviation_pct == null ? "—" : `${(row.deviation_pct * 100).toFixed(0)}%`}</td>
+      </tr>`
+    )
+    .join("");
+
+  const tefRows = (tef || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${row.tef_kcal_flat.toFixed(0)}</td>
+        <td>${fmt(row.tef_kcal_macros, 0)}</td>
+        <td><span class="badge ${row.tef_mode_used === "macros" ? "active" : "inactive"}">${row.tef_mode_used}</span></td>
+      </tr>`
+    )
+    .join("");
+
+  const macroTargetRows = (macro_targets || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${row.protein_target_g.toFixed(0)} / ${fmt(row.protein_actual_g, 0)}</td>
+        <td>${row.fat_target_g.toFixed(0)} / ${fmt(row.fat_actual_g, 0)}</td>
+        <td>${row.carbs_target_g.toFixed(0)} / ${fmt(row.carbs_actual_g, 0)}</td>
+      </tr>`
+    )
+    .join("");
 
   container.innerHTML = `
     <p class="disclaimer">Generated ${new Date(generated_at).toLocaleString()}</p>
@@ -347,7 +514,7 @@ export function renderReport(container, report) {
 
     <h2>Goal history</h2>
     <table class="data-table">
-      <thead><tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Status</th></tr></thead>
+      <thead><tr><th>Start date</th><th>Target BF</th><th>Weekly rate</th><th>Direction</th><th>Status</th></tr></thead>
       <tbody>${goalRows}</tbody>
     </table>
 
@@ -356,6 +523,56 @@ export function renderReport(container, report) {
       <thead><tr><th>Date</th><th>Weight</th><th>Body fat %</th><th>Target kcal</th><th>Source</th></tr></thead>
       <tbody>${seriesRows}</tbody>
     </table>
+
+    <h2>Gain quality (lean vs fat change)</h2>
+    ${
+      gainQualityRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Lean Δ (kg)</th><th>Fat Δ (kg)</th><th>Fat ratio</th></tr></thead>
+      <tbody>${gainQualityRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Energy reconciliation (ingested vs tissue surplus, kcal/day)</h2>
+    ${
+      energyBalanceRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Ingested</th><th>Tissue</th><th>Error</th></tr></thead>
+      <tbody>${energyBalanceRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Real increment vs goal rate</h2>
+    ${
+      incrementRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Actual</th><th>Goal rate</th><th>Deviation</th></tr></thead>
+      <tbody>${incrementRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>TEF: flat estimate vs macros (kcal/day)</h2>
+    ${
+      tefRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Flat</th><th>From macros</th><th>Mode used</th></tr></thead>
+      <tbody>${tefRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Macro targets (target / actual, g)</h2>
+    ${
+      macroTargetRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Protein</th><th>Fat</th><th>Carbs</th></tr></thead>
+      <tbody>${macroTargetRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
 
     <h2>Open alerts</h2>
     <div class="alerts-panel">${alertRows}</div>

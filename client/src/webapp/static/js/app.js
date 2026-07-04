@@ -20,7 +20,15 @@ import {
   renderSettingsStatus,
   renderSettingsHistory,
 } from "./views.js";
-import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
+import {
+  drawLineChart,
+  drawStackedBars,
+  drawMultiLineChart,
+  drawDivergingBars,
+  drawMacroSplitBars,
+} from "./charts.js";
+
+const MACRO_COLORS = { protein: "#5eb3ff", fat: "#f0b94d", carbs: "#7ee787" };
 
 const state = {
   profile: null,
@@ -73,16 +81,40 @@ function navigate(viewName) {
 }
 
 async function refreshDashboard() {
-  const [latest, series, logs, alerts, adherence, goals] = await Promise.all([
+  const [
+    latest,
+    series,
+    logs,
+    alerts,
+    adherence,
+    goals,
+    gainQuality,
+    energyBalance,
+    incrementAnalytics,
+    tef,
+    macroTargets,
+  ] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.listLogs().catch(() => []),
     api.alerts().catch(() => []),
     api.adherence().catch(() => null),
     api.goals().catch(() => []),
+    api.gainQuality().catch(() => []),
+    api.energyBalance().catch(() => []),
+    api.incrementAnalytics().catch(() => []),
+    api.tef().catch(() => []),
+    api.macroTargets().catch(() => []),
   ]);
   state.series = series;
-  renderDashboardStats(document.getElementById("dashboard-stats"), latest, adherence);
+  renderDashboardStats(
+    document.getElementById("dashboard-stats"),
+    latest,
+    adherence,
+    gainQuality[gainQuality.length - 1],
+    energyBalance[energyBalance.length - 1],
+    incrementAnalytics[incrementAnalytics.length - 1]
+  );
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 
@@ -167,6 +199,78 @@ async function refreshDashboard() {
     ],
     { isProjected, markers: goalMarkers }
   );
+
+  drawDivergingBars(
+    document.getElementById("chart-gain-quality"),
+    gainQuality.map((row) => ({
+      date: row.date,
+      fat: row.delta_fat_kg,
+      lean: row.delta_lean_kg,
+    }))
+  );
+
+  const reconciledWeeks = energyBalance.filter(
+    (row) => row.surplus_ingested_kcal != null && row.surplus_tissue_kcal != null
+  );
+  drawMultiLineChart(
+    document.getElementById("chart-energy-balance"),
+    reconciledWeeks,
+    [
+      { accessor: (row) => row.surplus_ingested_kcal, color: "#5eb3ff", label: "Ingested" },
+      { accessor: (row) => row.surplus_tissue_kcal, color: "#f0b94d", label: "Tissue" },
+    ]
+  );
+
+  drawMultiLineChart(
+    document.getElementById("chart-increment-analytics"),
+    incrementAnalytics,
+    [
+      { accessor: (row) => row.incr_real_pct * 100, color: "#5eb3ff", label: "Actual" },
+      {
+        accessor: (row) => row.goal_weekly_rate * 100,
+        color: "#7ee787",
+        dashed: true,
+        label: "Goal rate",
+      },
+    ]
+  );
+
+  const macroWeeks = tef.filter((row) => row.tef_kcal_macros != null);
+  drawMultiLineChart(
+    document.getElementById("chart-tef"),
+    macroWeeks,
+    [
+      { accessor: (row) => row.tef_kcal_flat, color: "#5eb3ff", label: "Flat estimate" },
+      { accessor: (row) => row.tef_kcal_macros, color: "#f0b94d", label: "From macros" },
+    ]
+  );
+
+  const latestMacroTargets = macroTargets[macroTargets.length - 1];
+  const macroBars = latestMacroTargets
+    ? [
+        {
+          label: "Target",
+          segments: [
+            { label: "Protein", value: latestMacroTargets.protein_target_kcal, color: MACRO_COLORS.protein },
+            { label: "Fat", value: latestMacroTargets.fat_target_kcal, color: MACRO_COLORS.fat },
+            { label: "Carbs", value: latestMacroTargets.carbs_target_kcal, color: MACRO_COLORS.carbs },
+          ],
+        },
+        ...(latestMacroTargets.has_actual
+          ? [
+              {
+                label: "Actual",
+                segments: [
+                  { label: "Protein", value: latestMacroTargets.protein_actual_kcal, color: MACRO_COLORS.protein },
+                  { label: "Fat", value: latestMacroTargets.fat_actual_kcal, color: MACRO_COLORS.fat },
+                  { label: "Carbs", value: latestMacroTargets.carbs_actual_kcal, color: MACRO_COLORS.carbs },
+                ],
+              },
+            ]
+          : []),
+      ]
+    : [];
+  drawMacroSplitBars(document.getElementById("chart-macro-split"), macroBars);
 }
 
 async function refreshLogs() {
@@ -201,7 +305,7 @@ async function refreshPlan() {
   const form = document.getElementById("plan-form");
   form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
-  renderPlanStats(document.getElementById("plan-current-stats"), current);
+  renderPlanStats(document.getElementById("plan-current-stats"), current, profile.direction);
   renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
   state.planPreviewParams = null;
   document.getElementById("plan-preview-result").hidden = true;
@@ -329,6 +433,10 @@ document.getElementById("log-back").addEventListener("click", () => {
   goToLogStep(Math.max(logWizardStep - 1, 1));
 });
 
+function optionalNumber(raw) {
+  return raw === "" || raw == null ? null : Number(raw);
+}
+
 document.getElementById("log-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormError("log-form", "");
@@ -340,6 +448,11 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
     neck_cm: Number(raw.neck_cm),
     intake_kcal: Number(raw.intake_kcal),
     steps: Number(raw.steps),
+    cardio_kcal: Number(raw.cardio_kcal) || 0,
+    granularity: raw.granularity || "weekly",
+    carbs_g: optionalNumber(raw.carbs_g),
+    fat_g: optionalNumber(raw.fat_g),
+    protein_g: optionalNumber(raw.protein_g),
   };
   try {
     await api.createLog(payload);
@@ -382,7 +495,8 @@ document.getElementById("plan-form").addEventListener("submit", async (event) =>
   try {
     const proposed = await api.planPreview(params);
     state.planPreviewParams = params;
-    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed);
+    const direction = params.weekly_rate > 0 ? "bulk" : "cut";
+    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed, direction);
     document.getElementById("plan-preview-result").hidden = false;
   } catch (err) {
     state.planPreviewParams = null;
@@ -481,6 +595,23 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     lean_loss_window_weeks: Number(raw.lean_loss_window_weeks),
     max_lean_mass_loss_share: Number(raw.max_lean_loss_pct) / 100,
     significant_deviation_kg: Number(raw.significant_deviation_kg),
+    bmr_model: raw.bmr_model,
+    w_rfm: Number(raw.w_rfm),
+    w_navy: Number(raw.w_navy),
+    w_deur: Number(raw.w_deur),
+    delta: Number(raw.delta_pct) / 100,
+    ffmi_coef: Number(raw.ffmi_coef),
+    lean_tissue_kcal_per_kg: Number(raw.lean_tissue_kcal_per_kg),
+    fat_ratio_ideal: Number(raw.fat_ratio_ideal_pct) / 100,
+    reconciliation_error_threshold_kcal: Number(raw.reconciliation_error_threshold_kcal),
+    tef_mode: raw.tef_mode,
+    kappa_carbs: Number(raw.kappa_carbs),
+    kappa_fat: Number(raw.kappa_fat),
+    kappa_protein: Number(raw.kappa_protein),
+    macro_kcal_mismatch_pct: Number(raw.macro_mismatch_pct) / 100,
+    protein_target_g_per_kg: Number(raw.protein_target_g_per_kg),
+    fat_target_g_per_kg: Number(raw.fat_target_g_per_kg),
+    macro_target_deviation_pct: Number(raw.macro_target_deviation_pct) / 100,
   };
   try {
     await api.updateSettings(payload);

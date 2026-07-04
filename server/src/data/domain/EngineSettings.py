@@ -25,6 +25,23 @@ class EngineSettings:
     lean_loss_window_weeks: int
     max_lean_mass_loss_share: float
     significant_deviation_kg: float
+    bmr_model: str
+    w_rfm: float
+    w_navy: float
+    w_deur: float
+    delta: float
+    ffmi_coef: float
+    lean_tissue_kcal_per_kg: float
+    fat_ratio_ideal: float
+    reconciliation_error_threshold_kcal: float
+    tef_mode: str
+    kappa_carbs: float
+    kappa_fat: float
+    kappa_protein: float
+    macro_kcal_mismatch_pct: float
+    protein_target_g_per_kg: float
+    fat_target_g_per_kg: float
+    macro_target_deviation_pct: float
     start_date: date
     active: bool
     created_at: datetime
@@ -43,6 +60,23 @@ class EngineSettings:
             lean_loss_window_weeks=row["lean_loss_window_weeks"],
             max_lean_mass_loss_share=row["max_lean_mass_loss_share"],
             significant_deviation_kg=row["significant_deviation_kg"],
+            bmr_model=row["bmr_model"],
+            w_rfm=row["w_rfm"],
+            w_navy=row["w_navy"],
+            w_deur=row["w_deur"],
+            delta=row["delta"],
+            ffmi_coef=row["ffmi_coef"],
+            lean_tissue_kcal_per_kg=row["lean_tissue_kcal_per_kg"],
+            fat_ratio_ideal=row["fat_ratio_ideal"],
+            reconciliation_error_threshold_kcal=row["reconciliation_error_threshold_kcal"],
+            tef_mode=row["tef_mode"],
+            kappa_carbs=row["kappa_carbs"],
+            kappa_fat=row["kappa_fat"],
+            kappa_protein=row["kappa_protein"],
+            macro_kcal_mismatch_pct=row["macro_kcal_mismatch_pct"],
+            protein_target_g_per_kg=row["protein_target_g_per_kg"],
+            fat_target_g_per_kg=row["fat_target_g_per_kg"],
+            macro_target_deviation_pct=row["macro_target_deviation_pct"],
             start_date=date.fromisoformat(row["start_date"]),
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),

@@ -139,6 +139,220 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(missing_update.status_code, 404)
 
+    def test_log_create_and_update_persist_cardio_kcal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "cardio_kcal": 300.0,
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertAlmostEqual(body["cardio_kcal"], 300.0)
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"cardio_kcal": 450.0}, headers=headers
+        )
+        self.assertAlmostEqual(update_response.get_json()["cardio_kcal"], 450.0)
+
+    def test_log_create_defaults_cardio_kcal_to_zero(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertAlmostEqual(response.get_json()["cardio_kcal"], 0.0)
+
+    def test_log_create_and_update_persist_granularity(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "daily",
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertEqual(body["granularity"], "daily")
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"granularity": "weekly"}, headers=headers
+        )
+        self.assertEqual(update_response.get_json()["granularity"], "weekly")
+
+    def test_log_create_defaults_granularity_to_weekly(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.get_json()["granularity"], "weekly")
+
+    def test_log_create_and_update_persist_macros(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "daily",
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertAlmostEqual(body["carbs_g"], 200.0)
+        self.assertAlmostEqual(body["fat_g"], 70.0)
+        self.assertAlmostEqual(body["protein_g"], 180.0)
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"carbs_g": 210.0}, headers=headers
+        )
+        self.assertAlmostEqual(update_response.get_json()["carbs_g"], 210.0)
+
+    def test_log_create_defaults_macros_to_null(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        body = response.get_json()
+        self.assertIsNone(body["carbs_g"])
+        self.assertIsNone(body["fat_g"])
+        self.assertIsNone(body["protein_g"])
+
+    def test_log_create_rejects_partial_macros(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "carbs_g": 200.0,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_log_create_rejects_invalid_granularity(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "monthly",
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_daily_logs_within_one_iso_week_collapse_in_metrics_series(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        # A prior weekly baseline, then a full ISO week (2026-W02, Mon 1/5..Sun 1/11)
+        # logged daily -- should collapse to exactly one extra metrics row.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        daily_weights = [96.0, 95.8, 95.9, 95.7, 95.6, 95.5, 95.4]
+        for offset, weight in enumerate(daily_weights):
+            day = 5 + offset
+            self.client.post(
+                "/api/logs",
+                json={
+                    "date": f"2026-01-{day:02d}",
+                    "weight_kg": weight,
+                    "waist_cm": 90.0,
+                    "neck_cm": 38.5,
+                    "intake_kcal": 2300.0,
+                    "steps": 6100,
+                    "granularity": "daily",
+                },
+                headers=headers,
+            )
+
+        raw_logs = self.client.get("/api/logs", headers=headers).get_json()
+        self.assertEqual(len(raw_logs), 8)
+
+        series_response = self.client.get("/api/metrics/series", headers=headers)
+        series = series_response.get_json()
+        self.assertEqual(len(series), 2)
+        self.assertEqual(series[1]["date"], "2026-01-11")
+
     def test_log_create_rejects_invalid_navy_ratio(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -269,6 +483,19 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(goals), 2)
         self.assertTrue(goals[0]["active"])
         self.assertFalse(goals[1]["active"])
+        self.assertEqual(goals[0]["direction"], "cut")
+
+    def test_goal_direction_is_bulk_for_a_positive_weekly_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        update_response = self.client.put(
+            "/api/users/me",
+            json={"weekly_rate": 0.003},
+            headers=headers,
+        )
+        self.assertEqual(update_response.get_json()["direction"], "bulk")
+        goals = self.client.get("/api/users/me/goals", headers=headers).get_json()
+        self.assertEqual(goals[0]["direction"], "bulk")
 
     def test_log_edit_is_recorded_in_the_audit_log(self):
         token = self._register().get_json()["token"]
@@ -390,6 +617,18 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(exported["goal_history"]), 2)
         self.assertGreaterEqual(len(exported["audit_log"]), 1)
 
+    def test_export_includes_wave2_metrics(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        export_response = self.client.get("/api/users/me/export", headers=headers)
+        exported = export_response.get_json()
+        for key in ("gain_quality", "energy_balance", "increment_analytics", "tef", "macro_targets"):
+            self.assertIn(key, exported)
+        self.assertEqual(len(exported["gain_quality"]), 2)
+        self.assertEqual(len(exported["tef"]), 2)
+
     def test_alerts_empty_without_logs(self):
         token = self._register().get_json()["token"]
         response = self.client.get("/api/alerts", headers=self._auth_header(token))
@@ -474,6 +713,169 @@ class ApiTestCase(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(body["real_log_count"], 2)
         self.assertIsNotNone(body["mean_intake_diff_kcal"])
+
+    def test_gain_quality_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/gain-quality", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_gain_quality_reflects_the_lean_fat_split_of_the_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/gain-quality", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["delta_lean_kg"], 0.0)
+        self.assertEqual(rows[0]["delta_fat_kg"], 0.0)
+        self.assertAlmostEqual(
+            rows[1]["delta_lean_kg"] + rows[1]["delta_fat_kg"], 96.4 - 97.0, delta=0.02
+        )
+        self.assertAlmostEqual(rows[1]["fat_ratio_ideal"], 0.25)
+
+    def test_energy_balance_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/energy-balance", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_energy_balance_reflects_ingested_vs_tissue_surplus(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/energy-balance", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertIsNotNone(rows[0]["surplus_ingested_kcal"])
+        self.assertIsNotNone(rows[0]["surplus_tissue_kcal"])
+        self.assertIsNotNone(rows[0]["error_kcal"])
+        # The most recent week has no *next* week's tissue change to compare yet.
+        self.assertIsNone(rows[1]["surplus_tissue_kcal"])
+        self.assertIsNone(rows[1]["error_kcal"])
+        self.assertAlmostEqual(rows[0]["error_threshold_kcal"], 300.0)
+
+    def test_increment_analytics_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/increment-analytics", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_increment_analytics_skips_the_base_week_and_tracks_the_goal_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/increment-analytics", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date"], "2026-01-04")
+        self.assertAlmostEqual(rows[0]["goal_weekly_rate"], -0.005)
+        self.assertIsNotNone(rows[0]["deviation_pct"])
+
+    def test_tef_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/tef", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_tef_defaults_to_flat_with_no_macros_logged(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/tef", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(rows[0]["has_macros"])
+        self.assertIsNone(rows[0]["tef_kcal_macros"])
+        self.assertEqual(rows[0]["tef_mode_used"], "flat")
+        self.assertGreater(rows[0]["tef_kcal_flat"], 0.0)
+
+    def test_tef_breaks_down_a_macros_week_once_opted_in(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put(
+            "/api/users/me/settings", json={"tef_mode": "macros"}, headers=headers
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/metrics/tef", headers=headers)
+        rows = response.get_json()
+        macros_row = rows[-1]
+        self.assertTrue(macros_row["has_macros"])
+        self.assertEqual(macros_row["tef_mode_used"], "macros")
+        self.assertAlmostEqual(
+            macros_row["tef_kcal_macros"],
+            0.300 * 200.0 + 0.135 * 70.0 + 1.000 * 180.0,
+            delta=0.01,
+        )
+
+    def test_macro_targets_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/macro-targets", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_macro_targets_reflects_default_g_per_kg_and_actual_when_logged(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/macro-targets", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        # First seeded log: weight 97.0 kg, defaults 1.75/0.70 g per kg.
+        self.assertAlmostEqual(rows[0]["protein_target_g"], 1.75 * 97.0, delta=0.01)
+        self.assertAlmostEqual(rows[0]["fat_target_g"], 0.70 * 97.0, delta=0.01)
+        self.assertFalse(rows[0]["has_actual"])
+
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+        rows = self.client.get("/api/metrics/macro-targets", headers=headers).get_json()
+        macros_row = rows[-1]
+        self.assertTrue(macros_row["has_actual"])
+        self.assertAlmostEqual(macros_row["protein_actual_kcal"], 180.0 * 4.0)
 
     def test_acknowledge_alert_removes_it_from_the_default_list(self):
         token = self._register().get_json()["token"]
@@ -579,11 +981,22 @@ class ApiTestCase(unittest.TestCase):
             "goal_history",
             "series",
             "alerts",
+            "gain_quality",
+            "energy_balance",
+            "increment_analytics",
+            "tef",
+            "macro_targets",
             "generated_at",
         ):
             self.assertIn(key, report)
         self.assertEqual(len(report["series"]), 2)
         self.assertIsNotNone(report["latest_metrics"])
+        self.assertEqual(len(report["gain_quality"]), 2)
+        self.assertEqual(len(report["energy_balance"]), 2)
+        self.assertEqual(len(report["tef"]), 2)
+        self.assertEqual(len(report["macro_targets"]), 2)
+        # Only one real week-over-week increment exists for a 2-log series.
+        self.assertEqual(len(report["increment_analytics"]), 1)
         self.assertEqual(len(report["goal_history"]), 1)
 
     def test_settings_default_before_any_override(self):
@@ -595,6 +1008,9 @@ class ApiTestCase(unittest.TestCase):
         body = response.get_json()
         self.assertTrue(body["is_default"])
         self.assertEqual(body["stagnation_weeks"], 3)
+        self.assertEqual(body["bmr_model"], "cunningham")
+        self.assertAlmostEqual(body["w_rfm"], 0.50)
+        self.assertAlmostEqual(body["ffmi_coef"], 6.3)
 
     def test_settings_update_and_history(self):
         token = self._register().get_json()["token"]
@@ -627,6 +1043,125 @@ class ApiTestCase(unittest.TestCase):
             headers=self._auth_header(token),
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_bmr_model_and_bf_weights(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"bmr_model": "mifflin", "w_rfm": 0.6, "w_navy": 0.2, "w_deur": 0.2},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["bmr_model"], "mifflin")
+        self.assertAlmostEqual(body["w_rfm"], 0.6)
+
+    def test_settings_update_rejects_bf_weights_not_summing_to_one(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"w_rfm": 0.6, "w_navy": 0.3, "w_deur": 0.3},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_rejects_invalid_bmr_model(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"bmr_model": "not_a_model"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_reconciliation_error_threshold(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        self.assertAlmostEqual(
+            get_response.get_json()["reconciliation_error_threshold_kcal"], 300.0
+        )
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"reconciliation_error_threshold_kcal": 150.0},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertAlmostEqual(
+            update_response.get_json()["reconciliation_error_threshold_kcal"], 150.0
+        )
+
+    def test_settings_update_tef_mode_and_kappas(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        default_body = get_response.get_json()
+        self.assertEqual(default_body["tef_mode"], "flat")
+        self.assertAlmostEqual(default_body["kappa_carbs"], 0.300)
+        self.assertAlmostEqual(default_body["kappa_fat"], 0.135)
+        self.assertAlmostEqual(default_body["kappa_protein"], 1.000)
+        self.assertAlmostEqual(default_body["macro_kcal_mismatch_pct"], 0.15)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef_mode": "macros", "kappa_protein": 0.95},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertEqual(body["tef_mode"], "macros")
+        self.assertAlmostEqual(body["kappa_protein"], 0.95)
+
+    def test_settings_update_rejects_invalid_tef_mode(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef_mode": "not_a_mode"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_macro_targets(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        default_body = get_response.get_json()
+        self.assertAlmostEqual(default_body["protein_target_g_per_kg"], 1.75)
+        self.assertAlmostEqual(default_body["fat_target_g_per_kg"], 0.70)
+        self.assertAlmostEqual(default_body["macro_target_deviation_pct"], 0.20)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"protein_target_g_per_kg": 2.0, "fat_target_g_per_kg": 0.9},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertAlmostEqual(body["protein_target_g_per_kg"], 2.0)
+        self.assertAlmostEqual(body["fat_target_g_per_kg"], 0.9)
+
+    def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.put(
+            "/api/users/me", json={"weekly_rate": 0.02}, headers=headers
+        )
+        alerts = self.client.get("/api/alerts", headers=headers).get_json()
+        bulk_alerts = [a for a in alerts if a["type"] == "bulk_rate_out_of_range"]
+        self.assertEqual(len(bulk_alerts), 1)
+
+        ack_response = self.client.post(
+            f"/api/alerts/{bulk_alerts[0]['alert_id']}/acknowledge", headers=headers
+        )
+        self.assertEqual(ack_response.status_code, 200)
+        remaining = self.client.get("/api/alerts", headers=headers).get_json()
+        self.assertFalse(any(a["type"] == "bulk_rate_out_of_range" for a in remaining))
 
     def test_custom_alert_threshold_changes_detection(self):
         token = self._register().get_json()["token"]

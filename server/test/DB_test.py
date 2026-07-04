@@ -1,10 +1,8 @@
-import os
-import tempfile
 import threading
 import unittest
 from datetime import date, datetime, timedelta, timezone
 
-import server.src.data.db.DB as DBModule
+from server.src.data.db import DB as DBModule
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
@@ -19,12 +17,20 @@ class DBTestCase(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def test_migrate_is_idempotent(self):
-        version_before = self.db.query_one("PRAGMA user_version")[0]
-        self.db.migrate()
-        version_after = self.db.query_one("PRAGMA user_version")[0]
-        self.assertEqual(version_before, version_after)
-        self.assertGreater(version_after, 0)
+    def test_schema_is_idempotent_across_reconnects(self):
+        """Re-running SCHEMA against an already-initialized database (the
+        normal case on every boot) must not error or lose data."""
+        UserDAO(self.db).create(
+            username="danel",
+            email="danel@example.com",
+            password_hash="hash",
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+        )
+        self.db._conn.executescript(DBModule.SCHEMA)
+        row = self.db.query_one("SELECT COUNT(*) AS count FROM users")
+        self.assertEqual(row["count"], 1)
 
     def test_user_dao_crud(self):
         dao = UserDAO(self.db)
@@ -215,62 +221,6 @@ class DBTestCase(unittest.TestCase):
 
         history = goal_dao.list_for_user(profile.user_id)
         self.assertEqual([g.goal_id for g in history], [second.goal_id, first.goal_id])
-
-
-class MigrationBackfillTest(unittest.TestCase):
-    """Verifies the v4 migration: existing users' target_bf/weekly_rate are
-    backfilled into an active goal_plans row, then dropped from users."""
-
-    def setUp(self):
-        self.original_migrations = DBModule.MIGRATIONS
-        self.path = tempfile.mktemp(suffix=".db")
-
-    def tearDown(self):
-        DBModule.MIGRATIONS = self.original_migrations
-        if os.path.exists(self.path):
-            os.remove(self.path)
-
-    def test_v4_backfills_goal_plans_and_drops_columns(self):
-        DBModule.MIGRATIONS = self.original_migrations[:3]
-        legacy_db = DB(self.path)
-        legacy_db.execute(
-            """
-            INSERT INTO users
-                (username, email, password_hash, height_cm, sex, birthdate,
-                 target_bf, weekly_rate, units, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "legacy",
-                "legacy@example.com",
-                "hash",
-                176,
-                1,
-                "2001-08-22",
-                0.15,
-                -0.005,
-                "metric",
-                "2026-01-01T00:00:00+00:00",
-            ),
-        )
-        legacy_db.close()
-
-        DBModule.MIGRATIONS = self.original_migrations
-        upgraded = DB(self.path)
-        try:
-            user_row = upgraded.query_one(
-                "SELECT * FROM users WHERE username = ?", ("legacy",)
-            )
-            self.assertNotIn("target_bf", user_row.keys())
-            self.assertNotIn("weekly_rate", user_row.keys())
-
-            active = GoalPlanDAO(upgraded).get_active(user_row["user_id"])
-            self.assertIsNotNone(active)
-            self.assertAlmostEqual(active.target_bf, 0.15)
-            self.assertAlmostEqual(active.weekly_rate, -0.005)
-            self.assertEqual(active.start_date, date(2026, 1, 1))
-        finally:
-            upgraded.close()
 
 
 class DBConcurrencyTest(unittest.TestCase):

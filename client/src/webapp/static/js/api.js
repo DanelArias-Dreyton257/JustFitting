@@ -53,6 +53,11 @@ export const api = {
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
   adherence: () => request("GET", "/api/metrics/adherence"),
+  gainQuality: () => request("GET", "/api/metrics/gain-quality"),
+  energyBalance: () => request("GET", "/api/metrics/energy-balance"),
+  incrementAnalytics: () => request("GET", "/api/metrics/increment-analytics"),
+  tef: () => request("GET", "/api/metrics/tef"),
+  macroTargets: () => request("GET", "/api/metrics/macro-targets"),
   alerts: (includeAcknowledged = false) =>
     request("GET", `/api/alerts?include_acknowledged=${includeAcknowledged}`),
   acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),

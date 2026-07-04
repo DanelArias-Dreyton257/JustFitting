@@ -17,6 +17,7 @@ from server.src.services.composition import (
     Anthropometry,
     BodyFat,
     EnergyModel,
+    Tef,
     Trajectory,
     constants,
 )
@@ -28,7 +29,12 @@ from server.src.services.composition.models import (
     ProfileParams,
 )
 
-ENGINE_VERSION = 1
+#: Bumped 1 -> 2 for Phase 3.4 (Wave 2, F9): `CompositionResult` gained
+#: `tef_kcal`/`tef_mode`, and a week with `tef_mode="macros"` and logged
+#: macros now uses an additive (not divisor) TDEE/target-calories formula --
+#: old snapshots at version 1 can't be reinterpreted under the new fields,
+#: so they're left untouched and every log recomputes fresh at version 2.
+ENGINE_VERSION = 2
 
 #: A week-over-week weight swing beyond this fraction of body weight is
 #: implausible for a single week and gets flagged (not blocked). Kept as a
@@ -55,6 +61,21 @@ def validate_log_input(log: LogInput) -> None:
             raise ValueError(f"{name} must be positive, got {value!r}")
     if log.waist_cm <= log.neck_cm:
         raise ValueError("waist_cm must be greater than neck_cm")
+
+    # Phase 3.4 (Wave 2, F9): macros are logged together or not at all --
+    # there's no principled way to compute a macro-based TEF from a partial
+    # trio, so a partial log is rejected rather than silently falling back.
+    macro_fields = {
+        "carbs_g": log.carbs_g,
+        "fat_g": log.fat_g,
+        "protein_g": log.protein_g,
+    }
+    logged = [value for value in macro_fields.values() if value is not None]
+    if 0 < len(logged) < 3:
+        raise ValueError("carbs_g, fat_g and protein_g must be logged together or not at all")
+    for name, value in macro_fields.items():
+        if value is not None and value < 0:
+            raise ValueError(f"{name} must not be negative, got {value!r}")
 
 
 def compute_row(
@@ -88,16 +109,23 @@ def compute_row(
     rfm = BodyFat.compute_rfm(profile.height_cm, log.waist_cm)
     navy = BodyFat.compute_navy(profile.height_cm, log.waist_cm, log.neck_cm)
     deurenberg = BodyFat.compute_deurenberg(bmi, age, profile.sex)
-    body_fat = BodyFat.compute_body_fat(rfm, navy, deurenberg)
+    body_fat = BodyFat.compute_body_fat(
+        rfm, navy, deurenberg, ec.w_rfm, ec.w_navy, ec.w_deur, ec.delta
+    )
 
     fat_mass_kg = BodyFat.compute_fat_mass(log.weight_kg, body_fat)
     lean_mass_kg = BodyFat.compute_lean_mass(log.weight_kg, body_fat)
     above_target = BodyFat.compute_above_target(body_fat, profile.target_bf)
 
     ffmi = Anthropometry.compute_ffmi(lean_mass_kg, profile.height_cm)
-    ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, profile.height_cm)
+    ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, profile.height_cm, ec.ffmi_coef)
     final_weight_kg = Trajectory.compute_final_weight(lean_mass_kg, profile.target_bf)
-    bmr = EnergyModel.compute_bmr(lean_mass_kg)
+    if ec.bmr_model == "mifflin":
+        bmr = EnergyModel.compute_bmr_mifflin(
+            log.weight_kg, profile.height_cm, age, profile.sex
+        )
+    else:
+        bmr = EnergyModel.compute_bmr(lean_mass_kg)
 
     weight_delta_kg = Trajectory.compute_weight_delta(log.weight_kg, prev_weight_kg)
     weight_delta_pct = Trajectory.compute_weight_delta_pct(
@@ -119,10 +147,28 @@ def compute_row(
     )
 
     neat = EnergyModel.compute_neat(log.weight_kg, log.steps, ec.neat_step_factor)
-    tdee = EnergyModel.compute_tdee(bmr, neat, ec.tef)
-    target_calories = EnergyModel.compute_target_calories(
-        bmr, neat, daily_deficit_kcal, ec.tef
+
+    has_macros = (
+        log.carbs_g is not None and log.fat_g is not None and log.protein_g is not None
     )
+    if ec.tef_mode == "macros" and has_macros:
+        # Phase 3.4 (Wave 2, F9): a directly-summed kcal figure, added
+        # (not divided) into TDEE/target-calories -- see
+        # docs/composition_spec.md's F9 section for why this replaces the
+        # flat approximation additively rather than as another percentage.
+        tef_kcal = Tef.compute_tef_kcal(
+            log.carbs_g, log.fat_g, log.protein_g, ec.kappa_carbs, ec.kappa_fat, ec.kappa_protein
+        )
+        tef_mode_used = "macros"
+        tdee = bmr + neat + log.cardio_kcal + tef_kcal
+        target_calories = bmr + neat + log.cardio_kcal + tef_kcal - daily_deficit_kcal
+    else:
+        tdee = EnergyModel.compute_tdee(bmr, neat, ec.tef, log.cardio_kcal)
+        target_calories = EnergyModel.compute_target_calories(
+            bmr, neat, daily_deficit_kcal, ec.tef, log.cardio_kcal
+        )
+        tef_kcal = tdee * ec.tef
+        tef_mode_used = "flat"
     intake_diff = EnergyModel.compute_intake_diff(log.intake_kcal, target_calories)
 
     return CompositionResult(
@@ -143,6 +189,8 @@ def compute_row(
         tdee=tdee,
         target_calories=target_calories,
         intake_diff=intake_diff,
+        tef_kcal=tef_kcal,
+        tef_mode=tef_mode_used,
         weight_delta_kg=weight_delta_kg,
         weight_delta_pct=weight_delta_pct,
         weight_objective_kg=weight_objective_kg,

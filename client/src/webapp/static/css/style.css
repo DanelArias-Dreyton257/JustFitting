@@ -502,6 +502,16 @@ button#projection-refresh:hover {
   color: var(--danger);
 }
 
+.badge.weekly {
+  background: rgba(126, 231, 135, 0.15);
+  color: var(--success, #7ee787);
+}
+
+.badge.daily {
+  background: rgba(240, 180, 41, 0.15);
+  color: #f0b429;
+}
+
 .disclaimer {
   color: var(--text-muted);
   font-size: 0.85rem;

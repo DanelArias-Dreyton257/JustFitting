@@ -12,8 +12,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as date_type
-from typing import List, Optional, Sequence
+from typing import List, Optional, Protocol, Sequence
 
+from server.src.data.domain.GoalPlan import GoalPlan
+from server.src.services.composition import constants
+from server.src.services.composition.EnergyReconciliation import EnergyReconciliationRow
+from server.src.services.composition.GainQuality import GainQualityRow
+from server.src.services.composition.MacroTargets import MacroTargetsRow
 from server.src.services.composition.models import (
     DEFAULT_ENGINE_CONSTANTS,
     CompositionResult,
@@ -21,11 +26,23 @@ from server.src.services.composition.models import (
 )
 
 
+class _LogLike(Protocol):
+    """The `BodyLog` fields the macro-mismatch detector reads."""
+
+    date: date_type
+    intake_kcal: float
+    carbs_g: Optional[float]
+    fat_g: Optional[float]
+    protein_g: Optional[float]
+
+
 @dataclass(frozen=True)
 class Alert:
     """A single user-facing feedback item anchored to one log's date."""
 
-    type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" | "deviation"
+    type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
+    # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate" |
+    # "macro_kcal_mismatch" | "protein_target_deviation" | "fat_target_deviation"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -140,16 +157,190 @@ def _deviation_alerts(
     return alerts
 
 
+def _bulk_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
+    """Flag (not block) a bulk goal whose weekly rate falls outside the
+    recommended range (Phase 3, F1) -- a single, goal-level check, not a
+    per-week one, so it's anchored to the goal's own `start_date`."""
+    if goal is None or goal.direction != "bulk":
+        return []
+    if constants.BULK_RATE_MIN <= goal.weekly_rate <= constants.BULK_RATE_MAX:
+        return []
+    threshold = (
+        constants.BULK_RATE_MAX
+        if goal.weekly_rate > constants.BULK_RATE_MAX
+        else constants.BULK_RATE_MIN
+    )
+    return [
+        Alert(
+            type="bulk_rate_out_of_range",
+            severity="info",
+            date=goal.start_date,
+            message=(
+                f"Weekly bulk rate {goal.weekly_rate:+.2%} is outside the "
+                f"recommended {constants.BULK_RATE_MIN:.2%}-"
+                f"{constants.BULK_RATE_MAX:.2%} range."
+            ),
+            value=goal.weekly_rate,
+            threshold=threshold,
+        )
+    ]
+
+
+def _dirty_bulk_alerts(
+    gain_quality: Sequence[GainQualityRow],
+    thresholds: EngineConstants,
+    goal: Optional[GoalPlan],
+) -> List[Alert]:
+    """Flag (not block) a bulk week whose fat share of the gain exceeds the
+    ideal ceiling (Phase 3.2, F5/F8) -- only meaningful for a bulk goal, and
+    only on a genuine net-gain week (`fat_ratio` is `None` otherwise, see
+    `GainQuality._safe_ratio`)."""
+    if goal is None or goal.direction != "bulk":
+        return []
+    alerts = []
+    for row in gain_quality:
+        if row.fat_ratio is None or row.fat_ratio <= thresholds.fat_ratio_ideal:
+            continue
+        alerts.append(
+            Alert(
+                type="dirty_bulk",
+                severity="info",
+                date=row.date,
+                message=(
+                    f"This week's gain was {row.fat_ratio:.0%} fat, above the "
+                    f"{thresholds.fat_ratio_ideal:.0%} ideal ceiling for a clean bulk."
+                ),
+                value=row.fat_ratio,
+                threshold=thresholds.fat_ratio_ideal,
+            )
+        )
+    return alerts
+
+
+def _recalibrate_alerts(
+    reconciliation: Sequence[EnergyReconciliationRow],
+    thresholds: EngineConstants,
+) -> List[Alert]:
+    """Flag (not block) a week whose ingested-vs-tissue energy-balance error
+    exceeds the configured threshold (Phase 3.2, F5) -- a persistently large
+    gap suggests the energy model needs recalibrating for this account."""
+    alerts = []
+    for row in reconciliation:
+        if row.error_kcal is None or row.error_kcal <= thresholds.reconciliation_error_threshold_kcal:
+            continue
+        alerts.append(
+            Alert(
+                type="recalibrate",
+                severity="info",
+                date=row.date,
+                message=(
+                    f"Energy-balance error was {row.error_kcal:.0f} kcal/day, above "
+                    f"the {thresholds.reconciliation_error_threshold_kcal:.0f} kcal/day "
+                    "threshold -- consider recalibrating your engine settings."
+                ),
+                value=row.error_kcal,
+                threshold=thresholds.reconciliation_error_threshold_kcal,
+            )
+        )
+    return alerts
+
+
+def _macro_kcal_mismatch_alerts(
+    logs: Sequence[_LogLike], thresholds: EngineConstants
+) -> List[Alert]:
+    """Flag (not block) a week whose logged intake diverges from what its
+    logged macros imply via the standard Atwater conversion (Phase 3.4, F9)
+    -- a soft coherence check, not enforcement of an exact match."""
+    alerts = []
+    for log in logs:
+        if log.carbs_g is None or log.fat_g is None or log.protein_g is None:
+            continue
+        implied_kcal = (
+            constants.ATWATER_CARB_KCAL_PER_G * log.carbs_g
+            + constants.ATWATER_FAT_KCAL_PER_G * log.fat_g
+            + constants.ATWATER_PROTEIN_KCAL_PER_G * log.protein_g
+        )
+        if implied_kcal <= 0:
+            continue
+        relative_gap = abs(log.intake_kcal - implied_kcal) / implied_kcal
+        if relative_gap <= thresholds.macro_kcal_mismatch_pct:
+            continue
+        alerts.append(
+            Alert(
+                type="macro_kcal_mismatch",
+                severity="info",
+                date=log.date,
+                message=(
+                    f"Logged intake ({log.intake_kcal:.0f} kcal) differs from what "
+                    f"this week's macros imply ({implied_kcal:.0f} kcal) by "
+                    f"{relative_gap:.0%} -- double-check this week's numbers."
+                ),
+                value=relative_gap,
+                threshold=thresholds.macro_kcal_mismatch_pct,
+            )
+        )
+    return alerts
+
+
+def _macro_target_deviation_alerts(
+    macro_targets: Sequence[MacroTargetsRow], thresholds: EngineConstants
+) -> List[Alert]:
+    """Flag (not block) a week whose logged protein or fat diverges from its
+    per-kg target (Phase 3.4 extension) by more than the configured relative
+    share -- carbs are a derived remainder, not an independent target, so
+    they're not checked here."""
+    alerts = []
+    for row in macro_targets:
+        if not row.has_actual:
+            continue
+        for macro_name, actual_g, target_g in (
+            ("protein", row.protein_actual_g, row.protein_target_g),
+            ("fat", row.fat_actual_g, row.fat_target_g),
+        ):
+            if target_g <= 0:
+                continue
+            relative_gap = (actual_g - target_g) / target_g
+            if abs(relative_gap) <= thresholds.macro_target_deviation_pct:
+                continue
+            direction = "below" if relative_gap < 0 else "above"
+            alerts.append(
+                Alert(
+                    type=f"{macro_name}_target_deviation",
+                    severity="info",
+                    date=row.date,
+                    message=(
+                        f"{macro_name.capitalize()} intake ({actual_g:.0f} g) is "
+                        f"{abs(relative_gap):.0%} {direction} the {target_g:.0f} g target."
+                    ),
+                    value=relative_gap,
+                    threshold=thresholds.macro_target_deviation_pct,
+                )
+            )
+    return alerts
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
+    goal: Optional[GoalPlan] = None,
+    gain_quality: Optional[Sequence[GainQualityRow]] = None,
+    reconciliation: Optional[Sequence[EnergyReconciliationRow]] = None,
+    logs: Optional[Sequence[_LogLike]] = None,
+    macro_targets: Optional[Sequence[MacroTargetsRow]] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
     ``results`` need not be pre-sorted or pre-filtered to real rows --
     each detector orders/filters what it needs. ``thresholds`` overrides
     the per-user alert thresholds (Phase 1.5); defaults to today's fixed
-    `constants.py` values.
+    `constants.py` values. ``goal`` is the account's active goal plan, used
+    by the bulk-rate-range and dirty-bulk detectors (Phase 3/3.2); omitting
+    it just skips those. ``gain_quality``/``reconciliation`` (Phase 3.2) feed
+    the dirty-bulk/recalibrate detectors; omitting either just skips its
+    detector. ``logs`` (Phase 3.4) feeds the macro-kcal-mismatch detector;
+    omitting it just skips that detector too. ``macro_targets`` (Phase 3.4
+    extension) feeds the protein/fat-target-deviation detectors; omitting it
+    just skips those too.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -158,5 +349,10 @@ def detect_alerts(
         + _stagnation_alerts(ordered, thresholds)
         + _excessive_lean_loss_alerts(ordered, thresholds)
         + _deviation_alerts(ordered, thresholds)
+        + _bulk_rate_alerts(goal)
+        + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
+        + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
+        + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])
+        + (_macro_target_deviation_alerts(macro_targets, thresholds) if macro_targets else [])
     )
     return sorted(alerts, key=lambda a: a.date)

@@ -5,10 +5,389 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-07-04
+
+First public release, deployed via GitHub Actions: the static client on
+GitHub Pages, the Flask API on Render. Covers everything built across
+Phases 1-3.4: the core composition engine, the Android app (Capacitor),
+and the Wave 2 bulk/volume module (cardio/gain-quality tracking, energy
+reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
 
 ### Added
 
+- `GET /api/users/me/report` and `GET /api/users/me/export` now include
+  every Wave 2 read-side view: `gain_quality` (F3), `energy_balance`
+  (F5), `increment_analytics` (F7), `tef` (F9) and `macro_targets` (F9+)
+  -- closing the README's former "Future work" gap where a bulk account's
+  trainer/nutritionist export/report only ever showed the original
+  Danel-era metrics. A new shared `_wave2_metrics` helper in
+  `user_routes.py` computes all five from the same `services/
+  composition/*` functions and reuses the exact DTOs `GET /api/metrics/*`
+  already exposes -- no new computation, no `ENGINE_VERSION` implications.
+  `/export`'s existing `logs`/`profile`/`goal_history`/`audit_log` fields
+  (the actual import/restore contract read by `POST /api/users/me/import`)
+  are unchanged; the new sections are additional, derived, read-only data.
+  The printable Report view (`views.js`'s `renderReport`) gained five
+  matching tables (Gain quality, Energy reconciliation, Real increment,
+  TEF, Macro targets), rendered between the existing weekly series and
+  open-alerts sections. `Api_test.py`'s report/export tests extended to
+  assert on the new sections.
+
+### Changed
+
+- `data/db/DB.py`'s versioned migration runner (19 numbered migrations,
+  `PRAGMA user_version` tracking) replaced with a single idempotent
+  `SCHEMA` script (`CREATE TABLE IF NOT EXISTS`/`CREATE INDEX IF NOT
+  EXISTS`, applied on every connect). This project keeps no real user
+  data that a migration history needs to carry forward through schema
+  changes -- a linear migration list only paid for itself if an existing
+  database's data mattered, which it doesn't here (see the README/
+  CHANGELOG for the schema's evolution as narrative history). A schema
+  change going forward is just an edit to `SCHEMA`; an out-of-date local
+  `justfitting.db` is deleted and recreated (`scripts/reset_db.sh` +
+  `scripts/seed_demo_data.sh`), not migrated in place.
+  `server/test/DB_test.py`'s migration-specific tests (idempotency of
+  `.migrate()`, the v4 backfill-then-drop-columns replay) were replaced
+  with one test that re-running `SCHEMA` against an already-initialized
+  database doesn't error or lose data; every other DAO-level test is
+  unaffected.
+- `services/DemoSeeder.py` now seeds **two** demo accounts instead of one:
+  `admin_cut` (Danel's cut reference series, unchanged) and `admin_bulk`
+  (a new Sergio-resembling bulk reference series), both password
+  `adminadmin`. `admin_bulk` is also given customized `EngineSettings`
+  (`bmr_model="mifflin"`, `tef_mode="macros"`) and its most recent 4 weeks
+  are logged at daily granularity with carb/fat/protein grams, so the
+  seeded database actually exercises Phase 3/3.1/3.2/3.3/3.4's bulk-mode,
+  cardio, gain-quality, energy-reconciliation, daily-granularity and
+  macro-TEF/macro-target code paths end to end, not just the original
+  Danel cut. `LogManager.py` gained the parallel `SERGIO_PROFILE`/
+  `seed_bulk_reference_series` (Danel's `seed_reference_series` and its
+  constants are untouched -- composition_spec.md's golden reference stays
+  exactly as documented). `seed_if_empty` seeds each account
+  independently (idempotent per-account) and takes an optional
+  `engine_settings_manager` parameter; `api/app.py` and
+  `scripts/seed_demo_data.py` updated to pass it through.
+  New `server/test/DemoSeeder_test.py` covers both accounts' profiles,
+  idempotency, the bulk account's customized settings and mixed daily/
+  macro-logged series, and the backward-compatible no-`engine_settings_
+  manager` path.
+
+### Added
+
+- Phase 3.4: Wave 2 TEF by macronutrients — **Phase 3 (Wave 2) is now
+  complete** (F1–F9 all implemented; see README's roadmap).
+  - **TEF from logged macros (F9)**: optional `carbs_g`/`fat_g`/
+    `protein_g` on `BodyLog` (migration 16, nullable, logged together or
+    not at all — `CompositionEngine.validate_log_input` 400s a partial
+    trio or a negative value). A new pure module,
+    `services/composition/Tef.py` (`compute_tef_kcal`,
+    `compute_tef_breakdown`), computes the directly-summed weekly TEF
+    (`kappa_carbs*carbs_g + kappa_fat*fat_g + kappa_protein*protein_g`,
+    defaults `0.300`/`0.135`/`1.000` kcal/g). `CompositionEngine.compute_row`
+    now branches: `EngineConstants.tef_mode="macros"` (new field, default
+    `"flat"`) **and** the week having macros logged switches TDEE/
+    target-calories to the additive formula (`BMR+NEAT+EAT+TEF_kcal`, no
+    divisor); otherwise (including a `"macros"`-mode week with nothing
+    logged) the existing flat/divisor formula runs unchanged.
+    `LogResampler.resample_to_weekly` extends its existing mean-of-
+    logged-days convention to the three macro fields (averaging whichever
+    days in a group actually logged them, `None` if none did) — this
+    works because TEF is linear in each macro, so no special-casing was
+    needed in the engine itself.
+  - **`CompositionResult` gained `tef_kcal`/`tef_mode`** (the actual kcal
+    figure and which formula this row applied), and
+    `CompositionEngine.ENGINE_VERSION` bumped `1 -> 2` — the first bump
+    since the engine shipped, since this is a genuine compute-chain
+    branch (unlike Phase 3.1–3.3's read-side-only additions). Every log
+    with no macros logged computes byte-for-byte identically to before;
+    the version bump only means old `metrics_snapshots` rows (version 1)
+    are never read again and recompute fresh at version 2, the same
+    mechanism every prior `ENGINE_VERSION` design already relied on, just
+    exercised for the first time. `metrics_snapshots` gained matching
+    `tef_kcal`/`tef_mode` columns (migration 18).
+  - **`GET /api/metrics/tef`** (new `Tef.compute_tef_breakdown`,
+    `TefDTO`) breaks a week's TEF down by macro (grams and kcal
+    contribution per macro) and reports the flat estimate alongside the
+    macro figure for comparison, regardless of which one actually applied
+    that week; 404s with no logs yet like every other metrics endpoint.
+  - **`tef_mode` is account-level only**, not a per-request query
+    parameter — `EngineConstants`/`EngineSettings` gain `tef_mode`,
+    `kappa_carbs`, `kappa_fat`, `kappa_protein`, and
+    `macro_kcal_mismatch_pct` (migration 17, all per-account overridable,
+    historized like every other calibration field). This deliberately
+    deviates from the source doc's "account setting + optional
+    per-request override" wording, reusing the exact rationale Phase 3's
+    `bmr_model` already established: which TEF formula applies changes
+    every metrics computation for an account, not just an ephemeral
+    forecast.
+  - **`macro_kcal_mismatch` alert**: a new detector in
+    `services/composition/Alerts.py` flags (never blocks) a week whose
+    declared `intake_kcal` diverges from its macro-implied kcal
+    (`4*carbs_g + 9*fat_g + 4*protein_g`, standard Atwater conversion) by
+    more than `macro_kcal_mismatch_pct` (default 15%) — the source doc's
+    own suggested soft coherence check, actually implemented. `detect_alerts`
+    gained an optional `logs` parameter feeding it;
+    `AlertSyncService.sync_alerts` now threads the series' logs through.
+  - **Extension beyond either source PDF: macro targets by body mass.**
+    Evidence-based per-kg-bodyweight protein/fat targets (commonly-cited
+    ranges roughly 1.6–2.2 g/kg protein / 0.5–0.8 g/kg fat for a cut, and
+    1.5–2.0 g/kg protein / 0.7–1.0 g/kg fat for a bulk), with carbs always
+    the remainder of `target_calories` once protein/fat's kcal share is
+    subtracted — never an independent target. New `protein_target_g_per_kg`
+    (default `1.75`)/`fat_target_g_per_kg` (default `0.70`)/
+    `macro_target_deviation_pct` (default `0.20`) `EngineConstants`/
+    `EngineSettings` fields (migration 19). A new pure module,
+    `services/composition/MacroTargets.py` (`compute_macro_targets`),
+    exposed via `GET /api/metrics/macro-targets` (target split plus the
+    actual logged split, when available). Two new alerts,
+    `protein_target_deviation`/`fat_target_deviation`, flag a logged
+    week's grams diverging from target by more than the threshold, only
+    when that week has macros logged.
+  - **Client**: the log wizard's "Energy" step gained optional Carbs/Fat/
+    Protein inputs (all-or-nothing, same as the backend); the log table
+    and review step show them. The Settings view gained "TEF by
+    macronutrients" and "Macro targets" sections. The Dashboard gained a
+    "TEF (this week)" stat tile, a flat-vs-macros TEF line chart, and a
+    target-vs-actual calorie-split-by-macro **stacked-bar** chart
+    (`drawMacroSplitBars`, a new `charts.js` primitive) — a stacked bar
+    rather than a pie/donut, per this project's dataviz guidance (a
+    part-to-whole comparison across two states reads more reliably as
+    adjacent bars than as angle judgments between pie slices).
+  - New `Tef_test.py`/`MacroTargets_test.py` (base cases, the flat-mode
+    default, the source doc's own worked-example figure reproduced
+    exactly, partial/negative-macro rejection, out-of-order input
+    sorting); new cases in `CompositionEngine_test.py` (macro-mode
+    switching, the automatic flat fallback, validation), `LogResampler_test.py`
+    (macro averaging including the no-day-logged-it case),
+    `Alerts_test.py` (`MacroKcalMismatchAlertTest`,
+    `MacroTargetDeviationAlertTest`), `EngineSettingsManager_test.py`
+    (bounds/validation for every new field), and `Api_test.py` (macro
+    round-trip on log create/update, a 400 on a partial trio, both new
+    endpoints' 404s and happy paths, the new settings fields'
+    round-trip). Every pre-existing test in both suites stays green,
+    proving an account that never logs macros is completely unaffected.
+  - `sw.js`'s `CACHE_NAME` bumped (`-v9` -> `-v10`) for the wizard/
+    Settings/Dashboard UI changes.
+- Phase 3: Wave 2 bulk/volume engine foundation (see README's roadmap).
+  - **Cut/bulk direction**: `GoalPlan.direction` (a `@property`, `"bulk"`
+    iff `weekly_rate > 0`, no new column) is now exposed on
+    `GET /api/users/me` and `GET /api/users/me/goals`. A new
+    `bulk_rate_out_of_range` detector in `services/composition/Alerts.py`
+    flags -- via the existing persisted/dismissible `GET /api/alerts`, not
+    a blocking exception -- a bulk goal whose `weekly_rate` falls outside
+    the recommended `[0.25%, 0.5%]` range (`constants.BULK_RATE_MIN/MAX`);
+    `AlertSyncService.sync_alerts` now also fetches the active `GoalPlan`
+    to feed it. The client's Plan view relabels the existing
+    `daily_deficit_kcal` figure as "Daily surplus" (absolute value) and
+    shows a Cut/Bulk direction tile for a bulk goal -- the same computed
+    number, sign-flipped for display, not a new formula; the Goal history
+    table (and the printable Report view's copy of it) gained a Direction
+    column.
+  - **Second BMR model (Mifflin-St Jeor)**:
+    `EnergyModel.compute_bmr_mifflin(weight_kg, height_cm, age, sex)` joins
+    the existing Cunningham `compute_bmr`. Selectable via a new
+    `EngineConstants.bmr_model` field (`"cunningham"` default |
+    `"mifflin"`) on the same per-account, historized `EngineSettings`
+    object as every other energy-model constant -- not a per-request query
+    param like `trend_model`/`activity_model`, since BMR choice affects
+    every metrics computation, not just an ephemeral forecast.
+    `CompositionEngine.compute_row` branches on it at the same call site
+    that used to always call Cunningham.
+  - **Wave 2 calibration constants**: `EngineConstants`/`EngineSettings`
+    grow `delta` (fat-percentage offset, default `0.0`), `ffmi_coef`
+    (default `6.3`, promoted from a literal previously hardcoded in
+    `Anthropometry.py`), `w_rfm`/`w_navy`/`w_deur` (defaults
+    `0.50`/`0.25`/`0.25`, promoted from fixed `constants.py` module
+    globals to per-account overrides, guarded in
+    `EngineSettingsManager.update_settings` to sum to `1.0` when all three
+    are overridden together in the same call), `lean_tissue_kcal_per_kg`
+    (default `2100`, unused until Phase 3.2's energy reconciliation) and
+    `fat_ratio_ideal` (default `0.25`, unused until Phase 3.1's
+    gain-quality panel) -- all reproducing today's Danel numbers exactly
+    by default. `BodyFat.compute_body_fat` and
+    `Anthropometry.compute_ffmi_adjusted` gained trailing, defaulted
+    parameters for the new weights/offset/coefficient; migration 12 adds
+    the seven `engine_settings` columns. `GET`/`PUT
+    /api/users/me/settings` pick up all of them automatically, since that
+    route is already driven off `EngineSettingsManager.FIELDS` rather than
+    a hardcoded field list; the Settings view gained a "Body-fat & BMR
+    calibration" form section and a BMR-model column in the settings
+    history table.
+  - Every new engine parameter trails existing ones with a
+    default-preserving value, so no `ENGINE_VERSION` bump was needed and
+    every pre-existing golden-value test in `CompositionEngine_test.py`/
+    `EnergyModel_test.py`/`BodyFat_test.py`/`Anthropometry_test.py` stays
+    unchanged; a new `EngineConstantsOverrideTest` case per knob (plus a
+    Mifflin-BMR bulk-profile integration test, proving `Pi_i`/
+    `daily_deficit_kcal` go negative for `weekly_rate > 0`) covers the
+    override path. New/extended test coverage: `BodyFat_test.py`,
+    `Anthropometry_test.py`, `EnergyModel_test.py`,
+    `CompositionEngine_test.py`, `Alerts_test.py` (new
+    `BulkRateAlertTest`), `EngineSettingsManager_test.py` (bound rejection
+    per new field, invalid-`bmr_model` rejection, the weights-sum-to-1
+    guard), `GoalPlanManager_test.py` (`.direction` for both signs), and
+    `Api_test.py` (settings round-trip for the new fields, `direction` in
+    the goals response, an out-of-range bulk rate producing a dismissible
+    alert end-to-end).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v5` -> `-v6`) for the Settings/Plan/
+    Goal-history UI changes, same reasoning as every prior static-asset
+    change.
+- Phase 3.1: Wave 2 cardio input & gain-quality tracking (see README's
+  roadmap).
+  - **Cardio (EAT) input**: `cardio_kcal` on `body_logs` (migration 13,
+    default `0`), threaded through `LogInput`, `LogManager.create_log`/
+    `update_log`/`to_engine_inputs`, and `POST`/`PUT /api/logs`.
+    `EnergyModel.compute_tdee`/`compute_target_calories` gained a trailing
+    `eat` parameter added inside the existing divisor formula
+    (`(bmr + neat + eat) / (1 - tef)`) -- `cardio_kcal=0` (every
+    pre-existing log) computes byte-for-byte identically, so no
+    `ENGINE_VERSION` bump was needed. The log wizard's "Energy" step
+    gained a Cardio input, the log table and its review step a Cardio
+    column/row.
+  - **Gain-quality tracking**: a new pure module,
+    `services/composition/GainQuality.py` (`compute_gain_quality`), derives
+    each row's `delta_lean_kg`/`delta_fat_kg` (diffed against the previous
+    row, base case `0` at the first row like `weight_delta_kg`) and their
+    cumulative sums, plus `fat_ratio`/`fat_ratio_cumulative` guarded to
+    `None` when the corresponding denominator is (within floating-point
+    epsilon) zero -- a read-side derived view over an already-computed
+    series, not a new `CompositionResult` field, mirroring how `Alerts.py`
+    works. New `GET /api/metrics/gain-quality` (`GainQualityDTO`) exposes
+    it, 404ing with no logs yet like `/adherence`.
+  - **Dashboard gain-quality panel**: a new chart card plots each week's
+    lean-vs-fat delta as a signed stacked bar via a new `charts.js`
+    primitive, `drawDivergingBars` -- the existing `drawStackedBars` (used
+    for fat/lean mass *levels*, always non-negative) assumes non-negative
+    inputs and renders incorrectly for a loss week's negative deltas, so
+    this reuses its axis/tooltip helpers but stacks each series' bar
+    outward from a zero baseline instead of always upward from the
+    bottom. A stat tile shows the cumulative fat ratio against the
+    account's `fat_ratio_ideal` (green/warning badge).
+  - New `GainQuality_test.py` (base case, cumulative sums, the
+    `fat_ratio`/`None`-at-zero rule including a loss week's negative
+    deltas, out-of-order input sorting, and an identity check that
+    `delta_lean_kg + delta_fat_kg == weight_delta_kg` against a real
+    computed series); new `EnergyModel_test.py`/`CompositionEngine_test.py`
+    cases for the `eat` term; new `Api_test.py` cases (`cardio_kcal`
+    create/update round-trip and its zero default, the gain-quality
+    endpoint's 404 and happy path).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v6` -> `-v7`) for the Dashboard/log
+    wizard/log table changes.
+- Phase 3.3: Wave 2 daily and weekly logs coexist (see README's
+  roadmap).
+  - **Granularity tag**: `body_logs` gains `granularity = daily | weekly`
+    (migration 15, default `'weekly'`, CHECK-constrained the same way as
+    the existing `source` column), threaded through `BodyLog`/
+    `BodyLogDTO`/`BodyLogDAO.create`, `LogManager.create_log`/`update_log`
+    (both now reject an invalid value with a clean `ValueError` -> 400,
+    unlike `source`, which has always relied solely on the DB CHECK), and
+    `POST`/`PUT /api/logs`. The log wizard's first step gained a Weekly
+    (default)/Daily selector; the log table and step-4 review gained a
+    Granularity badge/row.
+  - **Weekly-view resampling (F6)**: a new pure module,
+    `services/LogResampler.py` (`resample_to_weekly`), collapses a
+    mixed-granularity history into the one-row-per-week shape
+    `CompositionEngine` needs. Only `granularity="daily"` rows are ever
+    grouped, by ISO calendar week -- `"weekly"` rows (every log that
+    existed before this phase) always pass through individually,
+    byte-for-byte unchanged, regardless of weekday or spacing. This was a
+    deliberate safety choice over grouping every row by calendar week
+    regardless of tag, which risked merging two legitimately distinct
+    weekly logs that happen to land in the same ISO week for an account
+    that doesn't log on a fixed weekday. A daily group's representative
+    row (median weight; mean steps/cardio/waist/neck/intake; `intake_is_
+    real` true only if every grouped day's intake was real) reuses its
+    max-date member's own real `log_id`, so `metrics_snapshots`'
+    `UNIQUE(log_id, engine_version)` FK needed no schema change.
+    `MetricsSeriesService.compute_series_for_user` calls the resampler
+    once, immediately after sorting a user's logs, so every existing
+    consumer (`metrics_routes.py`, `alerts_routes.py`'s
+    `AlertSyncService`, `LogManager.compute_adherence`) keeps its
+    existing 1:1 logs/results assumption with zero further changes;
+    `GET /api/logs` is untouched and still lists every raw row. No
+    `ENGINE_VERSION` bump -- resampling happens strictly before
+    `LogInput` construction, same rationale as F3/F5/F7.
+  - **Daily-view resampling**, the symmetric direction: `LogResampler.
+    daily_view` expands a weekly log's values across every day since the
+    previous log (mirrors `Projection.py`'s `activity_model="constant"`
+    carry-forward, applied backward in time instead); a daily-tagged row
+    emits itself only, unexpanded. Implemented and unit-tested per the
+    spec's "both directions" contract, but not yet wired to a route or
+    UI -- nothing in the app has a per-day display today; it's a
+    ready-made building block for the still-unscheduled Phase 2.1
+    automatic-steps-import idea.
+  - New `LogResampler_test.py` (weekly-only passthrough is a byte-for-byte
+    identity check; a full 7-day week's median/mean resampling; the
+    `intake_is_real` AND-reduction rule; a partial (3-of-7-day) week; a
+    lone daily row degrading to its own value; a mixed weekly+daily
+    account resolving each week independently; both `daily_view` cases);
+    new `LogManager_test.py` cases (granularity round-trip on create/
+    update, invalid-value rejection); new `Api_test.py` cases (granularity
+    round-trip and default over the API, invalid value -> 400, and an
+    end-to-end case posting a full daily-logged ISO week alongside
+    existing weekly history and asserting `GET /api/metrics/series`
+    collapses it to one row while `GET /api/logs` still lists all 8 raw
+    rows). Every pre-existing test in both suites stays green untouched,
+    proving weekly-only accounts are completely unaffected.
+  - `sw.js`'s `CACHE_NAME` bumped (`-v8` -> `-v9`) for the wizard/log-table
+    UI changes.
+- Phase 3.2: Wave 2 energy reconciliation & increment analytics (see
+  README's roadmap).
+  - **Energy reconciliation (F5)**: a new pure module,
+    `services/composition/EnergyReconciliation.py`
+    (`compute_energy_reconciliation`), compares the surplus implied by
+    logged intake (`E_i - TDEE_i`) against the surplus implied by the
+    *next* week's measured tissue change (`DeltaG_{i+1} * k_G +
+    DeltaL_{i+1} * k_L`, reusing `GainQuality.compute_gain_quality` for
+    the deltas instead of re-deriving them) and surfaces the absolute
+    error plus a rolling mean of it
+    (`constants.ENERGY_RECONCILIATION_WINDOW_WEEKS`, default 4 weeks,
+    not per-account overridable). A read-side derived view over an
+    already-computed series like `GainQuality`/`Alerts`, so no
+    `ENGINE_VERSION` bump was needed. `error_kcal` (and the ingested-side
+    surplus) is `None` for a week whose intake wasn't real, and for the
+    most recent logged week (no next week's tissue change exists yet) --
+    an inherent one-week lag, not a same-week metric. New `GET
+    /api/metrics/energy-balance` (`EnergyReconciliationDTO`), 404ing with
+    no logs yet like `/gain-quality`.
+  - **Real-increment analytics (F7)**: a new pure module,
+    `services/composition/IncrementAnalytics.py`
+    (`compute_increment_analytics`), is an expanding mean of the actual
+    weekly increment (`weight_delta_pct`, already computed -- no new base
+    computation) over real weeks, skipping the first week's base-case
+    `0.0`, plus `deviation_pct` (the fraction of the account's active
+    goal rate missed, `None` when that rate is `0`). New `GET
+    /api/metrics/increment-analytics` (`IncrementAnalyticsDTO`), 404ing
+    with no logs or no goal plan yet.
+  - **Two new alerts** extending Phase 1.3's `services/composition/Alerts.py`:
+    `dirty_bulk` (a bulk goal's week whose `GainQuality.fat_ratio` exceeds
+    `EngineConstants.fat_ratio_ideal`) and `recalibrate` (a week's
+    reconciliation `error_kcal` above a new, per-account-overridable
+    `reconciliation_error_threshold_kcal`, default `300` kcal/day) -- both
+    flag via the existing persisted/dismissible `GET /api/alerts`, never
+    block. `detect_alerts` gained optional `gain_quality`/`reconciliation`
+    parameters (each detector is skipped if its series isn't supplied);
+    `AlertSyncService.sync_alerts` now computes and threads both through.
+  - **`reconciliation_error_threshold_kcal`** joins `EngineConstants`/
+    `EngineSettings` (migration 14, default `300.0`, reproducing today's
+    behavior for every account with no override) -- `GET`/`PUT
+    /api/users/me/settings` picks it up automatically, since that route is
+    driven off `EngineSettingsManager.FIELDS`; the Settings view's
+    "Body-fat & BMR calibration" section gained the matching field.
+  - **Dashboard**: two new chart cards (ingested-vs-tissue surplus in
+    kcal/day; actual weekly increment vs. the goal rate in %, both via the
+    existing `drawMultiLineChart` primitive) and two new stat tiles
+    (rolling reconciliation error with a green/warning badge; average
+    weekly increment against the goal rate, plus the deviation
+    percentage).
+  - New `EnergyReconciliation_test.py`/`IncrementAnalytics_test.py` (base
+    cases, the one-week lag, assumed-intake weeks, the rolling-mean
+    window, out-of-order input sorting, zero-goal-rate guard, ignoring
+    projected rows); new `Alerts_test.py` cases (`DirtyBulkAlertTest`,
+    `RecalibrateAlertTest`); new `Api_test.py` cases (both new endpoints'
+    404s and happy paths, the new settings field's round-trip).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v7` -> `-v8`) for the Dashboard/
+    Settings UI changes.
 - Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
   `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
   `trend_model: "ols" | "weighted_ols"` parameter threads through

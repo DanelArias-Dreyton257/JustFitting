@@ -12,11 +12,23 @@ from server.src.data.dto.AdherenceDTO import AdherenceDTO
 from server.src.data.dto.AlertLogDTO import AlertLogDTO
 from server.src.data.dto.AuditEntryDTO import AuditEntryDTO
 from server.src.data.dto.BodyLogDTO import BodyLogDTO
+from server.src.data.dto.EnergyReconciliationDTO import EnergyReconciliationDTO
+from server.src.data.dto.GainQualityDTO import GainQualityDTO
 from server.src.data.dto.GoalPlanDTO import GoalPlanDTO
+from server.src.data.dto.IncrementAnalyticsDTO import IncrementAnalyticsDTO
+from server.src.data.dto.MacroTargetsDTO import MacroTargetsDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProfileDTO import ProfileDTO
+from server.src.data.dto.TefDTO import TefDTO
 from server.src.services.AlertSyncService import sync_alerts
-from server.src.services.composition import CompositionEngine
+from server.src.services.composition import (
+    CompositionEngine,
+    EnergyReconciliation,
+    GainQuality,
+    IncrementAnalytics,
+    MacroTargets,
+    Tef,
+)
 from server.src.services.GoalPlanManager import GoalPlanManagerError
 from server.src.services.MetricsSeriesService import compute_series_for_user
 from server.src.services.UserManager import UserManagerError
@@ -50,6 +62,52 @@ def _profile_dto(user_id: int):
         return None
     goal = _goal_plan_manager().get_active(user_id)
     return ProfileDTO.from_domain(profile, goal=goal)
+
+
+def _wave2_metrics(user_id: int, logs, results, goal) -> dict:
+    """Phase 3/3.1/3.2/3.4's bulk-mode read-side views (gain quality, energy
+    reconciliation, real-increment analytics, TEF breakdown, macro targets),
+    shared by the Report and Export payloads -- previously only exposed via
+    `GET /api/metrics/*`, so a trainer/nutritionist export or the printable
+    Report was missing "is this bulk clean" / "is the energy model tracking
+    reality" at a glance (see README's former "Future work" note)."""
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    ec = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(user_id)
+    )
+    weekly_rate = goal.weekly_rate if goal is not None else 0.0
+
+    gain_quality = GainQuality.compute_gain_quality(results) if results else []
+    energy_balance = (
+        EnergyReconciliation.compute_energy_reconciliation(logs, results, ec)
+        if results
+        else []
+    )
+    increment_analytics = (
+        IncrementAnalytics.compute_increment_analytics(results, weekly_rate)
+        if results and goal is not None
+        else []
+    )
+    tef = Tef.compute_tef_breakdown(logs, results, ec) if results else []
+    macro_targets = MacroTargets.compute_macro_targets(logs, results, ec) if results else []
+
+    return {
+        "gain_quality": [
+            asdict(GainQualityDTO.from_domain(row, ec.fat_ratio_ideal)) for row in gain_quality
+        ],
+        "energy_balance": [
+            asdict(
+                EnergyReconciliationDTO.from_domain(row, ec.reconciliation_error_threshold_kcal)
+            )
+            for row in energy_balance
+        ],
+        "increment_analytics": [
+            asdict(IncrementAnalyticsDTO.from_domain(row, weekly_rate))
+            for row in increment_analytics
+        ],
+        "tef": [asdict(TefDTO.from_domain(row)) for row in tef],
+        "macro_targets": [asdict(MacroTargetsDTO.from_domain(row)) for row in macro_targets],
+    }
 
 
 @user_bp.post("/users")
@@ -189,6 +247,13 @@ def export_data():
     logs = _log_manager().list_logs(g.user_id)
     goal_history = _goal_plan_manager().list_history(g.user_id)
     audit_entries = _audit_log_dao().list_for_user(g.user_id)
+
+    # Wave 2's read-side views, computed from the (possibly resampled)
+    # weekly series -- informational only, not part of the import contract
+    # below, which only ever reads back "logs" raw rows.
+    computed_logs, results = compute_series_for_user(current_app, g.user_id)
+    active_goal = _goal_plan_manager().get_active(g.user_id)
+
     return jsonify(
         {
             "profile": asdict(profile_dto),
@@ -199,6 +264,7 @@ def export_data():
             "audit_log": [
                 asdict(AuditEntryDTO.from_domain(entry)) for entry in audit_entries
             ],
+            **_wave2_metrics(g.user_id, computed_logs, results, active_goal),
         }
     )
 
@@ -226,6 +292,7 @@ def report():
     adherence_dto = AdherenceDTO.from_values(mean_intake_diff_kcal, real_log_count)
 
     goal_history = _goal_plan_manager().list_history(g.user_id)
+    active_goal = _goal_plan_manager().get_active(g.user_id)
     open_alerts = sync_alerts(current_app, g.user_id, include_acknowledged=False)
 
     return jsonify(
@@ -238,6 +305,7 @@ def report():
             ],
             "series": series,
             "alerts": [asdict(AlertLogDTO.from_domain(alert)) for alert in open_alerts],
+            **_wave2_metrics(g.user_id, logs, results, active_goal),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
     )
@@ -260,6 +328,7 @@ def import_data():
                     intake_kcal=float(entry["intake_kcal"]),
                     steps=float(entry["steps"]),
                     intake_is_real=bool(entry.get("intake_is_real", True)),
+                    cardio_kcal=float(entry.get("cardio_kcal", 0.0)),
                     source=entry.get("source", "real"),
                 )
             )

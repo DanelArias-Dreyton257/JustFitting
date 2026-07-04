@@ -1,18 +1,17 @@
 services:
   - type: web
     name: justfitting-api
-    env: python
+    runtime: python
     plan: free
-    buildCommand: "pip install -r server/requirements-prod.txt"
-    startCommand: "waitress-serve --host=0.0.0.0 --port=$PORT server.wsgi:app"
+    branch: main
+    autoDeploy: false # deploys are triggered only via the Deploy Hook, from .github/workflows/release.yml
+    buildCommand: pip install -r server/requirements-prod.txt
+    startCommand: waitress-serve --host=0.0.0.0 --port=$PORT server.wsgi:app
+    healthCheckPath: /api/health
     envVars:
-      - key: JUSTFITTING_DB_PATH
-        value: /var/data/justfitting.db
+      - key: PYTHON_VERSION
+        value: 3.12.7
       - key: JUSTFITTING_SEED_DEMO
-        value: "false"
+        value: "true" # auto-seeds the two demo accounts on every boot of an empty DB
       - key: JUSTFITTING_CORS_ORIGINS
         sync: false
-    disk:
-      name: justfitting-data
-      mountPath: /var/data
-      sizeGB: 1

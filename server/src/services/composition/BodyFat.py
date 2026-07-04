@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 
 from server.src.services.composition.constants import (
+    BF_FAT_OFFSET,
     BF_WEIGHT_DEURENBERG,
     BF_WEIGHT_NAVY,
     BF_WEIGHT_RFM,
@@ -34,10 +35,19 @@ def compute_deurenberg(bmi: float, age: int, sex: int) -> float:
     return (1.2 * bmi + 0.23 * age - 10.8 * sex - 5.4) / 100
 
 
-def compute_body_fat(rfm: float, navy: float, deurenberg: float) -> float:
-    return (
-        BF_WEIGHT_RFM * rfm + BF_WEIGHT_NAVY * navy + BF_WEIGHT_DEURENBERG * deurenberg
-    )
+def compute_body_fat(
+    rfm: float,
+    navy: float,
+    deurenberg: float,
+    w_rfm: float = BF_WEIGHT_RFM,
+    w_navy: float = BF_WEIGHT_NAVY,
+    w_deur: float = BF_WEIGHT_DEURENBERG,
+    delta: float = BF_FAT_OFFSET,
+) -> float:
+    """Weighted mean of the three body-fat estimators, plus an optional
+    per-account offset (`delta`, Phase 3/Wave 2's F8) -- defaults
+    reproduce today's fixed weights and a zero offset exactly."""
+    return w_rfm * rfm + w_navy * navy + w_deur * deurenberg + delta
 
 
 def compute_fat_mass(weight_kg: float, body_fat: float) -> float:

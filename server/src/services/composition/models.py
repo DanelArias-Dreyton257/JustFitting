@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Optional
 
 from server.src.services.composition import constants
 
@@ -28,6 +29,36 @@ class EngineConstants:
     lean_loss_window_weeks: int = constants.LEAN_LOSS_WINDOW_WEEKS
     max_lean_mass_loss_share: float = constants.MAX_LEAN_MASS_LOSS_SHARE
     significant_deviation_kg: float = constants.SIGNIFICANT_DEVIATION_KG
+
+    # Wave 2 (Phase 3) calibration constants -- see constants.py for the
+    # rationale of each default.
+    bmr_model: str = "cunningham"  # "cunningham" | "mifflin"
+    w_rfm: float = constants.BF_WEIGHT_RFM
+    w_navy: float = constants.BF_WEIGHT_NAVY
+    w_deur: float = constants.BF_WEIGHT_DEURENBERG
+    delta: float = constants.BF_FAT_OFFSET
+    ffmi_coef: float = constants.FFMI_COEF
+    lean_tissue_kcal_per_kg: float = constants.LEAN_TISSUE_KCAL_PER_KG
+    fat_ratio_ideal: float = constants.FAT_RATIO_IDEAL
+
+    # Phase 3.2 (Wave 2, F5) -- energy reconciliation.
+    reconciliation_error_threshold_kcal: float = (
+        constants.RECONCILIATION_ERROR_THRESHOLD_KCAL
+    )
+
+    # Phase 3.4 (Wave 2, F9) -- TEF by macronutrients.
+    tef_mode: str = constants.TEF_MODE_DEFAULT  # "flat" | "macros"
+    kappa_carbs: float = constants.KAPPA_CARBS
+    kappa_fat: float = constants.KAPPA_FAT
+    kappa_protein: float = constants.KAPPA_PROTEIN
+    macro_kcal_mismatch_pct: float = constants.MACRO_KCAL_MISMATCH_PCT
+
+    # Phase 3.4 extension -- evidence-based macro targets (g/kg body mass);
+    # carbs derive as the remainder of target_calories, so there's no
+    # carbs_target_g_per_kg field (see services/composition/MacroTargets.py).
+    protein_target_g_per_kg: float = constants.PROTEIN_TARGET_G_PER_KG
+    fat_target_g_per_kg: float = constants.FAT_TARGET_G_PER_KG
+    macro_target_deviation_pct: float = constants.MACRO_TARGET_DEVIATION_PCT
 
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
@@ -55,6 +86,14 @@ class LogInput:
     intake_kcal: float
     steps: float
     intake_is_real: bool = True
+    cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Danel exactly
+
+    # Phase 3.4 (Wave 2, F9) -- daily/weekly macro grams; all three are
+    # present together or not at all (see CompositionEngine.validate_log_input).
+    # `None` (the default, every pre-existing log) falls back to flat TEF.
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    protein_g: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +125,8 @@ class CompositionResult:
     tdee: float
     target_calories: float
     intake_diff: float
+    tef_kcal: float  # Phase 3.4, F9 -- the actual kcal figure this row used
+    tef_mode: str  # "flat" | "macros" -- which formula this row actually applied
 
     # Goal & trajectory
     weight_delta_kg: float  # dW
