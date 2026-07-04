@@ -88,6 +88,7 @@ async function refreshDashboard() {
     gainQuality,
     energyBalance,
     incrementAnalytics,
+    tef,
   ] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
@@ -98,6 +99,7 @@ async function refreshDashboard() {
     api.gainQuality().catch(() => []),
     api.energyBalance().catch(() => []),
     api.incrementAnalytics().catch(() => []),
+    api.tef().catch(() => []),
   ]);
   state.series = series;
   renderDashboardStats(
@@ -225,6 +227,16 @@ async function refreshDashboard() {
         dashed: true,
         label: "Goal rate",
       },
+    ]
+  );
+
+  const macroWeeks = tef.filter((row) => row.tef_kcal_macros != null);
+  drawMultiLineChart(
+    document.getElementById("chart-tef"),
+    macroWeeks,
+    [
+      { accessor: (row) => row.tef_kcal_flat, color: "#5eb3ff", label: "Flat estimate" },
+      { accessor: (row) => row.tef_kcal_macros, color: "#f0b94d", label: "From macros" },
     ]
   );
 }
@@ -389,6 +401,10 @@ document.getElementById("log-back").addEventListener("click", () => {
   goToLogStep(Math.max(logWizardStep - 1, 1));
 });
 
+function optionalNumber(raw) {
+  return raw === "" || raw == null ? null : Number(raw);
+}
+
 document.getElementById("log-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormError("log-form", "");
@@ -402,6 +418,9 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
     steps: Number(raw.steps),
     cardio_kcal: Number(raw.cardio_kcal) || 0,
     granularity: raw.granularity || "weekly",
+    carbs_g: optionalNumber(raw.carbs_g),
+    fat_g: optionalNumber(raw.fat_g),
+    protein_g: optionalNumber(raw.protein_g),
   };
   try {
     await api.createLog(payload);
@@ -553,6 +572,11 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     lean_tissue_kcal_per_kg: Number(raw.lean_tissue_kcal_per_kg),
     fat_ratio_ideal: Number(raw.fat_ratio_ideal_pct) / 100,
     reconciliation_error_threshold_kcal: Number(raw.reconciliation_error_threshold_kcal),
+    tef_mode: raw.tef_mode,
+    kappa_carbs: Number(raw.kappa_carbs),
+    kappa_fat: Number(raw.kappa_fat),
+    kappa_protein: Number(raw.kappa_protein),
+    macro_kcal_mismatch_pct: Number(raw.macro_mismatch_pct) / 100,
   };
   try {
     await api.updateSettings(payload);

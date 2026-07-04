@@ -138,6 +138,15 @@
           </div>
           <svg id="chart-increment-analytics" class="chart"></svg>
         </div>
+        <div class="chart-card">
+          <h3>TEF: flat estimate vs macros (kcal/day)</h3>
+          <p class="disclaimer">Only weeks with carb/fat/protein logged show both lines.</p>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Flat estimate</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f0b94d"></span>From macros</span>
+          </div>
+          <svg id="chart-tef" class="chart"></svg>
+        </div>
       </div>
     </section>
 
@@ -171,6 +180,14 @@
           <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
           <label>Steps <input name="steps" type="number" step="1" required /></label>
           <label>Cardio / exercise (kcal) <input name="cardio_kcal" type="number" step="1" value="0" /></label>
+          <p class="disclaimer" id="log-macros-hint">
+            Optional -- log carbs/fat/protein (mainly useful on daily logs) for
+            a directly-computed TEF instead of the flat 10% estimate. Leave
+            all three blank to skip.
+          </p>
+          <label>Carbs (g) <input name="carbs_g" type="number" step="1" min="0" /></label>
+          <label>Fat (g) <input name="fat_g" type="number" step="1" min="0" /></label>
+          <label>Protein (g) <input name="protein_g" type="number" step="1" min="0" /></label>
         </fieldset>
 
         <fieldset class="wizard-step" data-step="4" hidden>
@@ -187,7 +204,7 @@
       </form>
       <table class="data-table" id="log-table">
         <thead>
-          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Source</th><th>Granularity</th><th></th></tr>
+          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Macros (C/F/P)</th><th>Source</th><th>Granularity</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -307,6 +324,23 @@
         <label>Ideal fat ratio ceiling (%) <input name="fat_ratio_ideal_pct" type="number" step="1" required /></label>
         <label>Reconciliation error threshold (kcal/day) <input name="reconciliation_error_threshold_kcal" type="number" step="1" min="0" required /></label>
 
+        <h2>TEF by macronutrients</h2>
+        <p class="disclaimer">
+          Replaces the flat 10% TEF estimate with one computed from logged
+          carb/fat/protein grams -- falls back to the flat estimate
+          automatically for any week without macros logged.
+        </p>
+        <label>TEF mode
+          <select name="tef_mode">
+            <option value="flat">Flat (10% of BMR+NEAT+EAT)</option>
+            <option value="macros">From logged macros</option>
+          </select>
+        </label>
+        <label>Carb coefficient (kcal/g) <input name="kappa_carbs" type="number" step="0.001" min="0" required /></label>
+        <label>Fat coefficient (kcal/g) <input name="kappa_fat" type="number" step="0.001" min="0" required /></label>
+        <label>Protein coefficient (kcal/g) <input name="kappa_protein" type="number" step="0.001" min="0" required /></label>
+        <label>Macro/intake mismatch threshold (%) <input name="macro_mismatch_pct" type="number" step="1" min="0" required /></label>
+
         <button type="submit">Save settings</button>
         <p class="form-error" data-for="settings-form"></p>
       </form>
@@ -314,7 +348,7 @@
       <h2>Settings history</h2>
       <table class="data-table" id="settings-history-table">
         <thead>
-          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>BMR model</th><th>Status</th></tr>
+          <tr><th>Start date</th><th>TEF</th><th>Kcal/kg fat</th><th>Stagnation weeks</th><th>Max lean loss</th><th>BMR model</th><th>TEF mode</th><th>Status</th></tr>
         </thead>
         <tbody></tbody>
       </table>

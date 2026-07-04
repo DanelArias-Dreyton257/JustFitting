@@ -46,6 +46,14 @@ export function renderDashboardStats(
   if (adherence) {
     tiles.push(["Adherence", formatAdherence(adherence)]);
   }
+  if (metrics.tef_kcal != null) {
+    tiles.push([
+      "TEF (this week)",
+      `${metrics.tef_kcal.toFixed(0)} kcal <span class="badge ${
+        metrics.tef_mode === "macros" ? "active" : "inactive"
+      }">${metrics.tef_mode}</span>`,
+    ]);
+  }
   if (gainQualityLatest && gainQualityLatest.fat_ratio_cumulative != null) {
     const pct = gainQualityLatest.fat_ratio_cumulative * 100;
     const idealPct = gainQualityLatest.fat_ratio_ideal * 100;
@@ -165,6 +173,11 @@ export function fillSettingsForm(form, dto) {
   form.lean_tissue_kcal_per_kg.value = dto.lean_tissue_kcal_per_kg;
   form.fat_ratio_ideal_pct.value = (dto.fat_ratio_ideal * 100).toFixed(0);
   form.reconciliation_error_threshold_kcal.value = dto.reconciliation_error_threshold_kcal;
+  form.tef_mode.value = dto.tef_mode;
+  form.kappa_carbs.value = dto.kappa_carbs;
+  form.kappa_fat.value = dto.kappa_fat;
+  form.kappa_protein.value = dto.kappa_protein;
+  form.macro_mismatch_pct.value = (dto.macro_kcal_mismatch_pct * 100).toFixed(0);
 }
 
 export function renderSettingsStatus(container, dto) {
@@ -184,6 +197,7 @@ export function renderSettingsHistory(tbody, history) {
         <td>${row.stagnation_weeks}</td>
         <td>${(row.max_lean_mass_loss_share * 100).toFixed(0)}%</td>
         <td>${row.bmr_model}</td>
+        <td><span class="badge ${row.tef_mode === "macros" ? "active" : "inactive"}">${row.tef_mode}</span></td>
         <td><span class="badge ${row.active ? "active" : "inactive"}">${
           row.active ? "active" : "past"
         }</span></td>
@@ -211,6 +225,11 @@ export function renderGoalHistory(tbody, goals) {
     .join("");
 }
 
+function formatMacros(log) {
+  if (log.carbs_g == null || log.fat_g == null || log.protein_g == null) return "—";
+  return `${log.carbs_g}/${log.fat_g}/${log.protein_g}`;
+}
+
 export function renderLogTable(tbody, logs) {
   tbody.innerHTML = logs
     .map(
@@ -223,6 +242,7 @@ export function renderLogTable(tbody, logs) {
         <td>${log.intake_kcal}</td>
         <td>${log.steps}</td>
         <td>${log.cardio_kcal}</td>
+        <td>${formatMacros(log)}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
         <td><span class="badge ${log.granularity}">${log.granularity}</span></td>
         <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
@@ -278,6 +298,9 @@ export function renderLogReview(container, values) {
     ["Intake", values.intake_kcal && `${values.intake_kcal} kcal`],
     ["Steps", values.steps],
     ["Cardio", values.cardio_kcal && `${values.cardio_kcal} kcal`],
+    ["Carbs", values.carbs_g && `${values.carbs_g} g`],
+    ["Fat", values.fat_g && `${values.fat_g} g`],
+    ["Protein", values.protein_g && `${values.protein_g} g`],
   ];
   container.innerHTML = rows
     .map(([label, value]) => `<dt>${label}</dt><dd>${value || "—"}</dd>`)
