@@ -100,6 +100,6 @@ def create_app(config: Optional[dict] = None) -> Flask:
         "SEED_DEMO", os.environ.get("JUSTFITTING_SEED_DEMO", "false").lower() == "true"
     )
     if seed_demo:
-        DemoSeeder.seed_if_empty(user_manager, log_manager)
+        DemoSeeder.seed_if_empty(user_manager, log_manager, engine_settings_manager)
 
     return app

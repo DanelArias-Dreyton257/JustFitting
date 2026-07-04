@@ -1,5 +1,6 @@
-"""Weekly body-log CRUD, plus the verified "Danel" reference series used by
-scripts/seed_demo_data.sh and the JUSTFITTING_SEED_DEMO boot seeder.
+"""Weekly body-log CRUD, plus the verified "Danel" (cut) and "Sergio"
+(bulk) reference series used by scripts/seed_demo_data.sh and the
+JUSTFITTING_SEED_DEMO boot seeder (see services/DemoSeeder.py).
 """
 
 from __future__ import annotations
@@ -73,6 +74,51 @@ DEMO_STEPS_START = 6000
 DEMO_STEPS_END = 5000
 DEMO_INTAKE_START = 2400.0
 DEMO_INTAKE_END = 2014.30
+
+#: Sergio's bulk/volume reference profile (docs/composition_spec.md's
+#: "Oleada 2" section) -- a second worked profile alongside Danel's above,
+#: a lean bulk instead of a cut. The source doc only gives a single-week
+#: snapshot, not a full series, so the boundary logs and trajectory below
+#: are this implementation's own plausible demo data, not a documented
+#: golden reference (unlike Danel's, don't pin new tests to these numbers).
+SERGIO_PROFILE = DemoProfile(
+    height_cm=194,
+    sex=1,
+    birthdate=date(2001, 4, 5),
+    target_bf=0.15,
+    weekly_rate=0.005,
+)
+SERGIO_FIRST_LOG = {
+    "date": date(2026, 1, 4),
+    "weight_kg": 88.0,
+    "waist_cm": 84.0,
+    "neck_cm": 39.0,
+}
+SERGIO_LAST_LOG = {
+    "date": date(2026, 6, 28),
+    "weight_kg": 95.5,
+    "waist_cm": 84.5,
+    "neck_cm": 39.0,
+}
+SERGIO_STEPS_START = 9000
+SERGIO_STEPS_END = 7500
+SERGIO_INTAKE_START = 3000.0
+SERGIO_INTAKE_END = 3450.0
+#: Cardio/exercise activity thermogenesis (Phase 3.1, F2) -- tapered down
+#: as the bulk progresses, a plausible "less cardio, more lifting" pattern.
+SERGIO_CARDIO_START = 300.0
+SERGIO_CARDIO_END = 150.0
+#: The most recent N weeks are logged at daily granularity with macros
+#: (Phase 3.3/3.4, F6/F9), instead of Danel's all-weekly series, so the
+#: seeded data also exercises mixed-granularity accounts and macro-based TEF.
+SERGIO_DAILY_WEEKS = 4
+#: A simple, illustrative protein/fat/carb split of each day's intake
+#: (converted to grams via the standard Atwater factors) -- not tuned to
+#: any account's own macro-target settings.
+SERGIO_MACRO_SPLIT = {"protein": 0.30, "fat": 0.25, "carbs": 0.45}
+#: Small deterministic day-to-day wiggle (Mon..Sun) so a daily-logged week
+#: isn't perfectly flat; reused as a fraction of each field's own scale.
+_DAILY_WIGGLE = (-0.2, 0.4, -0.4, 0.2, 0.0, -0.3, 0.3)
 
 
 def _interpolate(start: float, end: float, fraction: float) -> float:
@@ -281,6 +327,121 @@ class LogManager:
             )
         return created
 
+    def seed_bulk_reference_series(self, user_id: int) -> List[BodyLog]:
+        """Seed Sergio's bulk reference series (idempotent: no-op if the
+        user already has logs). The most recent SERGIO_DAILY_WEEKS weeks
+        are logged at daily granularity with macros, unlike Danel's
+        all-weekly series above, so the seeded data also exercises F6/F9."""
+        if self.log_dao.list_for_user(user_id):
+            return []
+
+        start = SERGIO_FIRST_LOG["date"]
+        end = SERGIO_LAST_LOG["date"]
+        total_weeks = (end - start).days // 7
+        daily_from_week = total_weeks - SERGIO_DAILY_WEEKS + 1
+
+        created: List[BodyLog] = []
+        for week in range(total_weeks + 1):
+            log_date = start + timedelta(days=7 * week)
+            fraction = week / total_weeks
+            weight_kg = _interpolate(
+                SERGIO_FIRST_LOG["weight_kg"], SERGIO_LAST_LOG["weight_kg"], fraction
+            )
+            waist_cm = _interpolate(
+                SERGIO_FIRST_LOG["waist_cm"], SERGIO_LAST_LOG["waist_cm"], fraction
+            )
+            neck_cm = _interpolate(
+                SERGIO_FIRST_LOG["neck_cm"], SERGIO_LAST_LOG["neck_cm"], fraction
+            )
+            steps = _interpolate(SERGIO_STEPS_START, SERGIO_STEPS_END, fraction)
+            intake_kcal = _interpolate(SERGIO_INTAKE_START, SERGIO_INTAKE_END, fraction)
+            cardio_kcal = _interpolate(SERGIO_CARDIO_START, SERGIO_CARDIO_END, fraction)
+
+            # The two boundary rows are reproduced exactly, same convention
+            # as Danel's series above.
+            if week == 0:
+                weight_kg, waist_cm, neck_cm = (
+                    SERGIO_FIRST_LOG["weight_kg"],
+                    SERGIO_FIRST_LOG["waist_cm"],
+                    SERGIO_FIRST_LOG["neck_cm"],
+                )
+            elif week == total_weeks:
+                weight_kg, waist_cm, neck_cm = (
+                    SERGIO_LAST_LOG["weight_kg"],
+                    SERGIO_LAST_LOG["waist_cm"],
+                    SERGIO_LAST_LOG["neck_cm"],
+                )
+
+            if week >= daily_from_week:
+                created.extend(
+                    self._seed_daily_week(
+                        user_id,
+                        log_date,
+                        weight_kg,
+                        waist_cm,
+                        neck_cm,
+                        intake_kcal,
+                        steps,
+                        cardio_kcal,
+                    )
+                )
+            else:
+                created.append(
+                    self.create_log(
+                        user_id=user_id,
+                        log_date=log_date,
+                        weight_kg=round(weight_kg, 1),
+                        waist_cm=round(waist_cm, 1),
+                        neck_cm=round(neck_cm, 1),
+                        intake_kcal=round(intake_kcal, 2),
+                        steps=round(steps),
+                        cardio_kcal=round(cardio_kcal),
+                        intake_is_real=True,
+                        source="real",
+                    )
+                )
+        return created
+
+    def _seed_daily_week(
+        self,
+        user_id: int,
+        week_date: date,
+        weight_kg: float,
+        waist_cm: float,
+        neck_cm: float,
+        intake_kcal: float,
+        steps: float,
+        cardio_kcal: float,
+    ) -> List[BodyLog]:
+        """The 7 days ending on ``week_date``, wiggled around that week's
+        interpolated values, with macros split per SERGIO_MACRO_SPLIT."""
+        created: List[BodyLog] = []
+        for day_offset, wiggle in enumerate(_DAILY_WIGGLE):
+            day = week_date - timedelta(days=6 - day_offset)
+            day_intake = max(0.0, intake_kcal + wiggle * 40)
+            protein_g = (day_intake * SERGIO_MACRO_SPLIT["protein"]) / 4.0
+            fat_g = (day_intake * SERGIO_MACRO_SPLIT["fat"]) / 9.0
+            carbs_g = (day_intake * SERGIO_MACRO_SPLIT["carbs"]) / 4.0
+            created.append(
+                self.create_log(
+                    user_id=user_id,
+                    log_date=day,
+                    weight_kg=round(weight_kg + wiggle * 0.15, 1),
+                    waist_cm=round(waist_cm, 1),
+                    neck_cm=round(neck_cm, 1),
+                    intake_kcal=round(day_intake, 2),
+                    steps=round(max(0.0, steps + wiggle * 200)),
+                    cardio_kcal=round(max(0.0, cardio_kcal + wiggle * 30)),
+                    intake_is_real=True,
+                    source="real",
+                    granularity="daily",
+                    carbs_g=round(carbs_g, 1),
+                    fat_g=round(fat_g, 1),
+                    protein_g=round(protein_g, 1),
+                )
+            )
+        return created
+
 
 def demo_profile_params() -> ProfileParams:
     return ProfileParams(
@@ -289,4 +450,14 @@ def demo_profile_params() -> ProfileParams:
         birthdate=DEMO_PROFILE.birthdate,
         target_bf=DEMO_PROFILE.target_bf,
         weekly_rate=DEMO_PROFILE.weekly_rate,
+    )
+
+
+def bulk_demo_profile_params() -> ProfileParams:
+    return ProfileParams(
+        height_cm=SERGIO_PROFILE.height_cm,
+        sex=SERGIO_PROFILE.sex,
+        birthdate=SERGIO_PROFILE.birthdate,
+        target_bf=SERGIO_PROFILE.target_bf,
+        weekly_rate=SERGIO_PROFILE.weekly_rate,
     )
