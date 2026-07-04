@@ -73,6 +73,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sw.js`'s `CACHE_NAME` bumped (`-v5` -> `-v6`) for the Settings/Plan/
     Goal-history UI changes, same reasoning as every prior static-asset
     change.
+- Phase 3.1: Oleada 2 cardio input & gain-quality tracking (see README's
+  roadmap).
+  - **Cardio (EAT) input**: `cardio_kcal` on `body_logs` (migration 13,
+    default `0`), threaded through `LogInput`, `LogManager.create_log`/
+    `update_log`/`to_engine_inputs`, and `POST`/`PUT /api/logs`.
+    `EnergyModel.compute_tdee`/`compute_target_calories` gained a trailing
+    `eat` parameter added inside the existing divisor formula
+    (`(bmr + neat + eat) / (1 - tef)`) -- `cardio_kcal=0` (every
+    pre-existing log) computes byte-for-byte identically, so no
+    `ENGINE_VERSION` bump was needed. The log wizard's "Energy" step
+    gained a Cardio input, the log table and its review step a Cardio
+    column/row.
+  - **Gain-quality tracking**: a new pure module,
+    `services/composition/GainQuality.py` (`compute_gain_quality`), derives
+    each row's `delta_lean_kg`/`delta_fat_kg` (diffed against the previous
+    row, base case `0` at the first row like `weight_delta_kg`) and their
+    cumulative sums, plus `fat_ratio`/`fat_ratio_cumulative` guarded to
+    `None` when the corresponding denominator is (within floating-point
+    epsilon) zero -- a read-side derived view over an already-computed
+    series, not a new `CompositionResult` field, mirroring how `Alerts.py`
+    works. New `GET /api/metrics/gain-quality` (`GainQualityDTO`) exposes
+    it, 404ing with no logs yet like `/adherence`.
+  - **Dashboard gain-quality panel**: a new chart card plots each week's
+    lean-vs-fat delta as a signed stacked bar via a new `charts.js`
+    primitive, `drawDivergingBars` -- the existing `drawStackedBars` (used
+    for fat/lean mass *levels*, always non-negative) assumes non-negative
+    inputs and renders incorrectly for a loss week's negative deltas, so
+    this reuses its axis/tooltip helpers but stacks each series' bar
+    outward from a zero baseline instead of always upward from the
+    bottom. A stat tile shows the cumulative fat ratio against the
+    account's `fat_ratio_ideal` (green/warning badge).
+  - New `GainQuality_test.py` (base case, cumulative sums, the
+    `fat_ratio`/`None`-at-zero rule including a loss week's negative
+    deltas, out-of-order input sorting, and an identity check that
+    `delta_lean_kg + delta_fat_kg == weight_delta_kg` against a real
+    computed series); new `EnergyModel_test.py`/`CompositionEngine_test.py`
+    cases for the `eat` term; new `Api_test.py` cases (`cardio_kcal`
+    create/update round-trip and its zero default, the gain-quality
+    endpoint's 404 and happy path).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v6` -> `-v7`) for the Dashboard/log
+    wizard/log table changes.
 - Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
   `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
   `trend_model: "ols" | "weighted_ols"` parameter threads through

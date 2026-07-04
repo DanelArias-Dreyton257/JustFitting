@@ -217,7 +217,7 @@ reproduces today's Danel numbers exactly, same contract as every other
 calibration, applied only via his account's override, never as the new
 default.
 
-### F1 — Surplus/bulk mode
+### F1 — Surplus/bulk mode (done)
 
 ```
 W_i^obj = W_{i-1} * (1 + rho)          # unchanged from Danel's Wobj_i
@@ -246,12 +246,16 @@ rho * W_i * k_G` (which uses this week's weight, `W_i`, rather than
 resolves by reusing the existing, tested mechanism rather than forking a
 second one for a numerically close but distinct quantity).
 
-### F2 — Cardio (EAT) input
+### F2 — Cardio (EAT) input (done)
 
-Just a new field on the weekly record, `cardio_kcal` (`a_i`); see F4 for
-where it enters the energy chain, and F6 for its daily-aggregated form.
+`cardio_kcal` (`a_i`) is a new `body_logs` column (migration 13, default
+`0`), threaded through `LogInput`/`LogManager`/`POST`/`PUT /api/logs` and
+folded into `EnergyModel.compute_tdee`/`compute_target_calories` as the
+`+ EAT_i` term the "Formula reconciliation" section below already
+anticipated -- see F4 for where it enters the energy chain, and F6 for its
+(still planned) daily-aggregated form.
 
-### F3 — Gain quality (lean/fat partition of the *change*)
+### F3 — Gain quality (lean/fat partition of the *change*) (done)
 
 ```
 DeltaL_i    = LeanMass_i - LeanMass_{i-1},   DeltaG_i    = FatMass_i - FatMass_{i-1}
@@ -268,7 +272,16 @@ undefined (guard, don't divide) when `dW_i == 0`; it's only a meaningful
 "how clean is this gain" signal when `dW_i > 0`. Ideal ceiling: `FatRatio_i
 <= 0.25` (new `fat_ratio_ideal` constant).
 
-### F4 — Second BMR model (Mifflin–St Jeor)
+Implemented as a new pure module, `services/composition/GainQuality.py`
+(`compute_gain_quality`), rather than new `CompositionResult` fields — it's
+a read-side derived view over an already-computed series (mirroring
+`Alerts.py`), not a change to the compute-order chain, so no
+`ENGINE_VERSION` bump was needed. Denominators near zero (floating-point
+noise, not a true `dW_i == 0`) are treated as zero via a small epsilon,
+same "guard, don't divide" intent as the exact-zero case. Exposed via `GET
+/api/metrics/gain-quality`.
+
+### F4 — Second BMR model (Mifflin–St Jeor) (done)
 
 ```
 BMR_i^Cunn    = 500 + 22 * LeanMass_i                              # existing, unchanged
@@ -451,7 +464,7 @@ field: the running mean `IncrReal_bar`, and `Desv_i`, the fraction of the
 weekly-rate target missed (`0` = on target; `>0` under-shot; `<0`
 over-shot). Both are cheap to compute from data already persisted.
 
-### F8 — Calibration constants (summary)
+### F8 — Calibration constants (summary) (done)
 
 New or promoted per-user-overridable constants, all defaulting to values
 that reproduce today's Danel behavior exactly:

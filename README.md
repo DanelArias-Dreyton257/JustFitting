@@ -383,15 +383,27 @@ builds on, without touching any existing (cut-mode) computed values:
   actual formula addition across all of Oleada 2 is the cardio/EAT term
   from Phase 3.1 below, default `0`.
 
-### Phase 3.1 — Oleada 2: cardio input & gain-quality tracking (planned)
+### Phase 3.1 — Oleada 2: cardio input & gain-quality tracking (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F2, F3). The central new
 capability of the module — "is this bulk clean?":
 
-- A weekly `cardio_kcal` (EAT) field, folded into TDEE for bulk-mode
-  accounts.
-- A gain-quality panel: weekly and cumulative lean/fat split of the
-  week-over-week weight change, with a 25/75 ideal-ratio indicator.
+- A weekly `cardio_kcal` (EAT) field (`body_logs`, migration 13, default
+  `0`) folded into TDEE/target-calories for every account, not just
+  bulk-mode ones — `EnergyModel.compute_tdee`/`compute_target_calories`
+  gained a trailing `eat` parameter inside the existing divisor formula,
+  so `cardio_kcal=0` (every pre-existing log) is byte-for-byte unchanged.
+  Captured in the log wizard's "Energy" step and shown in the log table.
+- A gain-quality panel (`GET /api/metrics/gain-quality`, a new pure
+  `services/composition/GainQuality.py` module — a read-side derived view
+  over an already-computed series, like `Alerts.py`, not a
+  `CompositionResult`/`ENGINE_VERSION` change): weekly and cumulative
+  lean/fat split of the week-over-week weight change, with a 25/75
+  ideal-ratio indicator. The Dashboard gained a signed weekly lean/fat
+  delta chart (`drawDivergingBars`, a new `charts.js` primitive — unlike
+  the existing `drawStackedBars` used for fat/lean *levels*, a delta can
+  go negative on a loss week) and a cumulative-fat-ratio-vs-ideal stat
+  tile.
 
 ### Phase 3.2 — Oleada 2: energy reconciliation & increment analytics (planned)
 
