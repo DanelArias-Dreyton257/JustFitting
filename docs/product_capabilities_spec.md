@@ -92,8 +92,8 @@ implementation phases.
 Everything above (§14–§16) comes from the original "Danel" (cut/deficit)
 spec and is implemented. This section records a **second** source
 document — a bulk/volume ("Sergio") profile verified against a separate
-spreadsheet — that specifies eight new capabilities. F1, F2, F3, F4 and F8
-(Phases 3 and 3.1) are now implemented; F5/F6/F7 (Phase 3.2/3.3) remain
+spreadsheet — that specifies eight new capabilities. F1, F2, F3, F4, F5, F7
+and F8 (Phases 3, 3.1 and 3.2) are now implemented; F6 (Phase 3.3) remains
 planned. See `docs/composition_spec.md`'s "Oleada 2" section for the full
 formulas, including its "Formula reconciliation" note: the source
 document's literal TDEE/target-calorie formulas look different from
@@ -121,9 +121,9 @@ energy estimates instead of the same flat number.
 | F2 | Cardio (EAT) as input | New field, kcal spent on exercise, on either a daily or weekly log (F6); adds one term (`EAT_i`, default `0`) to the existing TDEE/target-calorie formulas. | **Done (Phase 3.1).** `cardio_kcal` on `BodyLog` (migration 13, default `0`), threaded through `LogInput`/`LogManager`/`POST`/`PUT /api/logs`. `EnergyModel.compute_tdee`/`compute_target_calories` gained a trailing `eat` parameter, added inside the existing divisor formula — `cardio_kcal=0` (every pre-existing log) computes byte-for-byte identically. | Add `cardio_kcal` to `BodyLog`; include as `+ EAT_i` in `EnergyModel.py`'s existing TDEE/TargetCal formulas. With `EAT_i=0` every existing log computes identically to today. |
 | F3 | Gain quality (lean/fat partition) | Weekly and cumulative lean-vs-fat split of the weight *change*; ideal ratio 25/75 (fat share ≤ 25%). | **Done (Phase 3.1).** New pure module `services/composition/GainQuality.py` (`compute_gain_quality`) derives `delta_lean_kg`/`delta_fat_kg` (and their cumulative sums) plus `fat_ratio`/`fat_ratio_cumulative` (guarded to `None` at zero) from an already-computed series — no new `CompositionResult` fields, no `ENGINE_VERSION` bump. Exposed via `GET /api/metrics/gain-quality`; the Dashboard gained a lean/fat weekly-delta chart (`drawDivergingBars`, a new signed-bar primitive since deltas can go negative) and a cumulative-fat-ratio-vs-ideal stat tile. | New `GainQuality` engine output (`delta_lean_kg`, `delta_fat_kg`, cumulative, `fat_ratio`); reuses the already-computed `weight_delta_kg`. |
 | F4 | Second BMR model (Mifflin–St Jeor) | `bmr_model = cunningham \| mifflin`, selectable; Mifflin depends only on weight/height/age (correctly sex-specific, unlike RFM/Navy), and avoids feeding BMR off a lean-mass estimate that's comparatively noisy early in a bulk. | **Done (Phase 3).** `EnergyModel.compute_bmr_mifflin`; selectable via `EngineConstants.bmr_model` (`"cunningham"` default \| `"mifflin"`), historized per-account like every other `EngineSettings` field (`GET`/`PUT /api/users/me/settings`), not a per-request query param like `trend_model`/`activity_model` — BMR choice affects every metrics computation, not just an ephemeral forecast. | Add `Mifflin` to `EnergyModel.py`; expose `bmr_model` the same way `trend_model`/`activity_model` are exposed today. Feeds the same shared TDEE/TargetCal formula as F2 — a model choice, not a separate formula. |
-| F5 | Energy reconciliation ("Error") | Compares surplus implied by intake (`E_i - TDEE_i`) against surplus implied by the *next* week's tissue change; flags a large gap for recalibration. | Not implemented — no cross-check exists between the energy model and the measured composition change. | New `EnergyReconciliation` module; new `k_L` (lean-tissue kcal/kg) constant; inherently one-week-lagged (needs week `i+1`). |
+| F5 | Energy reconciliation ("Error") | Compares surplus implied by intake (`E_i - TDEE_i`) against surplus implied by the *next* week's tissue change; flags a large gap for recalibration. | **Done (Phase 3.2).** New pure module `services/composition/EnergyReconciliation.py` (`compute_energy_reconciliation`) reuses `GainQuality.compute_gain_quality` for the week `i+1` deltas rather than re-deriving them — no `ENGINE_VERSION` bump. `EngineConstants.lean_tissue_kcal_per_kg` (shipped in Phase 3, unused until now) is `k_L`; a new `reconciliation_error_threshold_kcal` (default `300` kcal/day, per-account overridable) drives a new `recalibrate` alert in `Alerts.py`. Exposed via `GET /api/metrics/energy-balance`; the Dashboard gained an ingested-vs-tissue-surplus chart and a rolling-error stat tile. | New `EnergyReconciliation` module; new `k_L` (lean-tissue kcal/kg) constant; inherently one-week-lagged (needs week `i+1`). |
 | F6 | Daily/weekly log coexistence | Optional daily capture (weigh-in, steps, cardio); a weekly *view* of daily logs takes the median weight / mean steps+cardio for the week; a daily *view* of a weekly log copy-pastes that log's values across every day since the previous one. Both directions, same mechanism. | Not implemented — `BodyLog` is one row per week with no granularity tag. | Add `granularity = daily \| weekly` to `BodyLog` (same pattern as the existing `source = real \| projected` tag) instead of a separate `DailyEntry` entity; `CompositionEngine` resolves whichever weekly view it needs on the fly. Degrades to today's single-value behavior for an account that only ever logs weekly. Also the natural data path for the README's unscheduled "automatic steps import" idea (Phase 2.1). |
-| F7 | Real-increment analytics | Actual week-over-week weight increment vs. the goal rate; running mean; normalized deviation. | Partial — `weight_delta_pct` already computes the same underlying figure (`composition_spec.md` confirms the identity); no running mean or goal-relative deviation is surfaced. | Derived-analytics layer only, no new base computation: `mean(weight_delta_pct)` and `Desv_i = (rho - weight_delta_pct_i) / rho`. |
+| F7 | Real-increment analytics | Actual week-over-week weight increment vs. the goal rate; running mean; normalized deviation. | **Done (Phase 3.2).** New pure module `services/composition/IncrementAnalytics.py` (`compute_increment_analytics`) -- real rows only, skipping the base-case first row; `incr_real_mean_pct` is an expanding mean, `deviation_pct` is `None` when the goal rate is `0`. No new base computation, no `ENGINE_VERSION` bump. Exposed via `GET /api/metrics/increment-analytics`; the Dashboard gained an actual-vs-goal-rate chart and "avg weekly increment"/"deviation from goal rate" stat tiles. | Derived-analytics layer only, no new base computation: `mean(weight_delta_pct)` and `Desv_i = (rho - weight_delta_pct_i) / rho`. |
 | F8 | Per-user calibration constants | Fat-percentage offset `delta`, FFMI coefficient, lean-tissue kcal/kg `k_L`, ideal fat-ratio ceiling — all account-overridable, historized like existing `EngineSettings`. | **Done (Phase 3).** `EngineConstants`/`EngineSettings` gained `delta` (default `0.0`), `ffmi_coef` (default `6.3`, promoted from the `Anthropometry.py` literal), `w_rfm`/`w_navy`/`w_deur` (defaults `0.50/0.25/0.25`, promoted from `constants.py` module globals, guarded to sum to `1.0` when all three are overridden together), `lean_tissue_kcal_per_kg` (default `2100`, unused until Phase 3.2's F5), and `fat_ratio_ideal` (default `0.25`, unused until Phase 3.1's F3) — all historized via migration 12, `GET`/`PUT /api/users/me/settings` picks them up automatically (`FIELDS`-driven route). | Extend `EngineSettings`/`EngineConstants` with `fat_offset` (default `0.0`), `ffmi_coef` (default `6.3`, promoting today's `Anthropometry.py` literal to a named, overridable constant), `lean_tissue_kcal_per_kg` (default `2100`), `fat_ratio_ideal` (default `0.25`), and, going a step beyond the source doc: promote `bf_weight_rfm`/`bf_weight_navy`/`bf_weight_deurenberg` (today `constants.py` module globals, defaults `0.50/0.25/0.25`, shared by every account) into the same per-account override set, since Sergio's doc already establishes that the weighted body-fat formula needs a personal correction and there's no principled reason the offset is overridable but the weights it's added to aren't. Defaults must reproduce today's Danel numbers exactly. |
 
 ### Capability F9 — TEF by macronutrients (source: `docs/JustFitting_TEF_Macronutrientes.pdf`)
@@ -139,17 +139,18 @@ energy estimates instead of the same flat number.
 | `BodyLog` | `+ cardio_kcal, + granularity (daily \| weekly), + carbs_g, fat_g, protein_g` (macros only meaningful on daily-granularity rows) | F2/F6/F9: one table, no separate `DailyEntry`/`DailyMacroEntry` entity — F6's granularity tag was already the right foundation for F9's macro fields too. |
 | `GoalPlan` | `direction` derived from `weekly_rate`'s sign (no new column needed, unless a UI wants to store the user's intent independent of the numeric rate) | F1: cut vs. bulk labeling. |
 | `EngineSettings` | `+ fat_offset, bf_weight_rfm, bf_weight_navy, bf_weight_deurenberg, ffmi_coef, lean_tissue_kcal_per_kg, fat_ratio_ideal, kappa_C, kappa_G, kappa_P, tef_mode` | F8/F9, all historized/overridable like the Phase 1.5 fields. |
-| `CalculatedMetrics` snapshot | `+ delta_lean_kg, delta_fat_kg, fat_ratio, fat_ratio_cumulative, energy_reconciliation_error, tef_kcal, tef_mode` (bulk-mode rows only) | F3/F5/F9 outputs, same snapshot-per-`(log_id, engine_version)` pattern as today. |
+| `CalculatedMetrics` snapshot | `+ tef_kcal, tef_mode` (F9, still planned) | F9 output, same snapshot-per-`(log_id, engine_version)` pattern as today. F3's gain-quality and F5/F7's reconciliation/increment figures are *not* persisted this way -- like `Alerts.py`, they're read-side derived views recomputed from the already-cached series, not new snapshot columns. |
 
-### API additions (planned)
+### API additions
 
-- `GET /api/metrics/gain-quality` — F3 partition and ratios.
-- `GET /api/metrics/energy-balance` — F5 ingested-vs-tissue surplus and error.
-- `GET /api/metrics/tef` — F9 daily and weekly TEF, broken down by macro.
-- `bmr_model=cunningham|mifflin` parameter on the metrics/projection endpoints that compute BMR — F4.
-- `POST /api/logs` accepts `cardio_kcal`, `granularity`, and (on daily rows) `carbs_g, fat_g, protein_g`; a daily-granularity log is posted the same way a weekly one is today, just tagged and dated per-day (F6/F9).
-- `tef_mode=flat|macros` parameter alongside `bmr_model` on the same metrics/projection endpoints — F9.
-- `EngineSettings` read/write endpoints (`GET`/`PUT /api/users/me/settings`, already existing) extended with the F8 fields.
+- `GET /api/metrics/gain-quality` — F3 partition and ratios. **Done (Phase 3.1).**
+- `GET /api/metrics/energy-balance` — F5 ingested-vs-tissue surplus and error. **Done (Phase 3.2).**
+- `GET /api/metrics/increment-analytics` — F7 actual increment, running mean, and goal-rate deviation. **Done (Phase 3.2).**
+- `GET /api/metrics/tef` — F9 daily and weekly TEF, broken down by macro. Planned.
+- `bmr_model=cunningham|mifflin` parameter on the metrics/projection endpoints that compute BMR — F4. **Done (Phase 3).**
+- `POST /api/logs` accepts `cardio_kcal`, `granularity`, and (on daily rows) `carbs_g, fat_g, protein_g`; a daily-granularity log is posted the same way a weekly one is today, just tagged and dated per-day (F6/F9). Planned.
+- `tef_mode=flat|macros` parameter alongside `bmr_model` on the same metrics/projection endpoints — F9. Planned.
+- `EngineSettings` read/write endpoints (`GET`/`PUT /api/users/me/settings`, already existing) extended with the F8 fields, including Phase 3.2's `reconciliation_error_threshold_kcal`. **Done.**
 
 ### Validations, assumptions and limitations (Oleada 2)
 
@@ -185,8 +186,9 @@ energy estimates instead of the same flat number.
   mean rather than silently rescaling.
 - **Reconciliation is one-week-lagged**: F5's `Error_i` needs week `i+1`'s
   data and can never be computed for the most recent logged week — an
-  a-posteriori check, not a same-week metric.
-  Recommend a rolling-mean view, per the source doc.
+  a-posteriori check, not a same-week metric. A rolling-mean view is
+  surfaced alongside the raw value, per the source doc's own suggestion
+  (`GET /api/metrics/energy-balance`'s `error_rolling_mean_kcal`).
 - **Gain-quality ratio is undefined at zero weight change**: `FatRatio_i`
   divides by `delta_lean + delta_fat` (== `weight_delta_kg`); guard
   against `weight_delta_kg == 0` rather than computing a `NaN`/divide error, and treat the ratio as meaningful only when the week is a net
@@ -204,9 +206,13 @@ energy estimates instead of the same flat number.
   constants — F4 does not inherit the existing "Known limitations"
   disclaimer, and should not display it.
 - **New alerts** (extending Phase 1.3's `Alerts.py`): fat ratio above
-  `fat_ratio_ideal` on a bulk week ("dirty bulk"); reconciliation error
-  above a configurable threshold ("recalibrate"); `weekly_rate` outside
-  the recommended bulk range `[0.25%, 0.5%]`.
+  `fat_ratio_ideal` on a bulk week ("dirty bulk", Phase 3.2, only for a
+  `direction=bulk` goal and only on a genuine net-gain week where
+  `fat_ratio` is defined); reconciliation error above a configurable
+  threshold ("recalibrate", Phase 3.2, `reconciliation_error_threshold_kcal`,
+  default `300` kcal/day); `weekly_rate` outside the recommended bulk range
+  `[0.25%, 0.5%]` ("bulk_rate_out_of_range", Phase 3). All three flag, they
+  never block, same as every other detector in `Alerts.py`.
 - **F9 depends on F6, not the other way around**: macro-based TEF only
   has data to compute from on daily-granularity log rows (F6); a week
   logged only at weekly granularity has no per-day macro grams, so

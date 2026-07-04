@@ -230,6 +230,15 @@ advice.
   there's no verification. Gating it behind an emailed, single-use,
   short-lived token (and the SMTP/mail-sending infrastructure that needs)
   is the obvious next step, but isn't planned for the near term.
+- **Oleada 2 metrics in the printable Report / JSON export.** `GET
+  /api/users/me/report` (Phase 1.4) and `/export` still cover only the
+  original Danel-era metrics (profile, latest snapshot, adherence, goal
+  history, weekly series, open alerts); none of Oleada 2's read-side
+  views -- gain-quality (Phase 3.1), energy-balance or increment-analytics
+  (Phase 3.2) -- are folded in yet, so a bulk account's trainer/nutritionist
+  export is still missing "is this bulk clean" and "is the energy model
+  tracking reality" at a glance. Noted here rather than scoped into a
+  phase since it's additive to an existing view, not a new capability.
 
 ## Roadmap: body-composition module capabilities
 
@@ -405,19 +414,41 @@ capability of the module — "is this bulk clean?":
   go negative on a loss week) and a cumulative-fat-ratio-vs-ideal stat
   tile.
 
-### Phase 3.2 — Oleada 2: energy reconciliation & increment analytics (planned)
+### Phase 3.2 — Oleada 2: energy reconciliation & increment analytics (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F5, F7). Closes the loop
 between the energy model and what's actually being measured:
 
-- An energy-reconciliation check comparing the surplus implied by intake
-  against the surplus implied by next week's measured tissue change, with
-  its error (and a rolling mean) surfaced to the user.
-- Real-increment analytics: a running mean of the actual weekly increment
-  and its normalized deviation from the goal rate.
-- Two new alerts extending Phase 1.3's engine: a high fat-ratio week
-  ("dirty bulk") and a reconciliation error above threshold
-  ("recalibrate").
+- An energy-reconciliation check (`GET /api/metrics/energy-balance`, a new
+  pure `services/composition/EnergyReconciliation.py` module) comparing the
+  surplus implied by intake (`E_i - TDEE_i`) against the surplus implied by
+  *next* week's measured tissue change (reusing `GainQuality`'s lean/fat
+  deltas rather than re-deriving them), with its error -- and a rolling
+  mean of it (`constants.ENERGY_RECONCILIATION_WINDOW_WEEKS`, default 4
+  weeks) -- surfaced to the user. Like `GainQuality`/`Alerts`, this is a
+  read-side derived view over an already-computed series, so no
+  `ENGINE_VERSION` bump was needed. Inherently one-week-lagged: the most
+  recently logged week has no error yet, and a week with only assumed
+  (not real) intake has no ingested-surplus figure either, though its
+  tissue-side figure still computes.
+- Real-increment analytics (`GET /api/metrics/increment-analytics`, a new
+  pure `services/composition/IncrementAnalytics.py` module): an expanding
+  mean of the actual weekly increment (`weight_delta_pct`, already
+  computed) and its normalized deviation from the account's active goal
+  rate, over real (non-projected) weeks, skipping the first week's
+  base-case `0.0`.
+- Two new alerts extending Phase 1.3's engine (`services/composition/Alerts.py`):
+  a high fat-ratio week on a bulk goal ("dirty bulk", using `GainQuality`'s
+  `fat_ratio` against `EngineConstants.fat_ratio_ideal`) and a reconciliation
+  error above a new, per-account-overridable
+  `reconciliation_error_threshold_kcal` (default `300` kcal/day) threshold
+  ("recalibrate") -- both flag via the existing persisted/dismissible
+  `GET /api/alerts`, never block, same pattern as every other detector.
+- The Dashboard gained two charts (ingested-vs-tissue surplus;
+  actual-vs-goal weekly increment, reusing `drawMultiLineChart`) and stat
+  tiles for the rolling reconciliation error and the average weekly
+  increment/deviation. The Settings view's "Body-fat & BMR calibration"
+  section gained the new reconciliation-error-threshold field.
 
 ### Phase 3.3 — Oleada 2: daily and weekly logs coexist (planned)
 

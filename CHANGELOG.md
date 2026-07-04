@@ -114,6 +114,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     endpoint's 404 and happy path).
   - `sw.js`'s `CACHE_NAME` bumped (`-v6` -> `-v7`) for the Dashboard/log
     wizard/log table changes.
+- Phase 3.2: Oleada 2 energy reconciliation & increment analytics (see
+  README's roadmap).
+  - **Energy reconciliation (F5)**: a new pure module,
+    `services/composition/EnergyReconciliation.py`
+    (`compute_energy_reconciliation`), compares the surplus implied by
+    logged intake (`E_i - TDEE_i`) against the surplus implied by the
+    *next* week's measured tissue change (`DeltaG_{i+1} * k_G +
+    DeltaL_{i+1} * k_L`, reusing `GainQuality.compute_gain_quality` for
+    the deltas instead of re-deriving them) and surfaces the absolute
+    error plus a rolling mean of it
+    (`constants.ENERGY_RECONCILIATION_WINDOW_WEEKS`, default 4 weeks,
+    not per-account overridable). A read-side derived view over an
+    already-computed series like `GainQuality`/`Alerts`, so no
+    `ENGINE_VERSION` bump was needed. `error_kcal` (and the ingested-side
+    surplus) is `None` for a week whose intake wasn't real, and for the
+    most recent logged week (no next week's tissue change exists yet) --
+    an inherent one-week lag, not a same-week metric. New `GET
+    /api/metrics/energy-balance` (`EnergyReconciliationDTO`), 404ing with
+    no logs yet like `/gain-quality`.
+  - **Real-increment analytics (F7)**: a new pure module,
+    `services/composition/IncrementAnalytics.py`
+    (`compute_increment_analytics`), is an expanding mean of the actual
+    weekly increment (`weight_delta_pct`, already computed -- no new base
+    computation) over real weeks, skipping the first week's base-case
+    `0.0`, plus `deviation_pct` (the fraction of the account's active
+    goal rate missed, `None` when that rate is `0`). New `GET
+    /api/metrics/increment-analytics` (`IncrementAnalyticsDTO`), 404ing
+    with no logs or no goal plan yet.
+  - **Two new alerts** extending Phase 1.3's `services/composition/Alerts.py`:
+    `dirty_bulk` (a bulk goal's week whose `GainQuality.fat_ratio` exceeds
+    `EngineConstants.fat_ratio_ideal`) and `recalibrate` (a week's
+    reconciliation `error_kcal` above a new, per-account-overridable
+    `reconciliation_error_threshold_kcal`, default `300` kcal/day) -- both
+    flag via the existing persisted/dismissible `GET /api/alerts`, never
+    block. `detect_alerts` gained optional `gain_quality`/`reconciliation`
+    parameters (each detector is skipped if its series isn't supplied);
+    `AlertSyncService.sync_alerts` now computes and threads both through.
+  - **`reconciliation_error_threshold_kcal`** joins `EngineConstants`/
+    `EngineSettings` (migration 14, default `300.0`, reproducing today's
+    behavior for every account with no override) -- `GET`/`PUT
+    /api/users/me/settings` picks it up automatically, since that route is
+    driven off `EngineSettingsManager.FIELDS`; the Settings view's
+    "Body-fat & BMR calibration" section gained the matching field.
+  - **Dashboard**: two new chart cards (ingested-vs-tissue surplus in
+    kcal/day; actual weekly increment vs. the goal rate in %, both via the
+    existing `drawMultiLineChart` primitive) and two new stat tiles
+    (rolling reconciliation error with a green/warning badge; average
+    weekly increment against the goal rate, plus the deviation
+    percentage).
+  - New `EnergyReconciliation_test.py`/`IncrementAnalytics_test.py` (base
+    cases, the one-week lag, assumed-intake weeks, the rolling-mean
+    window, out-of-order input sorting, zero-goal-rate guard, ignoring
+    projected rows); new `Alerts_test.py` cases (`DirtyBulkAlertTest`,
+    `RecalibrateAlertTest`); new `Api_test.py` cases (both new endpoints'
+    404s and happy paths, the new settings field's round-trip).
+  - `sw.js`'s `CACHE_NAME` bumped (`-v7` -> `-v8`) for the Dashboard/
+    Settings UI changes.
 - Phase 1.6: recency-weighted OLS projection model. `Projection.py`'s
   `_ols` is now the uniform-weight case of a new `_weighted_ols`; a
   `trend_model: "ols" | "weighted_ols"` parameter threads through

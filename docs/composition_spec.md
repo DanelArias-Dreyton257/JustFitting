@@ -382,7 +382,7 @@ carb/fat/protein logged, replacing the divisor with a directly-summed
 kcal figure. Treat this section's divisor formula as the permanent
 `tef_mode="flat"` fallback, not a placeholder to eventually replace app-wide.
 
-### F5 — Energy reconciliation ("Error")
+### F5 — Energy reconciliation ("Error") (done)
 
 ```
 Superavit_i^ingerido = E_i - TDEE_i
@@ -395,9 +395,21 @@ Danel's chain never needed one) is separate from `k_G` (`KCAL_PER_KG_FAT`,
 already `7700`, unchanged). **The tissue side uses week `i+1`'s deltas**:
 `Error_i` can only be computed once the *following* week's log exists, and
 never for the most recent logged week — an inherent one-week-lagged,
-a-posteriori validation, not a same-week metric. Recommend surfacing a
-rolling mean of `Error_i` alongside the raw value (source doc's own
-suggestion).
+a-posteriori validation, not a same-week metric. A rolling mean of `Error_i`
+is surfaced alongside the raw value (source doc's own suggestion).
+
+Implemented as a new pure module, `services/composition/EnergyReconciliation.py`
+(`compute_energy_reconciliation`) — a read-side derived view over an
+already-computed series, reusing `GainQuality.compute_gain_quality` for the
+`DeltaG_{i+1}`/`DeltaL_{i+1}` deltas rather than re-deriving them, so no
+`ENGINE_VERSION` bump was needed. `Superavit_i^ingerido`/`Error_i` are `None`
+for a week whose intake wasn't real (`intake_is_real=False`); the tissue
+side (mass-only) is computed regardless, since weight/waist/neck are always
+real when logged. The rolling-mean window
+(`constants.ENERGY_RECONCILIATION_WINDOW_WEEKS`, default 4) is a fixed
+display-smoothing constant, not per-account overridable, unlike the new
+`reconciliation_error_threshold_kcal` (default `300` kcal/day) the
+"recalibrate" alert below uses. Exposed via `GET /api/metrics/energy-balance`.
 
 ### F6 — Daily and weekly logs coexist; each view resamples the other
 
@@ -448,7 +460,7 @@ natural foundation for the already-recorded (README "Phase 2.1",
 unscheduled) automatic steps/cardio import from Health Connect / Google
 Fit.
 
-### F7 — Real increment and deviation analytics
+### F7 — Real increment and deviation analytics (done)
 
 ```
 IncrReal_i  = W_i / W_{i-1} - 1
@@ -463,6 +475,15 @@ computation here, only two new aggregate/derived views over an existing
 field: the running mean `IncrReal_bar`, and `Desv_i`, the fraction of the
 weekly-rate target missed (`0` = on target; `>0` under-shot; `<0`
 over-shot). Both are cheap to compute from data already persisted.
+
+Implemented as a new pure module, `services/composition/IncrementAnalytics.py`
+(`compute_increment_analytics`) — real (non-projected) rows only, skipping
+the first real row (its `weight_delta_pct` is the base-case `0.0`, not a
+genuine week-over-week measurement). `IncrReal_bar` is an *expanding* mean up
+to and including each row, not a fixed window. `rho` is the account's active
+`GoalPlan.weekly_rate` (the same single value `Wobj_i` already uses across
+the whole series, historized goal changes notwithstanding); `Desv_i` is
+`None` when `rho == 0`. Exposed via `GET /api/metrics/increment-analytics`.
 
 ### F8 — Calibration constants (summary) (done)
 
@@ -479,6 +500,7 @@ that reproduce today's Danel behavior exactly:
 | Lean-tissue energy density | `k_L` | `2100 kcal/kg` | (none — new, only used by F5) |
 | Fat-mass energy density | `k_G` | `7700 kcal/kg` | `KCAL_PER_KG_FAT`, unchanged |
 | Fat ratio ideal ceiling | `fat_ratio_ideal` | `0.25` | (none — new, only used by F3) |
+| Reconciliation error threshold | `reconciliation_error_threshold_kcal` | `300 kcal/day` | (none — new, Phase 3.2, drives the "recalibrate" alert) |
 | TEF | `tef` | `0.10` | `TEF`, unchanged value **and** unchanged application (divisor, `/(1-TEF)`) — see "Formula reconciliation" above |
 
 `w_rfm + w_navy + w_deur` must sum to `1.0` (within tolerance) when
