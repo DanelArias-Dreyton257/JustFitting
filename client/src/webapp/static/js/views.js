@@ -23,7 +23,7 @@ function formatAdherence(adherence) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
 }
 
-export function renderDashboardStats(container, metrics, adherence) {
+export function renderDashboardStats(container, metrics, adherence, gainQualityLatest) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
@@ -38,6 +38,15 @@ export function renderDashboardStats(container, metrics, adherence) {
   ];
   if (adherence) {
     tiles.push(["Adherence", formatAdherence(adherence)]);
+  }
+  if (gainQualityLatest && gainQualityLatest.fat_ratio_cumulative != null) {
+    const pct = gainQualityLatest.fat_ratio_cumulative * 100;
+    const idealPct = gainQualityLatest.fat_ratio_ideal * 100;
+    const clean = pct <= idealPct;
+    tiles.push([
+      "Cumulative fat ratio",
+      `<span class="badge ${clean ? "active" : "inactive"}">${pct.toFixed(0)}% (ideal ≤${idealPct.toFixed(0)}%)</span>`,
+    ]);
   }
   container.innerHTML = tiles
     .map(
@@ -183,6 +192,7 @@ export function renderLogTable(tbody, logs) {
         <td>${log.neck_cm}</td>
         <td>${log.intake_kcal}</td>
         <td>${log.steps}</td>
+        <td>${log.cardio_kcal}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
         <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
       </tr>`
@@ -235,6 +245,7 @@ export function renderLogReview(container, values) {
     ["Neck", values.neck_cm && `${values.neck_cm} cm`],
     ["Intake", values.intake_kcal && `${values.intake_kcal} kcal`],
     ["Steps", values.steps],
+    ["Cardio", values.cardio_kcal && `${values.cardio_kcal} kcal`],
   ];
   container.innerHTML = rows
     .map(([label, value]) => `<dt>${label}</dt><dd>${value || "—"}</dd>`)

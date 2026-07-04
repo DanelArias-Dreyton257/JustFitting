@@ -20,7 +20,12 @@ import {
   renderSettingsStatus,
   renderSettingsHistory,
 } from "./views.js";
-import { drawLineChart, drawStackedBars, drawMultiLineChart } from "./charts.js";
+import {
+  drawLineChart,
+  drawStackedBars,
+  drawMultiLineChart,
+  drawDivergingBars,
+} from "./charts.js";
 
 const state = {
   profile: null,
@@ -73,16 +78,22 @@ function navigate(viewName) {
 }
 
 async function refreshDashboard() {
-  const [latest, series, logs, alerts, adherence, goals] = await Promise.all([
+  const [latest, series, logs, alerts, adherence, goals, gainQuality] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.listLogs().catch(() => []),
     api.alerts().catch(() => []),
     api.adherence().catch(() => null),
     api.goals().catch(() => []),
+    api.gainQuality().catch(() => []),
   ]);
   state.series = series;
-  renderDashboardStats(document.getElementById("dashboard-stats"), latest, adherence);
+  renderDashboardStats(
+    document.getElementById("dashboard-stats"),
+    latest,
+    adherence,
+    gainQuality[gainQuality.length - 1]
+  );
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 
@@ -166,6 +177,15 @@ async function refreshDashboard() {
       },
     ],
     { isProjected, markers: goalMarkers }
+  );
+
+  drawDivergingBars(
+    document.getElementById("chart-gain-quality"),
+    gainQuality.map((row) => ({
+      date: row.date,
+      fat: row.delta_fat_kg,
+      lean: row.delta_lean_kg,
+    }))
   );
 }
 
@@ -340,6 +360,7 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
     neck_cm: Number(raw.neck_cm),
     intake_kcal: Number(raw.intake_kcal),
     steps: Number(raw.steps),
+    cardio_kcal: Number(raw.cardio_kcal) || 0,
   };
   try {
     await api.createLog(payload);

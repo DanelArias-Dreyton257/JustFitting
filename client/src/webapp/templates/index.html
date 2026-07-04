@@ -118,6 +118,10 @@
           </div>
           <svg id="chart-goal-trajectory" class="chart"></svg>
         </div>
+        <div class="chart-card">
+          <h3>Gain quality: weekly lean vs fat change (kg)</h3>
+          <svg id="chart-gain-quality" class="chart"></svg>
+        </div>
       </div>
     </section>
 
@@ -144,6 +148,7 @@
         <fieldset class="wizard-step" data-step="3" hidden>
           <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
           <label>Steps <input name="steps" type="number" step="1" required /></label>
+          <label>Cardio / exercise (kcal) <input name="cardio_kcal" type="number" step="1" value="0" /></label>
         </fieldset>
 
         <fieldset class="wizard-step" data-step="4" hidden>
@@ -160,7 +165,7 @@
       </form>
       <table class="data-table" id="log-table">
         <thead>
-          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Source</th><th></th></tr>
+          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Source</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>

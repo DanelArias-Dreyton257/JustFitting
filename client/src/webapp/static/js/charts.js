@@ -305,3 +305,74 @@ export function drawStackedBars(svg, series) {
       `<strong>${formatDateTick(point.date)}</strong><br>Fat: ${point.fat.toFixed(1)} kg<br>Lean: ${point.lean.toFixed(1)} kg`
   );
 }
+
+// Like drawStackedBars, but each of `fat`/`lean` can be negative (a loss
+// week) -- segments stack outward from a zero baseline instead of always
+// upward from the bottom, so a lean gain alongside a fat loss in the same
+// week renders as two bars on opposite sides of zero, not one merged into
+// the other's sign.
+export function drawDivergingBars(svg, series) {
+  svg.innerHTML = "";
+  if (!series.length) {
+    attachHoverTooltip(svg, [], () => "");
+    return;
+  }
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const maxPositive = Math.max(0, ...series.map((p) => Math.max(p.fat, 0) + Math.max(p.lean, 0)));
+  const minNegative = Math.min(0, ...series.map((p) => Math.min(p.fat, 0) + Math.min(p.lean, 0)));
+  const yDomain = [minNegative, maxPositive];
+  const yScale = scaleLinear(yDomain, [height - LAYOUT.bottom, LAYOUT.top]);
+  const barWidth = (width - LAYOUT.left - LAYOUT.right) / series.length;
+  const xPositions = series.map((_, i) => LAYOUT.left + i * barWidth + (barWidth * 0.7) / 2);
+
+  drawAxes(svg, { series, xPositions, yScale, yDomain, width, height });
+
+  const zeroY = yScale(0);
+  svg.appendChild(
+    svgEl("line", {
+      x1: LAYOUT.left,
+      x2: width - LAYOUT.right,
+      y1: zeroY,
+      y2: zeroY,
+      class: "chart-gridline",
+    })
+  );
+
+  series.forEach((point, i) => {
+    const x = LAYOUT.left + i * barWidth;
+    let posOffset = 0;
+    let negOffset = 0;
+    [
+      { value: point.lean, color: "#5eb3ff" },
+      { value: point.fat, color: "#e5686b" },
+    ].forEach(({ value, color }) => {
+      if (value === 0) return;
+      if (value > 0) {
+        const y = yScale(posOffset + value);
+        const barHeight = yScale(posOffset) - y;
+        svg.appendChild(
+          svgEl("rect", { x, y, width: barWidth * 0.7, height: barHeight, fill: color })
+        );
+        posOffset += value;
+      } else {
+        const y = yScale(negOffset);
+        const barHeight = yScale(negOffset + value) - y;
+        svg.appendChild(
+          svgEl("rect", { x, y, width: barWidth * 0.7, height: barHeight, fill: color })
+        );
+        negOffset += value;
+      }
+    });
+  });
+
+  attachHoverTooltip(
+    svg,
+    series.map((point, i) => ({ x: xPositions[i], datum: point })),
+    (point) =>
+      `<strong>${formatDateTick(point.date)}</strong><br>Lean: ${point.lean.toFixed(2)} kg<br>Fat: ${point.fat.toFixed(2)} kg`
+  );
+}

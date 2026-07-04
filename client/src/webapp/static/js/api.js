@@ -53,6 +53,7 @@ export const api = {
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
   adherence: () => request("GET", "/api/metrics/adherence"),
+  gainQuality: () => request("GET", "/api/metrics/gain-quality"),
   alerts: (includeAcknowledged = false) =>
     request("GET", `/api/alerts?include_acknowledged=${includeAcknowledged}`),
   acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),
