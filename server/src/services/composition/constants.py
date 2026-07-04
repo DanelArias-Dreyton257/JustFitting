@@ -106,3 +106,35 @@ RECONCILIATION_ERROR_THRESHOLD_KCAL = 300.0
 #: Not per-account overridable (like WEIGHTED_TREND_DECAY above) -- it's a
 #: display smoothing window, not a physiological constant.
 ENERGY_RECONCILIATION_WINDOW_WEEKS = 4
+
+#: Phase 3.4 (Oleada 2, F9) -- TEF computed directly from logged
+#: carb/fat/protein grams instead of the flat 10% (`TEF` above) guess.
+#: See docs/composition_spec.md's "Oleada 2" section, F9.
+
+#: kcal per gram of macro, each decomposed as energy density (kcal/g) times
+#: that macro's characteristic thermic fraction: carbs 4 * 7.5%, fat 9 *
+#: 1.5%, protein 4 * 25% -- protein dominates TEF despite sharing carbs'
+#: energy density, since its thermic fraction is over 3x carbs' and 16x fat's.
+KAPPA_CARBS = 0.300
+KAPPA_FAT = 0.135
+KAPPA_PROTEIN = 1.000
+
+#: "flat" (today's divisor formula, unchanged default) or "macros" (F9,
+#: additive) -- a week with no macros logged falls back to "flat"
+#: automatically regardless of this setting (see CompositionEngine.compute_row).
+TEF_MODE_DEFAULT = "flat"
+
+#: Standard Atwater energy densities (kcal/g) -- fixed nutritional-science
+#: conversion factors, not part of the per-account TEF calibration surface
+#: above (`KAPPA_*`). Used only for the soft, non-blocking coherence check
+#: between a week's declared intake_kcal and what its logged macros imply.
+ATWATER_CARB_KCAL_PER_G = 4.0
+ATWATER_FAT_KCAL_PER_G = 9.0
+ATWATER_PROTEIN_KCAL_PER_G = 4.0
+
+#: A week's logged intake vs. its macro-implied kcal (4*carbs + 9*fat +
+#: 4*protein) differing by more than this relative share is flagged (not
+#: blocked), mirroring IMPLAUSIBLE_WEEKLY_CHANGE_PCT's flag-not-block
+#: pattern. The source doc raises this coherence check without proposing a
+#: number; this default is this implementation's own reasoned choice.
+MACRO_KCAL_MISMATCH_PCT = 0.15

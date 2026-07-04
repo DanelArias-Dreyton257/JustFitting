@@ -243,6 +243,31 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE body_logs ADD COLUMN granularity TEXT NOT NULL DEFAULT 'weekly' CHECK (granularity IN ('daily', 'weekly'));
         """,
     ),
+    (
+        16,
+        """
+        ALTER TABLE body_logs ADD COLUMN carbs_g REAL;
+        ALTER TABLE body_logs ADD COLUMN fat_g REAL;
+        ALTER TABLE body_logs ADD COLUMN protein_g REAL;
+        """,
+    ),
+    (
+        17,
+        """
+        ALTER TABLE engine_settings ADD COLUMN tef_mode TEXT NOT NULL DEFAULT 'flat';
+        ALTER TABLE engine_settings ADD COLUMN kappa_carbs REAL NOT NULL DEFAULT 0.300;
+        ALTER TABLE engine_settings ADD COLUMN kappa_fat REAL NOT NULL DEFAULT 0.135;
+        ALTER TABLE engine_settings ADD COLUMN kappa_protein REAL NOT NULL DEFAULT 1.000;
+        ALTER TABLE engine_settings ADD COLUMN macro_kcal_mismatch_pct REAL NOT NULL DEFAULT 0.15;
+        """,
+    ),
+    (
+        18,
+        """
+        ALTER TABLE metrics_snapshots ADD COLUMN tef_kcal REAL NOT NULL DEFAULT 0;
+        ALTER TABLE metrics_snapshots ADD COLUMN tef_mode TEXT NOT NULL DEFAULT 'flat';
+        """,
+    ),
 ]
 
 

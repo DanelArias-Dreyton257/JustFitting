@@ -31,7 +31,12 @@ def sync_alerts(
         else []
     )
     detected = Alerts.detect_alerts(
-        results, thresholds, goal, gain_quality=gain_quality, reconciliation=reconciliation
+        results,
+        thresholds,
+        goal,
+        gain_quality=gain_quality,
+        reconciliation=reconciliation,
+        logs=logs,
     )
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)

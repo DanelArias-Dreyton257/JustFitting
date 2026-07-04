@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Optional
 
 
 @dataclass
@@ -21,6 +22,12 @@ class BodyLog:
     source: str  # "real" | "projected"
     created_at: datetime
     granularity: str = "weekly"  # "daily" | "weekly"
+    # Phase 3.4 (Oleada 2, F9): together or not at all (see
+    # CompositionEngine.validate_log_input); meaningful mainly on a
+    # daily-granularity row, but not restricted to one.
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    protein_g: Optional[float] = None
 
     @staticmethod
     def from_row(row) -> "BodyLog":
@@ -38,4 +45,7 @@ class BodyLog:
             source=row["source"],
             created_at=datetime.fromisoformat(row["created_at"]),
             granularity=row["granularity"],
+            carbs_g=row["carbs_g"],
+            fat_g=row["fat_g"],
+            protein_g=row["protein_g"],
         )

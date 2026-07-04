@@ -363,5 +363,95 @@ class EngineConstantsOverrideTest(unittest.TestCase):
         )
 
 
+class MacroTefTest(unittest.TestCase):
+    """Phase 3.4, F9: TEF computed directly from logged macro grams."""
+
+    LOG = LogInput(
+        date=date(2026, 6, 26),
+        weight_kg=90.7,
+        waist_cm=80.0,
+        neck_cm=35.0,
+        intake_kcal=2014.30,
+        steps=5000,
+    )
+    WITH_MACROS = LogInput(
+        date=date(2026, 6, 26),
+        weight_kg=90.7,
+        waist_cm=80.0,
+        neck_cm=35.0,
+        intake_kcal=2014.30,
+        steps=5000,
+        carbs_g=200.0,
+        fat_g=70.0,
+        protein_g=180.0,
+    )
+
+    def test_default_flat_mode_is_unaffected_by_logged_macros(self):
+        """tef_mode defaults to "flat" -- logging macros without opting in
+        must not change the result at all (byte-for-byte, like cardio_kcal=0)."""
+        without = CompositionEngine.compute_row(PROFILE, self.LOG)
+        with_macros_but_flat_mode = CompositionEngine.compute_row(PROFILE, self.WITH_MACROS)
+        self.assertEqual(without.tdee, with_macros_but_flat_mode.tdee)
+        self.assertEqual(without.target_calories, with_macros_but_flat_mode.target_calories)
+        self.assertEqual(with_macros_but_flat_mode.tef_mode, "flat")
+
+    def test_macros_mode_switches_to_the_additive_formula(self):
+        ec = EngineConstants(tef_mode="macros")
+        result = CompositionEngine.compute_row(PROFILE, self.WITH_MACROS, engine_constants=ec)
+
+        expected_tef_kcal = (
+            ec.kappa_carbs * 200.0 + ec.kappa_fat * 70.0 + ec.kappa_protein * 180.0
+        )
+        expected_tdee = result.bmr + result.neat + self.WITH_MACROS.cardio_kcal + expected_tef_kcal
+        self.assertEqual(result.tef_mode, "macros")
+        self.assertAlmostEqual(result.tef_kcal, expected_tef_kcal, delta=1e-9)
+        self.assertAlmostEqual(result.tdee, expected_tdee, delta=1e-9)
+
+    def test_macros_mode_falls_back_to_flat_when_a_week_has_no_macros(self):
+        """A week with no macros logged degrades to flat automatically, even
+        when the account's tef_mode is "macros" -- additive, never blocking."""
+        ec = EngineConstants(tef_mode="macros")
+        flat_result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        macros_setting_no_data = CompositionEngine.compute_row(
+            PROFILE, self.LOG, engine_constants=ec
+        )
+        self.assertEqual(macros_setting_no_data.tef_mode, "flat")
+        self.assertAlmostEqual(macros_setting_no_data.tdee, flat_result.tdee, delta=0.01)
+
+    def test_flat_mode_tef_kcal_matches_the_implied_divisor_share(self):
+        result = CompositionEngine.compute_row(PROFILE, self.LOG)
+        self.assertAlmostEqual(result.tef_kcal, result.tdee * EngineConstants().tef, delta=1e-9)
+
+    def test_partial_macros_are_rejected(self):
+        partial = LogInput(
+            date=date(2026, 6, 26),
+            weight_kg=90.7,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2014.30,
+            steps=5000,
+            carbs_g=200.0,
+            fat_g=None,
+            protein_g=180.0,
+        )
+        with self.assertRaises(ValueError):
+            CompositionEngine.compute_row(PROFILE, partial)
+
+    def test_negative_macro_is_rejected(self):
+        negative = LogInput(
+            date=date(2026, 6, 26),
+            weight_kg=90.7,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2014.30,
+            steps=5000,
+            carbs_g=-1.0,
+            fat_g=70.0,
+            protein_g=180.0,
+        )
+        with self.assertRaises(ValueError):
+            CompositionEngine.compute_row(PROFILE, negative)
+
+
 if __name__ == "__main__":
     unittest.main()

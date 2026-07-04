@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from server.src.data.domain.BodyLog import BodyLog
 
@@ -19,6 +20,9 @@ class BodyLogDTO:
     cardio_kcal: float
     source: str
     granularity: str
+    carbs_g: Optional[float]
+    fat_g: Optional[float]
+    protein_g: Optional[float]
 
     @staticmethod
     def from_domain(log: BodyLog) -> "BodyLogDTO":
@@ -35,4 +39,7 @@ class BodyLogDTO:
             cardio_kcal=log.cardio_kcal,
             source=log.source,
             granularity=log.granularity,
+            carbs_g=log.carbs_g,
+            fat_g=log.fat_g,
+            protein_g=log.protein_g,
         )

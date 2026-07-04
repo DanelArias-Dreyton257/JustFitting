@@ -86,6 +86,23 @@ class EngineSettingsManagerTest(unittest.TestCase):
         updated = self.manager.update_settings(self.user_id, bmr_model="mifflin")
         self.assertEqual(updated.bmr_model, "mifflin")
 
+    def test_rejects_invalid_tef_mode(self):
+        with self.assertRaises(EngineSettingsManagerError):
+            self.manager.update_settings(self.user_id, tef_mode="not_a_mode")
+
+    def test_accepts_valid_tef_mode_and_kappa_overrides(self):
+        updated = self.manager.update_settings(
+            self.user_id, tef_mode="macros", kappa_carbs=0.31, kappa_fat=0.14, kappa_protein=0.95
+        )
+        self.assertEqual(updated.tef_mode, "macros")
+        self.assertAlmostEqual(updated.kappa_carbs, 0.31)
+        self.assertAlmostEqual(updated.kappa_fat, 0.14)
+        self.assertAlmostEqual(updated.kappa_protein, 0.95)
+
+    def test_rejects_out_of_bounds_macro_kcal_mismatch_pct(self):
+        with self.assertRaises(EngineSettingsManagerError):
+            self.manager.update_settings(self.user_id, macro_kcal_mismatch_pct=1.5)
+
     def test_bf_weights_must_sum_to_one_when_all_three_overridden(self):
         with self.assertRaises(EngineSettingsManagerError):
             self.manager.update_settings(self.user_id, w_rfm=0.6, w_navy=0.3, w_deur=0.3)

@@ -26,6 +26,11 @@ class EngineSettingsDTO:
     lean_tissue_kcal_per_kg: float
     fat_ratio_ideal: float
     reconciliation_error_threshold_kcal: float
+    tef_mode: str
+    kappa_carbs: float
+    kappa_fat: float
+    kappa_protein: float
+    macro_kcal_mismatch_pct: float
     is_default: bool
     settings_id: Optional[int] = None
     start_date: Optional[str] = None
@@ -57,6 +62,11 @@ class EngineSettingsDTO:
                 lean_tissue_kcal_per_kg=defaults.lean_tissue_kcal_per_kg,
                 fat_ratio_ideal=defaults.fat_ratio_ideal,
                 reconciliation_error_threshold_kcal=defaults.reconciliation_error_threshold_kcal,
+                tef_mode=defaults.tef_mode,
+                kappa_carbs=defaults.kappa_carbs,
+                kappa_fat=defaults.kappa_fat,
+                kappa_protein=defaults.kappa_protein,
+                macro_kcal_mismatch_pct=defaults.macro_kcal_mismatch_pct,
                 is_default=True,
             )
         return EngineSettingsDTO(
@@ -78,6 +88,11 @@ class EngineSettingsDTO:
             lean_tissue_kcal_per_kg=settings.lean_tissue_kcal_per_kg,
             fat_ratio_ideal=settings.fat_ratio_ideal,
             reconciliation_error_threshold_kcal=settings.reconciliation_error_threshold_kcal,
+            tef_mode=settings.tef_mode,
+            kappa_carbs=settings.kappa_carbs,
+            kappa_fat=settings.kappa_fat,
+            kappa_protein=settings.kappa_protein,
+            macro_kcal_mismatch_pct=settings.macro_kcal_mismatch_pct,
             is_default=False,
             settings_id=settings.settings_id,
             start_date=settings.start_date.isoformat(),

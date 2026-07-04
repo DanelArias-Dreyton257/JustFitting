@@ -96,6 +96,31 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertEqual(result[0].weight_kg, 88.5)
         self.assertEqual(result[0].log_id, 40)
 
+    def test_macros_average_only_days_that_logged_them(self):
+        """Phase 3.4, F9: average whatever days logged macros (minimum 1),
+        not the full week -- same graceful-degradation idea as weight's
+        median."""
+        week = [
+            make_log(60, date(2026, 1, 5), granularity="daily", carbs_g=200.0, fat_g=60.0, protein_g=150.0),
+            make_log(61, date(2026, 1, 6), granularity="daily"),  # no macros logged this day
+            make_log(62, date(2026, 1, 7), granularity="daily", carbs_g=220.0, fat_g=80.0, protein_g=170.0),
+        ]
+        result = resample_to_weekly(week)
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0].carbs_g, 210.0)
+        self.assertAlmostEqual(result[0].fat_g, 70.0)
+        self.assertAlmostEqual(result[0].protein_g, 160.0)
+
+    def test_macros_are_none_when_no_day_in_the_week_logged_them(self):
+        week = [
+            make_log(70, date(2026, 1, 5), granularity="daily"),
+            make_log(71, date(2026, 1, 6), granularity="daily"),
+        ]
+        result = resample_to_weekly(week)
+        self.assertIsNone(result[0].carbs_g)
+        self.assertIsNone(result[0].fat_g)
+        self.assertIsNone(result[0].protein_g)
+
     def test_mixed_account_resolves_each_week_independently(self):
         weekly_row = make_log(1, date(2025, 12, 28), granularity="weekly", weight_kg=97.0)
         daily_week = [

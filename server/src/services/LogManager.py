@@ -25,6 +25,9 @@ LOG_EDITABLE_FIELDS = (
     "cardio_kcal",
     "source",
     "granularity",
+    "carbs_g",
+    "fat_g",
+    "protein_g",
 )
 
 GRANULARITIES = ("daily", "weekly")
@@ -101,6 +104,9 @@ class LogManager:
         cardio_kcal: float = 0.0,
         source: str = "real",
         granularity: str = "weekly",
+        carbs_g: Optional[float] = None,
+        fat_g: Optional[float] = None,
+        protein_g: Optional[float] = None,
     ) -> BodyLog:
         _validate_granularity(granularity)
         candidate = LogInput(
@@ -112,6 +118,9 @@ class LogManager:
             steps=steps,
             intake_is_real=intake_is_real,
             cardio_kcal=cardio_kcal,
+            carbs_g=carbs_g,
+            fat_g=fat_g,
+            protein_g=protein_g,
         )
         validate_log_input(candidate)
         log = self.log_dao.create(
@@ -126,6 +135,9 @@ class LogManager:
             cardio_kcal=cardio_kcal,
             source=source,
             granularity=granularity,
+            carbs_g=carbs_g,
+            fat_g=fat_g,
+            protein_g=protein_g,
         )
         if self.metrics_cache is not None:
             self.metrics_cache.invalidate_for_user(user_id)
@@ -152,6 +164,9 @@ class LogManager:
             steps=fields.get("steps", existing.steps),
             intake_is_real=fields.get("intake_is_real", existing.intake_is_real),
             cardio_kcal=fields.get("cardio_kcal", existing.cardio_kcal),
+            carbs_g=fields.get("carbs_g", existing.carbs_g),
+            fat_g=fields.get("fat_g", existing.fat_g),
+            protein_g=fields.get("protein_g", existing.protein_g),
         )
         validate_log_input(merged)
 
@@ -193,6 +208,9 @@ class LogManager:
                 steps=log.steps,
                 intake_is_real=log.intake_is_real,
                 cardio_kcal=log.cardio_kcal,
+                carbs_g=log.carbs_g,
+                fat_g=log.fat_g,
+                protein_g=log.protein_g,
             )
             for log in sorted(logs, key=lambda log: log.date)
         ]

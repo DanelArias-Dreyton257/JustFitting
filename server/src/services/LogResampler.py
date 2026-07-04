@@ -16,9 +16,18 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from statistics import mean, median
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from server.src.data.domain.BodyLog import BodyLog
+
+
+def _mean_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
+    """Phase 3.4 (Oleada 2, F9): average whatever days logged this macro
+    (minimum 1), rather than requiring every day in the week -- the same
+    graceful-degradation philosophy as weight's median above. `None` if no
+    day in the group logged it at all."""
+    logged = [v for v in values if v is not None]
+    return mean(logged) if logged else None
 
 
 def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
@@ -47,6 +56,9 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
                 intake_is_real=all(log.intake_is_real for log in group),
                 steps=mean(log.steps for log in group),
                 cardio_kcal=mean(log.cardio_kcal for log in group),
+                carbs_g=_mean_of_logged(log.carbs_g for log in group),
+                fat_g=_mean_of_logged(log.fat_g for log in group),
+                protein_g=_mean_of_logged(log.protein_g for log in group),
             )
         )
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Optional
 
 from server.src.services.composition import constants
 
@@ -45,6 +46,13 @@ class EngineConstants:
         constants.RECONCILIATION_ERROR_THRESHOLD_KCAL
     )
 
+    # Phase 3.4 (Oleada 2, F9) -- TEF by macronutrients.
+    tef_mode: str = constants.TEF_MODE_DEFAULT  # "flat" | "macros"
+    kappa_carbs: float = constants.KAPPA_CARBS
+    kappa_fat: float = constants.KAPPA_FAT
+    kappa_protein: float = constants.KAPPA_PROTEIN
+    macro_kcal_mismatch_pct: float = constants.MACRO_KCAL_MISMATCH_PCT
+
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
 
@@ -72,6 +80,13 @@ class LogInput:
     steps: float
     intake_is_real: bool = True
     cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Danel exactly
+
+    # Phase 3.4 (Oleada 2, F9) -- daily/weekly macro grams; all three are
+    # present together or not at all (see CompositionEngine.validate_log_input).
+    # `None` (the default, every pre-existing log) falls back to flat TEF.
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    protein_g: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +118,8 @@ class CompositionResult:
     tdee: float
     target_calories: float
     intake_diff: float
+    tef_kcal: float  # Phase 3.4, F9 -- the actual kcal figure this row used
+    tef_mode: str  # "flat" | "macros" -- which formula this row actually applied
 
     # Goal & trajectory
     weight_delta_kg: float  # dW

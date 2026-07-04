@@ -33,6 +33,11 @@ class EngineSettingsDAO:
         lean_tissue_kcal_per_kg: float,
         fat_ratio_ideal: float,
         reconciliation_error_threshold_kcal: float,
+        tef_mode: str,
+        kappa_carbs: float,
+        kappa_fat: float,
+        kappa_protein: float,
+        macro_kcal_mismatch_pct: float,
         start_date: date,
         active: bool = True,
     ) -> EngineSettings:
@@ -47,8 +52,10 @@ class EngineSettingsDAO:
                  bmr_model, w_rfm, w_navy, w_deur, delta, ffmi_coef,
                  lean_tissue_kcal_per_kg, fat_ratio_ideal,
                  reconciliation_error_threshold_kcal,
+                 tef_mode, kappa_carbs, kappa_fat, kappa_protein,
+                 macro_kcal_mismatch_pct,
                  start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -70,6 +77,11 @@ class EngineSettingsDAO:
                 lean_tissue_kcal_per_kg,
                 fat_ratio_ideal,
                 reconciliation_error_threshold_kcal,
+                tef_mode,
+                kappa_carbs,
+                kappa_fat,
+                kappa_protein,
+                macro_kcal_mismatch_pct,
                 start_date.isoformat(),
                 int(active),
                 created_at,

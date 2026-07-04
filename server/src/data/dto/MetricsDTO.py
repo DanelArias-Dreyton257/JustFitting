@@ -25,6 +25,8 @@ class MetricsDTO:
     tdee: float
     target_calories: float
     intake_diff: float
+    tef_kcal: float
+    tef_mode: str
     weight_delta_kg: float
     weight_delta_pct: float
     weight_objective_kg: float
@@ -62,6 +64,8 @@ class MetricsDTO:
             tdee=result.tdee,
             target_calories=result.target_calories,
             intake_diff=result.intake_diff,
+            tef_kcal=result.tef_kcal,
+            tef_mode=result.tef_mode,
             weight_delta_kg=result.weight_delta_kg,
             weight_delta_pct=result.weight_delta_pct,
             weight_objective_kg=result.weight_objective_kg,

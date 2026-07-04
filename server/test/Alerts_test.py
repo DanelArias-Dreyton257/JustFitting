@@ -4,6 +4,7 @@ detector, since `Alerts.detect_alerts` only reads a handful of
 already-computed fields (see Alerts.py's module docstring)."""
 
 import unittest
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from server.src.data.domain.GoalPlan import GoalPlan
@@ -48,6 +49,8 @@ def make_result(week_offset: int = 0, **overrides) -> CompositionResult:
         tdee=2400.0,
         target_calories=2000.0,
         intake_diff=0.0,
+        tef_kcal=0.0,
+        tef_mode="flat",
         weight_delta_kg=0.0,
         weight_delta_pct=0.0,
         weight_objective_kg=90.0,
@@ -329,6 +332,42 @@ class RecalibrateAlertTest(unittest.TestCase):
             reconciliation=reconciliation,
         )
         self.assertTrue(any(a.type == "recalibrate" for a in tighter))
+
+
+class MacroKcalMismatchAlertTest(unittest.TestCase):
+    """Phase 3.4, F9: a week's declared intake vs. its macro-implied kcal
+    (4*carbs + 9*fat + 4*protein) diverging beyond the threshold is flagged
+    (not blocked)."""
+
+    @dataclass
+    class FakeLog:
+        date: date
+        intake_kcal: float
+        carbs_g: float = None
+        fat_g: float = None
+        protein_g: float = None
+
+    def test_flags_a_large_mismatch(self):
+        # Implied: 4*200 + 9*50 + 4*100 = 800+450+400 = 1650; logged 2200 -> 33% gap.
+        logs = [self.FakeLog(BASE_DATE, 2200.0, carbs_g=200.0, fat_g=50.0, protein_g=100.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], logs=logs)
+        flagged = [a for a in alerts if a.type == "macro_kcal_mismatch"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_does_not_flag_a_close_match(self):
+        logs = [self.FakeLog(BASE_DATE, 1650.0, carbs_g=200.0, fat_g=50.0, protein_g=100.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], logs=logs)
+        self.assertFalse(any(a.type == "macro_kcal_mismatch" for a in alerts))
+
+    def test_no_macros_logged_is_never_flagged(self):
+        logs = [self.FakeLog(BASE_DATE, 5000.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], logs=logs)
+        self.assertFalse(any(a.type == "macro_kcal_mismatch" for a in alerts))
+
+    def test_omitting_logs_skips_the_detector(self):
+        alerts = Alerts.detect_alerts([make_result(0)])
+        self.assertFalse(any(a.type == "macro_kcal_mismatch" for a in alerts))
 
 
 if __name__ == "__main__":

@@ -225,6 +225,74 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(response.get_json()["granularity"], "weekly")
 
+    def test_log_create_and_update_persist_macros(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "daily",
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertAlmostEqual(body["carbs_g"], 200.0)
+        self.assertAlmostEqual(body["fat_g"], 70.0)
+        self.assertAlmostEqual(body["protein_g"], 180.0)
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"carbs_g": 210.0}, headers=headers
+        )
+        self.assertAlmostEqual(update_response.get_json()["carbs_g"], 210.0)
+
+    def test_log_create_defaults_macros_to_null(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        body = response.get_json()
+        self.assertIsNone(body["carbs_g"])
+        self.assertIsNone(body["fat_g"])
+        self.assertIsNone(body["protein_g"])
+
+    def test_log_create_rejects_partial_macros(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "carbs_g": 200.0,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_log_create_rejects_invalid_granularity(self):
         token = self._register().get_json()["token"]
         response = self.client.post(
@@ -701,6 +769,61 @@ class ApiTestCase(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["goal_weekly_rate"], -0.005)
         self.assertIsNotNone(rows[0]["deviation_pct"])
 
+    def test_tef_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/tef", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_tef_defaults_to_flat_with_no_macros_logged(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/tef", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(rows[0]["has_macros"])
+        self.assertIsNone(rows[0]["tef_kcal_macros"])
+        self.assertEqual(rows[0]["tef_mode_used"], "flat")
+        self.assertGreater(rows[0]["tef_kcal_flat"], 0.0)
+
+    def test_tef_breaks_down_a_macros_week_once_opted_in(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put(
+            "/api/users/me/settings", json={"tef_mode": "macros"}, headers=headers
+        )
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+
+        response = self.client.get("/api/metrics/tef", headers=headers)
+        rows = response.get_json()
+        macros_row = rows[-1]
+        self.assertTrue(macros_row["has_macros"])
+        self.assertEqual(macros_row["tef_mode_used"], "macros")
+        self.assertAlmostEqual(
+            macros_row["tef_kcal_macros"],
+            0.300 * 200.0 + 0.135 * 70.0 + 1.000 * 180.0,
+            delta=0.01,
+        )
+
     def test_acknowledge_alert_removes_it_from_the_default_list(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -907,6 +1030,37 @@ class ApiTestCase(unittest.TestCase):
         self.assertAlmostEqual(
             update_response.get_json()["reconciliation_error_threshold_kcal"], 150.0
         )
+
+    def test_settings_update_tef_mode_and_kappas(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        default_body = get_response.get_json()
+        self.assertEqual(default_body["tef_mode"], "flat")
+        self.assertAlmostEqual(default_body["kappa_carbs"], 0.300)
+        self.assertAlmostEqual(default_body["kappa_fat"], 0.135)
+        self.assertAlmostEqual(default_body["kappa_protein"], 1.000)
+        self.assertAlmostEqual(default_body["macro_kcal_mismatch_pct"], 0.15)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef_mode": "macros", "kappa_protein": 0.95},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertEqual(body["tef_mode"], "macros")
+        self.assertAlmostEqual(body["kappa_protein"], 0.95)
+
+    def test_settings_update_rejects_invalid_tef_mode(self):
+        token = self._register().get_json()["token"]
+        response = self.client.put(
+            "/api/users/me/settings",
+            json={"tef_mode": "not_a_mode"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
         token = self._register().get_json()["token"]

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as date_type
-from typing import List, Optional, Sequence
+from typing import List, Optional, Protocol, Sequence
 
 from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import constants
@@ -25,12 +25,23 @@ from server.src.services.composition.models import (
 )
 
 
+class _LogLike(Protocol):
+    """The `BodyLog` fields the macro-mismatch detector reads."""
+
+    date: date_type
+    intake_kcal: float
+    carbs_g: Optional[float]
+    fat_g: Optional[float]
+    protein_g: Optional[float]
+
+
 @dataclass(frozen=True)
 class Alert:
     """A single user-facing feedback item anchored to one log's date."""
 
     type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
-    # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate"
+    # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate" |
+    # "macro_kcal_mismatch"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -233,12 +244,50 @@ def _recalibrate_alerts(
     return alerts
 
 
+def _macro_kcal_mismatch_alerts(
+    logs: Sequence[_LogLike], thresholds: EngineConstants
+) -> List[Alert]:
+    """Flag (not block) a week whose logged intake diverges from what its
+    logged macros imply via the standard Atwater conversion (Phase 3.4, F9)
+    -- a soft coherence check, not enforcement of an exact match."""
+    alerts = []
+    for log in logs:
+        if log.carbs_g is None or log.fat_g is None or log.protein_g is None:
+            continue
+        implied_kcal = (
+            constants.ATWATER_CARB_KCAL_PER_G * log.carbs_g
+            + constants.ATWATER_FAT_KCAL_PER_G * log.fat_g
+            + constants.ATWATER_PROTEIN_KCAL_PER_G * log.protein_g
+        )
+        if implied_kcal <= 0:
+            continue
+        relative_gap = abs(log.intake_kcal - implied_kcal) / implied_kcal
+        if relative_gap <= thresholds.macro_kcal_mismatch_pct:
+            continue
+        alerts.append(
+            Alert(
+                type="macro_kcal_mismatch",
+                severity="info",
+                date=log.date,
+                message=(
+                    f"Logged intake ({log.intake_kcal:.0f} kcal) differs from what "
+                    f"this week's macros imply ({implied_kcal:.0f} kcal) by "
+                    f"{relative_gap:.0%} -- double-check this week's numbers."
+                ),
+                value=relative_gap,
+                threshold=thresholds.macro_kcal_mismatch_pct,
+            )
+        )
+    return alerts
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
     goal: Optional[GoalPlan] = None,
     gain_quality: Optional[Sequence[GainQualityRow]] = None,
     reconciliation: Optional[Sequence[EnergyReconciliationRow]] = None,
+    logs: Optional[Sequence[_LogLike]] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -249,7 +298,8 @@ def detect_alerts(
     by the bulk-rate-range and dirty-bulk detectors (Phase 3/3.2); omitting
     it just skips those. ``gain_quality``/``reconciliation`` (Phase 3.2) feed
     the dirty-bulk/recalibrate detectors; omitting either just skips its
-    detector.
+    detector. ``logs`` (Phase 3.4) feeds the macro-kcal-mismatch detector;
+    omitting it just skips that detector too.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -261,5 +311,6 @@ def detect_alerts(
         + _bulk_rate_alerts(goal)
         + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
         + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
+        + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])
     )
     return sorted(alerts, key=lambda a: a.date)

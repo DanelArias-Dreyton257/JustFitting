@@ -34,6 +34,11 @@ class EngineSettings:
     lean_tissue_kcal_per_kg: float
     fat_ratio_ideal: float
     reconciliation_error_threshold_kcal: float
+    tef_mode: str
+    kappa_carbs: float
+    kappa_fat: float
+    kappa_protein: float
+    macro_kcal_mismatch_pct: float
     start_date: date
     active: bool
     created_at: datetime
@@ -61,6 +66,11 @@ class EngineSettings:
             lean_tissue_kcal_per_kg=row["lean_tissue_kcal_per_kg"],
             fat_ratio_ideal=row["fat_ratio_ideal"],
             reconciliation_error_threshold_kcal=row["reconciliation_error_threshold_kcal"],
+            tef_mode=row["tef_mode"],
+            kappa_carbs=row["kappa_carbs"],
+            kappa_fat=row["kappa_fat"],
+            kappa_protein=row["kappa_protein"],
+            macro_kcal_mismatch_pct=row["macro_kcal_mismatch_pct"],
             start_date=date.fromisoformat(row["start_date"]),
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),

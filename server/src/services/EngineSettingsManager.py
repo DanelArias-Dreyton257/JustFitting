@@ -35,6 +35,11 @@ FIELDS = (
     "lean_tissue_kcal_per_kg",
     "fat_ratio_ideal",
     "reconciliation_error_threshold_kcal",
+    "tef_mode",
+    "kappa_carbs",
+    "kappa_fat",
+    "kappa_protein",
+    "macro_kcal_mismatch_pct",
 )
 
 #: (min exclusive?, max exclusive?) sanity bounds -- generous, just enough
@@ -59,9 +64,14 @@ _BOUNDS = {
     "lean_tissue_kcal_per_kg": (0.0, None),
     "fat_ratio_ideal": (0.0, 1.0),
     "reconciliation_error_threshold_kcal": (0.0, None),
+    "kappa_carbs": (0.0, None),
+    "kappa_fat": (0.0, None),
+    "kappa_protein": (0.0, None),
+    "macro_kcal_mismatch_pct": (0.0, 1.0),
 }
 
 _VALID_BMR_MODELS = ("cunningham", "mifflin")
+_VALID_TEF_MODES = ("flat", "macros")
 
 #: Body-fat weights must sum to 1.0 (within this tolerance) when all three
 #: are overridden together in the same call -- see `update_settings`.
@@ -105,6 +115,12 @@ class EngineSettingsManager:
                 if value not in _VALID_BMR_MODELS:
                     raise EngineSettingsManagerError(
                         f"bmr_model must be one of {_VALID_BMR_MODELS}"
+                    )
+                continue
+            if field == "tef_mode":
+                if value not in _VALID_TEF_MODES:
+                    raise EngineSettingsManagerError(
+                        f"tef_mode must be one of {_VALID_TEF_MODES}"
                     )
                 continue
             low, high = _BOUNDS[field]
