@@ -20,6 +20,7 @@ class BodyLog:
     cardio_kcal: float
     source: str  # "real" | "projected"
     created_at: datetime
+    granularity: str = "weekly"  # "daily" | "weekly"
 
     @staticmethod
     def from_row(row) -> "BodyLog":
@@ -36,4 +37,5 @@ class BodyLog:
             cardio_kcal=row["cardio_kcal"],
             source=row["source"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            granularity=row["granularity"],
         )

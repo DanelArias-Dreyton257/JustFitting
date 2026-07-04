@@ -132,6 +132,60 @@ class LogManagerTest(unittest.TestCase):
         second_call = self.manager.seed_reference_series(self.user_id)
         self.assertEqual(second_call, [])
 
+    def test_create_log_defaults_to_weekly_granularity(self):
+        log = self.manager.create_log(
+            user_id=self.user_id,
+            log_date=date(2026, 1, 1),
+            weight_kg=90.0,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2000,
+            steps=5000,
+        )
+        self.assertEqual(log.granularity, "weekly")
+
+    def test_create_log_accepts_daily_granularity(self):
+        log = self.manager.create_log(
+            user_id=self.user_id,
+            log_date=date(2026, 1, 1),
+            weight_kg=90.0,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2000,
+            steps=5000,
+            granularity="daily",
+        )
+        self.assertEqual(log.granularity, "daily")
+
+    def test_create_log_rejects_invalid_granularity(self):
+        with self.assertRaises(ValueError):
+            self.manager.create_log(
+                user_id=self.user_id,
+                log_date=date(2026, 1, 1),
+                weight_kg=90.0,
+                waist_cm=80.0,
+                neck_cm=35.0,
+                intake_kcal=2000,
+                steps=5000,
+                granularity="monthly",
+            )
+
+    def test_update_log_round_trips_granularity_and_rejects_invalid(self):
+        log = self.manager.create_log(
+            user_id=self.user_id,
+            log_date=date(2026, 1, 1),
+            weight_kg=90.0,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2000,
+            steps=5000,
+        )
+        updated = self.manager.update_log(log.log_id, granularity="daily")
+        self.assertEqual(updated.granularity, "daily")
+
+        with self.assertRaises(ValueError):
+            self.manager.update_log(log.log_id, granularity="monthly")
+
     def test_update_log_records_audit_entries_for_changed_fields(self):
         audit_log_dao = AuditLogDAO(self.db)
         manager = LogManager(BodyLogDAO(self.db), audit_log_dao=audit_log_dao)

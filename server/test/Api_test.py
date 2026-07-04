@@ -182,6 +182,109 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertAlmostEqual(response.get_json()["cardio_kcal"], 0.0)
 
+    def test_log_create_and_update_persist_granularity(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "daily",
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        body = create_response.get_json()
+        self.assertEqual(body["granularity"], "daily")
+        log_id = body["log_id"]
+
+        update_response = self.client.put(
+            f"/api/logs/{log_id}", json={"granularity": "weekly"}, headers=headers
+        )
+        self.assertEqual(update_response.get_json()["granularity"], "weekly")
+
+    def test_log_create_defaults_granularity_to_weekly(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.get_json()["granularity"], "weekly")
+
+    def test_log_create_rejects_invalid_granularity(self):
+        token = self._register().get_json()["token"]
+        response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-06-26",
+                "weight_kg": 90.7,
+                "waist_cm": 80.0,
+                "neck_cm": 35.0,
+                "intake_kcal": 2014.30,
+                "steps": 5000,
+                "granularity": "monthly",
+            },
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_daily_logs_within_one_iso_week_collapse_in_metrics_series(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        # A prior weekly baseline, then a full ISO week (2026-W02, Mon 1/5..Sun 1/11)
+        # logged daily -- should collapse to exactly one extra metrics row.
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+        daily_weights = [96.0, 95.8, 95.9, 95.7, 95.6, 95.5, 95.4]
+        for offset, weight in enumerate(daily_weights):
+            day = 5 + offset
+            self.client.post(
+                "/api/logs",
+                json={
+                    "date": f"2026-01-{day:02d}",
+                    "weight_kg": weight,
+                    "waist_cm": 90.0,
+                    "neck_cm": 38.5,
+                    "intake_kcal": 2300.0,
+                    "steps": 6100,
+                    "granularity": "daily",
+                },
+                headers=headers,
+            )
+
+        raw_logs = self.client.get("/api/logs", headers=headers).get_json()
+        self.assertEqual(len(raw_logs), 8)
+
+        series_response = self.client.get("/api/metrics/series", headers=headers)
+        series = series_response.get_json()
+        self.assertEqual(len(series), 2)
+        self.assertEqual(series[1]["date"], "2026-01-11")
+
     def test_log_create_rejects_invalid_navy_ratio(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

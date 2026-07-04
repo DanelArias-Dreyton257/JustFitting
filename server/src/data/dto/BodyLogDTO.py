@@ -18,6 +18,7 @@ class BodyLogDTO:
     steps: float
     cardio_kcal: float
     source: str
+    granularity: str
 
     @staticmethod
     def from_domain(log: BodyLog) -> "BodyLogDTO":
@@ -33,4 +34,5 @@ class BodyLogDTO:
             steps=log.steps,
             cardio_kcal=log.cardio_kcal,
             source=log.source,
+            granularity=log.granularity,
         )

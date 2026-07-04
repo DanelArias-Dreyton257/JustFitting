@@ -24,14 +24,15 @@ class BodyLogDAO:
         steps: float,
         cardio_kcal: float = 0.0,
         source: str = "real",
+        granularity: str = "weekly",
     ) -> BodyLog:
         created_at = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             """
             INSERT INTO body_logs
                 (user_id, date, weight_kg, waist_cm, neck_cm, intake_kcal,
-                 intake_is_real, steps, cardio_kcal, source, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 intake_is_real, steps, cardio_kcal, source, created_at, granularity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -45,6 +46,7 @@ class BodyLogDAO:
                 cardio_kcal,
                 source,
                 created_at,
+                granularity,
             ),
         )
         return self.get_by_id(cursor.lastrowid)

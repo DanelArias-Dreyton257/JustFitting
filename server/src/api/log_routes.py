@@ -40,6 +40,7 @@ def create_log():
             intake_is_real=bool(payload.get("intake_is_real", True)),
             cardio_kcal=float(payload.get("cardio_kcal", 0.0)),
             source=payload.get("source", "real"),
+            granularity=payload.get("granularity", "weekly"),
         )
     except (KeyError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
@@ -64,6 +65,7 @@ def update_log(log_id: int):
         "intake_is_real",
         "cardio_kcal",
         "source",
+        "granularity",
     ):
         if key in payload:
             fields[key] = payload[key]

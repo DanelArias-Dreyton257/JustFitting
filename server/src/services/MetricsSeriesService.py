@@ -11,6 +11,7 @@ from flask import Flask
 
 from server.src.data.domain.BodyLog import BodyLog
 from server.src.services.composition.models import CompositionResult
+from server.src.services.LogResampler import resample_to_weekly
 
 
 def compute_series_for_user(
@@ -28,13 +29,17 @@ def compute_series_for_user(
         return [], []
 
     ordered_logs = sorted(logs, key=lambda log: log.date)
-    engine_inputs = log_manager.to_engine_inputs(ordered_logs)
+    # F6 (Phase 3.3): collapse any daily-granularity rows into one
+    # representative row per ISO week before they reach the (inherently
+    # weekly-cadence) engine; weekly-tagged rows pass through unchanged.
+    resampled_logs = resample_to_weekly(ordered_logs)
+    engine_inputs = log_manager.to_engine_inputs(resampled_logs)
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)
     )
     results = metrics_cache.get_or_compute_series(
-        profile_params, ordered_logs, engine_inputs, engine_constants
+        profile_params, resampled_logs, engine_inputs, engine_constants
     )
-    return ordered_logs, results
+    return resampled_logs, results

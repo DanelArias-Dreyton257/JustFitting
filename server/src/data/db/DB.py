@@ -237,6 +237,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE engine_settings ADD COLUMN reconciliation_error_threshold_kcal REAL NOT NULL DEFAULT 300.0;
         """,
     ),
+    (
+        15,
+        """
+        ALTER TABLE body_logs ADD COLUMN granularity TEXT NOT NULL DEFAULT 'weekly' CHECK (granularity IN ('daily', 'weekly'));
+        """,
+    ),
 ]
 
 

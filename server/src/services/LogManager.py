@@ -24,7 +24,15 @@ LOG_EDITABLE_FIELDS = (
     "steps",
     "cardio_kcal",
     "source",
+    "granularity",
 )
+
+GRANULARITIES = ("daily", "weekly")
+
+
+def _validate_granularity(granularity: str) -> None:
+    if granularity not in GRANULARITIES:
+        raise ValueError(f"granularity must be one of {GRANULARITIES}, got {granularity!r}")
 
 
 @dataclass(frozen=True)
@@ -92,7 +100,9 @@ class LogManager:
         intake_is_real: bool = True,
         cardio_kcal: float = 0.0,
         source: str = "real",
+        granularity: str = "weekly",
     ) -> BodyLog:
+        _validate_granularity(granularity)
         candidate = LogInput(
             date=log_date,
             weight_kg=weight_kg,
@@ -115,6 +125,7 @@ class LogManager:
             steps=steps,
             cardio_kcal=cardio_kcal,
             source=source,
+            granularity=granularity,
         )
         if self.metrics_cache is not None:
             self.metrics_cache.invalidate_for_user(user_id)
@@ -130,6 +141,8 @@ class LogManager:
         existing = self.log_dao.get_by_id(log_id)
         if existing is None:
             return None
+        if "granularity" in fields:
+            _validate_granularity(fields["granularity"])
         merged = LogInput(
             date=fields.get("date", existing.date),
             weight_kg=fields.get("weight_kg", existing.weight_kg),
