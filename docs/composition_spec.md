@@ -550,7 +550,7 @@ document doesn't actually change them, but the mechanism now exists for
 an account that needs to. Every other account (including Danel's) keeps
 the table above's defaults untouched.
 
-### F9 — TEF by macronutrients (a ninth capability, from a third source doc)
+### F9 — TEF by macronutrients (done, Phase 3.4)
 
 Source: `docs/JustFitting_TEF_Macronutrientes.pdf` (v1.0, 2026-07-02) — a
 separate document from the eight-capability Oleada 2 spec above, but
@@ -610,11 +610,55 @@ mirrors this with that day's own activity and TEF:
 Objetivo_d = BMR_i + NEAT_d + Cardio_d + TEF_d + Superavit_dia_i     # NEAT_d = 0.5 * W_i * (Pasos_d / 1000)
 ```
 
-**Graceful degradation** (`tef_mode = flat | macros`, account setting +
-optional per-request override): a week with no macros logged falls back
-to the existing flat/divisor formula automatically, regardless of the
-account's preferred mode — F9 is additive, never blocking, exactly like
-F6's daily/weekly coexistence it depends on.
+**Graceful degradation** (`tef_mode = "flat" | "macros"`): a week with no
+macros logged falls back to the existing flat/divisor formula
+automatically, regardless of the account's preferred mode — F9 is
+additive, never blocking, exactly like F6's daily/weekly coexistence it
+depends on. **`tef_mode` is account-level only (`EngineConstants`/
+`EngineSettings`, historized like every other calibration field), not a
+per-request query-param override** — the source doc's own wording
+suggested one, but the same reasoning `composition_spec.md`'s F4 section
+gives for `bmr_model` applies here too: which TEF formula applies changes
+every metrics computation for an account (`CompositionEngine.compute_row`,
+cached per `(log_id, ENGINE_VERSION)`), not just an ephemeral forecast, so
+it belongs on the same historized settings object as `bmr_model`, not a
+request-scoped parameter.
+
+**Implementation note**: `CompositionResult` gained two new fields,
+`tef_kcal` (the actual kcal figure this row used, whichever formula
+applied) and `tef_mode` (`"flat"` or `"macros"`, which one actually
+applied to *this* row — independent of the account's `tef_mode` setting,
+since a `"macros"`-mode week with nothing logged still falls back to
+`"flat"`). Because this changes both the compute-order chain (the TDEE/
+target-calories formula genuinely branches, not just a read-side view
+like `GainQuality`/`EnergyReconciliation`) and `CompositionResult`'s own
+shape, `CompositionEngine.ENGINE_VERSION` bumped `1 -> 2` — the first
+version bump since the engine shipped — and `metrics_snapshots` gained
+matching `tef_kcal`/`tef_mode` columns (migration 18). Every log with
+`carbs_g`/`fat_g`/`protein_g` all unset (every log before this phase, and
+every log at any granularity that simply doesn't log macros) computes
+byte-for-byte identically to `ENGINE_VERSION=1`; the version bump exists
+only so historical snapshots stay reproducible under the new fields'
+presence, not because any existing formula's *output* changed.
+`GET /api/metrics/tef` (`Tef.compute_tef_breakdown`, a read-side view
+reusing each row's already-computed `bmr`/`neat`) breaks a week down by
+macro and reports both the flat estimate and the macro figure side by
+side for comparison, regardless of which one the account's `tef_mode`
+actually applied that week.
+
+**Macro fields live on `BodyLog` itself** (migration 16: `carbs_g`,
+`fat_g`, `protein_g`, all nullable `REAL`), exactly as F6 anticipated —
+no new table. They're logged **together or not at all**: `carbs_g`/
+`fat_g`/`protein_g` must be all-`None` or all-set
+(`CompositionEngine.validate_log_input` rejects a partial trio), since
+there's no principled way to compute a macro-based TEF from only one or
+two of the three. `LogResampler.resample_to_weekly` extends its existing
+mean-of-logged-days convention to the three macro fields — averaging
+whichever days in a daily-logged week actually have macros (minimum 1),
+`None` if none do — which resolves the "partial week" open decision
+below exactly as recommended, and works because TEF is linear in each
+macro (the mean of daily TEF values equals the TEF of the mean macros, so
+no special-casing is needed in `CompositionEngine` itself).
 
 **A numeric inconsistency in the source doc, flagged rather than
 silently reproduced**: its own worked TDEE integration example states
@@ -626,32 +670,88 @@ intermediates that the displayed total was computed from directly. The
 additive formula above is authoritative; don't treat `2854.8` itself as a
 value to reproduce in tests.
 
-**Open decision, not resolved by the source doc**: how to handle a week
-with some but not all 7 days logged. The doc's own "Supuestos y
-limitaciones" raises this without deciding it ("promediar solo los días
-registrados o exigir la semana completa"). Recommended, for consistency
-with F6's own graceful-degradation philosophy: average whatever days
-have macros logged (minimum 1), rather than requiring a complete week —
-matching how `median(w^(1), ...)` in F6 already degrades gracefully with
-partial data.
+**Open decision, resolved**: how to handle a week with some but not all 7
+days logged. The source doc's own "Supuestos y limitaciones" raises this
+without deciding it ("promediar solo los días registrados o exigir la
+semana completa"). Resolved per the recommendation above: `LogResampler`
+averages whatever days have macros logged (minimum 1), rather than
+requiring a complete week — matching how `median(w^(1), ...)` in F6
+already degrades gracefully with partial data.
 
 New constants (extends F8's table, same per-account-overridable,
-historized mechanism):
+historized mechanism — field names below are the actual
+`EngineConstants`/`EngineSettings` names, spelled out rather than the
+source doc's `kappa_C`/`kappa_G`/`kappa_P` shorthand):
 
-| Constant | Symbol | Default | Notes |
+| Constant | Field name | Default | Notes |
 | --- | --- | --- | --- |
-| Carb TEF coefficient | `kappa_C` | `0.300 kcal/g` | `= e_carb (4) * tau_carb (7.5%)` |
-| Fat TEF coefficient | `kappa_G` | `0.135 kcal/g` | `= e_fat (9) * tau_fat (1.5%)` |
-| Protein TEF coefficient | `kappa_P` | `1.000 kcal/g` | `= e_protein (4) * tau_protein (25%)` |
-| TEF mode | `tef_mode` | `"flat"` | `"flat"` (today's divisor formula, unchanged default) or `"macros"` (this section); falls back to `"flat"` per-week if macros aren't logged that week regardless of setting |
+| Carb TEF coefficient | `kappa_carbs` | `0.300 kcal/g` | `= e_carb (4) * tau_carb (7.5%)` |
+| Fat TEF coefficient | `kappa_fat` | `0.135 kcal/g` | `= e_fat (9) * tau_fat (1.5%)` |
+| Protein TEF coefficient | `kappa_protein` | `1.000 kcal/g` | `= e_protein (4) * tau_protein (25%)` |
+| TEF mode | `tef_mode` | `"flat"` | `"flat"` (today's divisor formula, unchanged default) or `"macros"` (this section); falls back to `"flat"` per-week if macros aren't logged that week regardless of setting; account-level only, not per-request (see above) |
+| Macro/intake mismatch threshold | `macro_kcal_mismatch_pct` | `0.15` (15%) | drives the `macro_kcal_mismatch` alert below; the source doc raises the coherence check without proposing a number, so this default is this implementation's own reasoned choice |
 
 Other assumptions from the source doc, carried through unchanged: the
 coefficients are literature averages that vary by individual, hence
 overridable; Atwater densities don't account for alcohol or fiber
-(unscheduled — could be added as further macro coefficients later); and
-a soft, non-blocking coherence check between declared `kcal` and `4*C_d +
-9*G_d + 4*P_d` is worth surfacing (flag, don't block, same pattern as
-`IMPLAUSIBLE_WEEKLY_CHANGE_PCT`), not enforcing an exact match.
+(unscheduled — could be added as further macro coefficients later).
+The soft, non-blocking coherence check between declared `kcal` and
+`4*carbs_g + 9*fat_g + 4*protein_g` the source doc calls for is
+implemented as a new `macro_kcal_mismatch` detector in
+`services/composition/Alerts.py`, flagging (never blocking) a week whose
+relative gap exceeds `macro_kcal_mismatch_pct` — same flag-not-block
+pattern as `IMPLAUSIBLE_WEEKLY_CHANGE_PCT`. The **daily** target-calorie
+figure (`Objetivo_d` above) is not implemented — like `LogResampler.
+daily_view` itself, nothing in the app has a per-day display yet, so
+there's nowhere to show it; the weekly figures above are what's exposed.
+
+### Macro targets by body mass — an extension beyond F9, not in either source doc
+
+Evidence-based per-kg-bodyweight protein/fat targets, with carbs as the
+remainder of calories once protein/fat's kcal share is subtracted —
+requested as a follow-on to F9, not part of either the Oleada 2 or TEF
+source PDFs. Commonly-cited sports-nutrition ranges:
+
+| Macro | Cut | Bulk |
+| --- | --- | --- |
+| Protein | 1.6–2.2 g/kg | 1.5–2.0 g/kg |
+| Fat | 0.5–0.8 g/kg | 0.7–1.0 g/kg |
+| Carbs | remainder of calories | remainder of calories |
+
+```
+ProteinTarget_i^g    = protein_target_g_per_kg * W_i
+FatTarget_i^g        = fat_target_g_per_kg * W_i
+ProteinTarget_i^kcal = ProteinTarget_i^g * 4        # Atwater, ATWATER_PROTEIN_KCAL_PER_G
+FatTarget_i^kcal     = FatTarget_i^g * 9            # Atwater, ATWATER_FAT_KCAL_PER_G
+CarbsTarget_i^kcal   = max(0, TargetCal_i - ProteinTarget_i^kcal - FatTarget_i^kcal)
+CarbsTarget_i^g      = CarbsTarget_i^kcal / 4        # Atwater, ATWATER_CARB_KCAL_PER_G
+```
+
+`protein_target_g_per_kg` (default `1.75`) and `fat_target_g_per_kg`
+(default `0.70`) are new per-account-overridable `EngineConstants`/
+`EngineSettings` fields — a single mid-point inside both the cut and
+bulk ranges above, meant to be tuned per account within whichever range
+applies; there is deliberately no `carbs_target_g_per_kg`, since carbs
+are always the remainder, never an independently-set target, mirroring
+how the source doc itself treats carbs. Implemented as a new pure
+read-side module, `services/composition/MacroTargets.py`
+(`compute_macro_targets`) — like `Tef.compute_tef_breakdown`, it reuses
+each row's already-computed `target_calories` and needs no
+`ENGINE_VERSION` bump. Exposed via `GET /api/metrics/macro-targets`,
+reporting both the target split and (when this week's macros are
+logged) the actual logged split for comparison.
+
+Two new alerts extend `services/composition/Alerts.py`:
+`protein_target_deviation` and `fat_target_deviation`, each flagging
+(never blocking) a week whose logged protein/fat grams diverge from
+their per-kg target by more than `macro_target_deviation_pct` (new
+`EngineConstants`/`EngineSettings` field, default `0.20`, i.e. 20%) —
+only fires on a week with macros actually logged; carbs (a derived
+remainder, not an independent target) are never checked. The Dashboard
+gained a stacked-bar chart (`drawMacroSplitBars`, a new `charts.js`
+primitive) comparing the target split against the actual split in kcal,
+per the project's dataviz guidance (a stacked bar is the recommended
+form for part-to-whole comparison, in preference to a pie/donut chart).
 
 ## Health disclaimer
 

@@ -9,6 +9,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 3.4: Oleada 2 TEF by macronutrients — **Phase 3 (Oleada 2) is now
+  complete** (F1–F9 all implemented; see README's roadmap).
+  - **TEF from logged macros (F9)**: optional `carbs_g`/`fat_g`/
+    `protein_g` on `BodyLog` (migration 16, nullable, logged together or
+    not at all — `CompositionEngine.validate_log_input` 400s a partial
+    trio or a negative value). A new pure module,
+    `services/composition/Tef.py` (`compute_tef_kcal`,
+    `compute_tef_breakdown`), computes the directly-summed weekly TEF
+    (`kappa_carbs*carbs_g + kappa_fat*fat_g + kappa_protein*protein_g`,
+    defaults `0.300`/`0.135`/`1.000` kcal/g). `CompositionEngine.compute_row`
+    now branches: `EngineConstants.tef_mode="macros"` (new field, default
+    `"flat"`) **and** the week having macros logged switches TDEE/
+    target-calories to the additive formula (`BMR+NEAT+EAT+TEF_kcal`, no
+    divisor); otherwise (including a `"macros"`-mode week with nothing
+    logged) the existing flat/divisor formula runs unchanged.
+    `LogResampler.resample_to_weekly` extends its existing mean-of-
+    logged-days convention to the three macro fields (averaging whichever
+    days in a group actually logged them, `None` if none did) — this
+    works because TEF is linear in each macro, so no special-casing was
+    needed in the engine itself.
+  - **`CompositionResult` gained `tef_kcal`/`tef_mode`** (the actual kcal
+    figure and which formula this row applied), and
+    `CompositionEngine.ENGINE_VERSION` bumped `1 -> 2` — the first bump
+    since the engine shipped, since this is a genuine compute-chain
+    branch (unlike Phase 3.1–3.3's read-side-only additions). Every log
+    with no macros logged computes byte-for-byte identically to before;
+    the version bump only means old `metrics_snapshots` rows (version 1)
+    are never read again and recompute fresh at version 2, the same
+    mechanism every prior `ENGINE_VERSION` design already relied on, just
+    exercised for the first time. `metrics_snapshots` gained matching
+    `tef_kcal`/`tef_mode` columns (migration 18).
+  - **`GET /api/metrics/tef`** (new `Tef.compute_tef_breakdown`,
+    `TefDTO`) breaks a week's TEF down by macro (grams and kcal
+    contribution per macro) and reports the flat estimate alongside the
+    macro figure for comparison, regardless of which one actually applied
+    that week; 404s with no logs yet like every other metrics endpoint.
+  - **`tef_mode` is account-level only**, not a per-request query
+    parameter — `EngineConstants`/`EngineSettings` gain `tef_mode`,
+    `kappa_carbs`, `kappa_fat`, `kappa_protein`, and
+    `macro_kcal_mismatch_pct` (migration 17, all per-account overridable,
+    historized like every other calibration field). This deliberately
+    deviates from the source doc's "account setting + optional
+    per-request override" wording, reusing the exact rationale Phase 3's
+    `bmr_model` already established: which TEF formula applies changes
+    every metrics computation for an account, not just an ephemeral
+    forecast.
+  - **`macro_kcal_mismatch` alert**: a new detector in
+    `services/composition/Alerts.py` flags (never blocks) a week whose
+    declared `intake_kcal` diverges from its macro-implied kcal
+    (`4*carbs_g + 9*fat_g + 4*protein_g`, standard Atwater conversion) by
+    more than `macro_kcal_mismatch_pct` (default 15%) — the source doc's
+    own suggested soft coherence check, actually implemented. `detect_alerts`
+    gained an optional `logs` parameter feeding it;
+    `AlertSyncService.sync_alerts` now threads the series' logs through.
+  - **Extension beyond either source PDF: macro targets by body mass.**
+    Evidence-based per-kg-bodyweight protein/fat targets (commonly-cited
+    ranges roughly 1.6–2.2 g/kg protein / 0.5–0.8 g/kg fat for a cut, and
+    1.5–2.0 g/kg protein / 0.7–1.0 g/kg fat for a bulk), with carbs always
+    the remainder of `target_calories` once protein/fat's kcal share is
+    subtracted — never an independent target. New `protein_target_g_per_kg`
+    (default `1.75`)/`fat_target_g_per_kg` (default `0.70`)/
+    `macro_target_deviation_pct` (default `0.20`) `EngineConstants`/
+    `EngineSettings` fields (migration 19). A new pure module,
+    `services/composition/MacroTargets.py` (`compute_macro_targets`),
+    exposed via `GET /api/metrics/macro-targets` (target split plus the
+    actual logged split, when available). Two new alerts,
+    `protein_target_deviation`/`fat_target_deviation`, flag a logged
+    week's grams diverging from target by more than the threshold, only
+    when that week has macros logged.
+  - **Client**: the log wizard's "Energy" step gained optional Carbs/Fat/
+    Protein inputs (all-or-nothing, same as the backend); the log table
+    and review step show them. The Settings view gained "TEF by
+    macronutrients" and "Macro targets" sections. The Dashboard gained a
+    "TEF (this week)" stat tile, a flat-vs-macros TEF line chart, and a
+    target-vs-actual calorie-split-by-macro **stacked-bar** chart
+    (`drawMacroSplitBars`, a new `charts.js` primitive) — a stacked bar
+    rather than a pie/donut, per this project's dataviz guidance (a
+    part-to-whole comparison across two states reads more reliably as
+    adjacent bars than as angle judgments between pie slices).
+  - New `Tef_test.py`/`MacroTargets_test.py` (base cases, the flat-mode
+    default, the source doc's own worked-example figure reproduced
+    exactly, partial/negative-macro rejection, out-of-order input
+    sorting); new cases in `CompositionEngine_test.py` (macro-mode
+    switching, the automatic flat fallback, validation), `LogResampler_test.py`
+    (macro averaging including the no-day-logged-it case),
+    `Alerts_test.py` (`MacroKcalMismatchAlertTest`,
+    `MacroTargetDeviationAlertTest`), `EngineSettingsManager_test.py`
+    (bounds/validation for every new field), and `Api_test.py` (macro
+    round-trip on log create/update, a 400 on a partial trio, both new
+    endpoints' 404s and happy paths, the new settings fields'
+    round-trip). Every pre-existing test in both suites stays green,
+    proving an account that never logs macros is completely unaffected.
+  - `sw.js`'s `CACHE_NAME` bumped (`-v9` -> `-v10`) for the wizard/
+    Settings/Dashboard UI changes.
 - Phase 3: Oleada 2 bulk/volume engine foundation (see README's roadmap).
   - **Cut/bulk direction**: `GoalPlan.direction` (a `@property`, `"bulk"`
     iff `weekly_rate > 0`, no new column) is now exposed on
