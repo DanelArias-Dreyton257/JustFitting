@@ -62,28 +62,67 @@ empty DB at server boot, so a fresh/ephemeral deploy is always demoable.
 
 ## Deployment
 
-- **CI** (`.github/workflows/ci.yml`) runs both test suites on every push
-  and pull request.
-- **Release** (`.github/workflows/release.yml`) triggers on a `vX.Y.Z` tag:
-  re-runs CI as a gate, builds the client with `scripts/build_static_site.py`
-  and publishes it to **GitHub Pages**, optionally pings a **Render** deploy
-  hook for the API (see `render.yaml`), and cuts a GitHub Release with
-  auto-generated notes.
-- **One-time setup**: set the `JUSTFITTING_API_BASE_URL` repo variable
-  (client build target) and, if deploying the API to Render, the
-  `RENDER_DEPLOY_HOOK_URL` secret.
+`main` is the deployed branch. Every push and pull request runs the CI
+workflow (`.github/workflows/ci.yml`): sets up the `justfitting` conda
+environment exactly as described above, then runs both test suites.
+Pushing a tag matching `vX.Y.Z` runs the release workflow
+(`.github/workflows/release.yml`), which re-runs CI as a gate and, only
+if it's green:
 
-### Releasing a version
+- **Client**: builds `client/src/webapp/{templates,static}` into a static
+  `dist/` folder via `scripts/build_static_site.py` (`JUSTFITTING_API_BASE_URL`
+  baked in from the repo variable of the same name) and publishes it to
+  **GitHub Pages**.
+- **Server**: calls Render's deploy hook (`RENDER_DEPLOY_HOOK_URL` repo
+  secret) to redeploy the Flask API — described by `render.yaml` — on
+  **Render.com**.
+- Creates a GitHub Release for the tag with auto-generated notes.
 
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
+### Releasing a new version
+
+1. Merge `development` into `main` via a pull request.
+2. Update [`CHANGELOG.md`](CHANGELOG.md) (move `[Unreleased]` items under
+   a new version heading).
+3. Tag `main` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+### One-time environment setup
+
+These are one-off steps in the GitHub/Render UIs, not run by any workflow:
+
+1. **GitHub Pages** requires GitHub Pro/Team/Enterprise on a private repo
+   (Free plan can't publish Pages from a private repo). Repo Settings →
+   Pages → Source = "GitHub Actions".
+2. Create a Render web service from this repo (branch `main`); it reads
+   `render.yaml`. Turn off Render's own auto-deploy-on-push in its
+   dashboard — deploys are meant to happen only through the tag-triggered
+   workflow above (`render.yaml` also sets `autoDeploy: false`).
+3. Add the Render service's public URL as the repo variable
+   `JUSTFITTING_API_BASE_URL` (Settings → Secrets and variables → Actions
+   → Variables).
+4. Add the Render service's Deploy Hook URL as the repo secret
+   `RENDER_DEPLOY_HOOK_URL` (Settings → Secrets and variables → Actions →
+   Secrets).
+5. If `JUSTFITTING_CORS_ORIGINS` is locked down to an allowlist rather
+   than left at its default `*`, set it on the Render service to include
+   the GitHub Pages origin (and `https://localhost` for the Android app —
+   see **Android app** below).
+
+### Known limitation
+
+Render's free tier has an ephemeral filesystem, so `justfitting.db`
+resets on every redeploy and likely on every spin-down/spin-up cycle
+after 15 minutes of inactivity. Fine for demoing v1.0.0; not a place to
+keep real data yet. To keep the deployed instance demoable through those
+resets, the Render service runs with `JUSTFITTING_SEED_DEMO=true`, which
+auto-seeds both demo accounts (`admin_cut`/`admin_bulk`) on every boot of
+an empty database.
 
 ## Versioning
 
-[Semantic Versioning](https://semver.org/). Releases are git tags; see
-`CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/) format).
+[Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
+Releases are git tags (`vX.Y.Z`); see [`CHANGELOG.md`](CHANGELOG.md)
+([Keep a Changelog](https://keepachangelog.com/) format) for what changed
+in each one.
 
 ## Architecture
 

@@ -5,7 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-07-04
+
+First public release, deployed via GitHub Actions: the static client on
+GitHub Pages, the Flask API on Render. Covers everything built across
+Phases 1-3.4: the core composition engine, the Android app (Capacitor),
+and the Wave 2 bulk/volume module (cardio/gain-quality tracking, energy
+reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
 
 ### Added
 
