@@ -224,6 +224,7 @@ export function renderLogTable(tbody, logs) {
         <td>${log.steps}</td>
         <td>${log.cardio_kcal}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
+        <td><span class="badge ${log.granularity}">${log.granularity}</span></td>
         <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
       </tr>`
     )
@@ -270,6 +271,7 @@ export function showWizardStep(form, step, totalSteps) {
 export function renderLogReview(container, values) {
   const rows = [
     ["Date", values.date],
+    ["Granularity", values.granularity],
     ["Weight", values.weight_kg && `${values.weight_kg} kg`],
     ["Waist", values.waist_cm && `${values.waist_cm} cm`],
     ["Neck", values.neck_cm && `${values.neck_cm} cm`],

@@ -401,6 +401,7 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
     intake_kcal: Number(raw.intake_kcal),
     steps: Number(raw.steps),
     cardio_kcal: Number(raw.cardio_kcal) || 0,
+    granularity: raw.granularity || "weekly",
   };
   try {
     await api.createLog(payload);

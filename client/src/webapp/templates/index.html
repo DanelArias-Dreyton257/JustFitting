@@ -154,6 +154,12 @@
         <fieldset class="wizard-step" data-step="1">
           <label>Date <input name="date" type="date" required /></label>
           <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
+          <label>Granularity
+            <select name="granularity">
+              <option value="weekly" selected>Weekly — one entry for the week</option>
+              <option value="daily">Daily — log every day this week</option>
+            </select>
+          </label>
         </fieldset>
 
         <fieldset class="wizard-step" data-step="2" hidden>
@@ -181,7 +187,7 @@
       </form>
       <table class="data-table" id="log-table">
         <thead>
-          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Source</th><th></th></tr>
+          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Source</th><th>Granularity</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>
