@@ -114,6 +114,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     endpoint's 404 and happy path).
   - `sw.js`'s `CACHE_NAME` bumped (`-v6` -> `-v7`) for the Dashboard/log
     wizard/log table changes.
+- Phase 3.3: Oleada 2 daily and weekly logs coexist (see README's
+  roadmap).
+  - **Granularity tag**: `body_logs` gains `granularity = daily | weekly`
+    (migration 15, default `'weekly'`, CHECK-constrained the same way as
+    the existing `source` column), threaded through `BodyLog`/
+    `BodyLogDTO`/`BodyLogDAO.create`, `LogManager.create_log`/`update_log`
+    (both now reject an invalid value with a clean `ValueError` -> 400,
+    unlike `source`, which has always relied solely on the DB CHECK), and
+    `POST`/`PUT /api/logs`. The log wizard's first step gained a Weekly
+    (default)/Daily selector; the log table and step-4 review gained a
+    Granularity badge/row.
+  - **Weekly-view resampling (F6)**: a new pure module,
+    `services/LogResampler.py` (`resample_to_weekly`), collapses a
+    mixed-granularity history into the one-row-per-week shape
+    `CompositionEngine` needs. Only `granularity="daily"` rows are ever
+    grouped, by ISO calendar week -- `"weekly"` rows (every log that
+    existed before this phase) always pass through individually,
+    byte-for-byte unchanged, regardless of weekday or spacing. This was a
+    deliberate safety choice over grouping every row by calendar week
+    regardless of tag, which risked merging two legitimately distinct
+    weekly logs that happen to land in the same ISO week for an account
+    that doesn't log on a fixed weekday. A daily group's representative
+    row (median weight; mean steps/cardio/waist/neck/intake; `intake_is_
+    real` true only if every grouped day's intake was real) reuses its
+    max-date member's own real `log_id`, so `metrics_snapshots`'
+    `UNIQUE(log_id, engine_version)` FK needed no schema change.
+    `MetricsSeriesService.compute_series_for_user` calls the resampler
+    once, immediately after sorting a user's logs, so every existing
+    consumer (`metrics_routes.py`, `alerts_routes.py`'s
+    `AlertSyncService`, `LogManager.compute_adherence`) keeps its
+    existing 1:1 logs/results assumption with zero further changes;
+    `GET /api/logs` is untouched and still lists every raw row. No
+    `ENGINE_VERSION` bump -- resampling happens strictly before
+    `LogInput` construction, same rationale as F3/F5/F7.
+  - **Daily-view resampling**, the symmetric direction: `LogResampler.
+    daily_view` expands a weekly log's values across every day since the
+    previous log (mirrors `Projection.py`'s `activity_model="constant"`
+    carry-forward, applied backward in time instead); a daily-tagged row
+    emits itself only, unexpanded. Implemented and unit-tested per the
+    spec's "both directions" contract, but not yet wired to a route or
+    UI -- nothing in the app has a per-day display today; it's a
+    ready-made building block for the still-unscheduled Phase 2.1
+    automatic-steps-import idea.
+  - New `LogResampler_test.py` (weekly-only passthrough is a byte-for-byte
+    identity check; a full 7-day week's median/mean resampling; the
+    `intake_is_real` AND-reduction rule; a partial (3-of-7-day) week; a
+    lone daily row degrading to its own value; a mixed weekly+daily
+    account resolving each week independently; both `daily_view` cases);
+    new `LogManager_test.py` cases (granularity round-trip on create/
+    update, invalid-value rejection); new `Api_test.py` cases (granularity
+    round-trip and default over the API, invalid value -> 400, and an
+    end-to-end case posting a full daily-logged ISO week alongside
+    existing weekly history and asserting `GET /api/metrics/series`
+    collapses it to one row while `GET /api/logs` still lists all 8 raw
+    rows). Every pre-existing test in both suites stays green untouched,
+    proving weekly-only accounts are completely unaffected.
+  - `sw.js`'s `CACHE_NAME` bumped (`-v8` -> `-v9`) for the wizard/log-table
+    UI changes.
 - Phase 3.2: Oleada 2 energy reconciliation & increment analytics (see
   README's roadmap).
   - **Energy reconciliation (F5)**: a new pure module,

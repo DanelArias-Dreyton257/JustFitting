@@ -239,6 +239,24 @@ advice.
   export is still missing "is this bulk clean" and "is the energy model
   tracking reality" at a glance. Noted here rather than scoped into a
   phase since it's additive to an existing view, not a new capability.
+- **Dashboard perimeter/steps charts don't expand a daily-logged week.**
+  Since Phase 1.2, `app.js`'s `refreshDashboard` merges `GET /api/logs`
+  (raw, one row per day for a daily-granularity account) with `GET
+  /api/metrics/series` (one row per *week*, by `log_id`, per Phase 3.3's
+  resampling) client-side. A daily-logging week's waist/neck/steps chart
+  point only lands on the resampled week's representative day; the other
+  logged days in that week don't get their own point. This is a known,
+  documented consequence of the engine staying weekly-cadence, not a bug
+  -- fixing it would mean reworking that merge to resolve by ISO week
+  instead of `log_id`, or building a real per-day chart on top of
+  Phase 3.3's now-available `LogResampler.daily_view`. Not scoped into a
+  phase since the raw log table already shows every logged day correctly.
+- **`LogResampler.daily_view` has no route or UI yet.** Phase 3.3 shipped
+  and unit-tested the symmetric daily-view expansion (a weekly log's
+  values carried across the days it covers), but nothing in the app
+  displays a per-day view today, so it isn't wired to an endpoint. It's
+  the natural data source for the still-unscheduled Phase 2.1 ideas
+  (automatic steps import, a real per-day target-calorie figure).
 
 ## Roadmap: body-composition module capabilities
 
@@ -450,26 +468,46 @@ between the energy model and what's actually being measured:
   increment/deviation. The Settings view's "Body-fat & BMR calibration"
   section gained the new reconciliation-error-threshold field.
 
-### Phase 3.3 — Oleada 2: daily and weekly logs coexist (planned)
+### Phase 3.3 — Oleada 2: daily and weekly logs coexist (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F6), generalized beyond
 what the source doc specifies. The natural foundation for the Phase 2.1
 "automatic steps import" idea:
 
-- A log row gets a `granularity = daily | weekly` tag (same pattern as
-  the existing `source = real | projected` tag) instead of a separate
-  daily-entry table that only exists to feed a forced weekly rollup.
-  Every week can be logged either way, and even mix over an account's
-  history.
-- Each **view** resamples whatever's actually stored, in both directions:
-  a weekly view of a daily-logged week takes the median weight / mean
-  steps+cardio across its days (more robust to daily water/sodium swings
-  than a single weigh-in); a daily view of a weekly-logged week
-  copy-pastes that log's values across every day since the previous one
-  — the same "hold the last known value" idea the projection module
-  already uses going forward (`activity_model="constant"`), just applied
-  backward across days a single log already covers.
-- An account that only ever logs weekly sees no change in behavior.
+- A log row gets a `granularity = daily | weekly` tag (`body_logs`,
+  migration 15, default `'weekly'`, CHECK-constrained like the existing
+  `source = real | projected` tag) instead of a separate daily-entry
+  table that only exists to feed a forced weekly rollup. `POST`/`PUT
+  /api/logs` accept it (default `weekly`); the log wizard's first step
+  gained a Weekly/Daily selector, and the log table a Granularity badge
+  column. Every week can be logged either way, and even mix over an
+  account's history.
+- A new pure module, `services/LogResampler.py`
+  (`resample_to_weekly`), resolves a **weekly view** of mixed-granularity
+  history: only `granularity="daily"` rows are ever grouped (by ISO
+  calendar week), collapsing into one representative row — median
+  weight (robust to a day's water/sodium swing), mean steps/cardio/
+  waist/neck/intake, and `intake_is_real` true only if every grouped
+  day's intake was real. `granularity="weekly"` rows (the default, and
+  every log that existed before this phase) always pass through
+  unchanged, regardless of weekday or spacing — grouping by calendar
+  week regardless of tag was rejected as a real regression risk for
+  accounts that don't log on a fixed weekday. `MetricsSeriesService.
+  compute_series_for_user` calls the resampler once, so every existing
+  consumer (`/api/metrics/*`, `/api/alerts`, adherence) keeps its 1:1
+  logs/results assumption with no further changes; `GET /api/logs`
+  still lists every raw row. The representative row for a resampled
+  week is its max-date member's own real `log_id`, so the per-log
+  `metrics_snapshots` cache needed no schema change.
+- The symmetric **daily view** (`LogResampler.daily_view`) — a weekly
+  log's values copy-pasted across every day since the previous one, the
+  same "hold the last known value" idea `activity_model="constant"`
+  already uses going forward, just applied backward across days a
+  single log covers — is implemented and unit-tested but not yet wired
+  to a route or UI, since nothing in the app has a per-day display today.
+- An account that only ever logs weekly sees no change in behavior
+  whatsoever (proven by the full pre-existing test suite staying green
+  untouched).
 
 ### Phase 3.4 — Oleada 2: TEF by macronutrients (planned)
 

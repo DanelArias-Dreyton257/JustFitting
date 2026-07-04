@@ -411,15 +411,53 @@ display-smoothing constant, not per-account overridable, unlike the new
 `reconciliation_error_threshold_kcal` (default `300` kcal/day) the
 "recalibrate" alert below uses. Exposed via `GET /api/metrics/energy-balance`.
 
-### F6 — Daily and weekly logs coexist; each view resamples the other
+### F6 — Daily and weekly logs coexist; each view resamples the other (done)
 
 Revised design (beyond the source doc, which only specifies the
 weekly-from-daily direction): rather than a separate `DailyEntry` table
 that exists purely to feed a required weekly rollup, a log row carries a
-`granularity = daily | weekly` tag, the same way it already carries
-`source = real | projected` — one table, one new discriminator, not a new
-entity. Every consumer resolves whichever granularity it needs from
-whatever's actually stored, in both directions:
+`granularity = daily | weekly` tag (`body_logs`, migration 15, default
+`'weekly'`, CHECK-constrained like the existing `source` column), the same
+way it already carries `source = real | projected` — one table, one new
+discriminator, not a new entity. Every consumer resolves whichever
+granularity it needs from whatever's actually stored, in both directions:
+
+Implemented as a new pure module, `services/LogResampler.py`
+(`resample_to_weekly`, `daily_view`) — not under `services/composition/`,
+since it operates on persisted `BodyLog` rows and runs strictly *before*
+`LogInput` construction, not on the engine's own compute chain; no
+`ENGINE_VERSION` bump was needed. `MetricsSeriesService.compute_series_for_user`
+calls `resample_to_weekly` once, immediately after sorting a user's raw
+logs, so every downstream consumer (`metrics_routes.py`, `alerts_routes.py`
+via `AlertSyncService`, `LogManager.compute_adherence`) keeps receiving a
+1:1 logs/results pair exactly as before — none of them needed to change.
+`GET /api/logs` (the raw log table) is untouched and always lists every
+individual row, daily or weekly.
+
+**Safety rule, load-bearing for backward compatibility**: only rows
+tagged `granularity="daily"` are ever grouped. A `"weekly"` row (the
+default, and every row that existed before this feature) always passes
+through as its own week, byte-for-byte unchanged, regardless of what
+weekday it falls on or how close together consecutive logs are —
+identical to today's behavior for every existing account. Grouping *all*
+rows by calendar week regardless of tag was considered and rejected: an
+account that doesn't log on a fixed weekday could have two legitimately
+distinct weekly logs land in the same ISO week and get wrongly merged — a
+real regression risk. Daily-tagged rows are grouped by ISO calendar week
+(`date.isocalendar()[:2]`); the representative row for each group is the
+max-date member (a real `log_id`, so `metrics_snapshots`'s
+`UNIQUE(log_id, engine_version)` FK stays valid with no schema change).
+
+**Field-resampling convention** (the source spec only defines
+weight/steps/cardio; `validate_log_input` requires waist/neck/intake too,
+so they need a documented convention of their own): weight uses
+**median** (robust to a single day's water/sodium swing, per spec);
+steps/cardio use **mean** (spec-specified); waist/neck/intake extend the
+same mean convention, since they lack weight's volatility argument;
+`intake_is_real` is **AND-reduced** across the week's member rows (a week
+counts as real-intake only if every logged day's intake was real) — this
+adherence-relevant rule isn't in the source spec and is this
+implementation's own conservative-by-design choice.
 
 **Weekly view of daily logs** (what the source doc specifies — needed by
 `CompositionEngine`, which is inherently a weekly-cadence engine):
@@ -453,12 +491,14 @@ idea, just applied in opposite time directions.
 **Net effect**: an account's granularity choice per log only needs
 recording once, at capture time — no migration, no forced rollup step,
 and mixed history (some weeks daily, some weekly) resolves correctly
-either way. Optional, not required for F1–F5/F7/F8: a per-day
-target-calorie figure combining that day's NEAT, its cardio, the week's
-BMR, and the daily surplus/deficit share — noted by the source doc as the
-natural foundation for the already-recorded (README "Phase 2.1",
-unscheduled) automatic steps/cardio import from Health Connect / Google
-Fit.
+either way. `daily_view` is implemented and unit-tested but not yet wired
+to an API route or UI, since nothing in the app has a per-day display
+today — it's a ready-made building block for the still-unscheduled README
+"Phase 2.1" automatic steps/cardio import idea. Optional, not required for
+F1–F5/F7/F8: a per-day target-calorie figure combining that day's NEAT,
+its cardio, the week's BMR, and the daily surplus/deficit share — noted by
+the source doc as the natural foundation for that same automatic
+steps/cardio import from Health Connect / Google Fit.
 
 ### F7 — Real increment and deviation analytics (done)
 
