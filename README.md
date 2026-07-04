@@ -7,15 +7,17 @@ model (BMR / NEAT / TDEE / target calories), a goal trajectory (target
 weight, weekly deficit, weeks-to-goal), and a forecast of future weeks.
 
 Try it: run `scripts/install.sh` then `scripts/run.sh`, open
-`http://127.0.0.1:5500`, and log in with `admin` / `adminadmin` (seeded by
-`scripts/seed_demo_data.sh`) to see a populated dashboard.
+`http://127.0.0.1:5500`, and log in with `admin_cut` / `adminadmin` (a cut,
+resembling Danel) or `admin_bulk` / `adminadmin` (a bulk, resembling
+Sergio) — both seeded by `scripts/seed_demo_data.sh` — to see a populated
+dashboard.
 
 ## Getting Started
 
 ```bash
 scripts/install.sh          # create the conda env, .env, and justfitting.db
 scripts/run.sh               # start the server (5000) and client (5500)
-scripts/seed_demo_data.sh    # optional: admin/adminadmin + reference logs
+scripts/seed_demo_data.sh    # optional: admin_cut/admin_bulk + reference logs
 ```
 
 Or manually (commands are run from the repo root):
@@ -49,14 +51,14 @@ All scripts live in `scripts/` and `cd` to the repo root themselves.
 | --- | --- |
 | `install.sh` | Create the `justfitting` conda env and `justfitting.db`. Run once. |
 | `run.sh` | Start server + client together; Ctrl+C stops both. |
-| `update.sh` | `conda env update --prune`; apply pending DB migrations. |
+| `update.sh` | `conda env update --prune`; re-apply the (idempotent) DB schema. |
 | `reset_db.sh [path]` | Delete the SQLite file (confirms unless `FORCE=1`). |
-| `seed_demo_data.sh` | Register `admin`/`adminadmin` and seed the Danel reference series. No-op if already seeded. |
+| `seed_demo_data.sh` | Register `admin_cut`/`admin_bulk` (both `adminadmin`) and seed their Danel (cut) and Sergio (bulk) reference series. No-op per-account if already seeded. |
 | `uninstall.sh [path]` | Remove the conda env and optionally the DB. |
 | `build_static_site.py [api_base_url]` | Build the client into `dist/` for a static host or the Android app (see **Android app** below). |
 
-Set `JUSTFITTING_SEED_DEMO=true` to auto-seed the Danel demo on an empty
-DB at server boot, so a fresh/ephemeral deploy is always demoable.
+Set `JUSTFITTING_SEED_DEMO=true` to auto-seed both demo accounts on an
+empty DB at server boot, so a fresh/ephemeral deploy is always demoable.
 
 ## Deployment
 

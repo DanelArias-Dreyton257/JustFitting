@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `data/db/DB.py`'s versioned migration runner (19 numbered migrations,
+  `PRAGMA user_version` tracking) replaced with a single idempotent
+  `SCHEMA` script (`CREATE TABLE IF NOT EXISTS`/`CREATE INDEX IF NOT
+  EXISTS`, applied on every connect). This project keeps no real user
+  data that a migration history needs to carry forward through schema
+  changes -- a linear migration list only paid for itself if an existing
+  database's data mattered, which it doesn't here (see the README/
+  CHANGELOG for the schema's evolution as narrative history). A schema
+  change going forward is just an edit to `SCHEMA`; an out-of-date local
+  `justfitting.db` is deleted and recreated (`scripts/reset_db.sh` +
+  `scripts/seed_demo_data.sh`), not migrated in place.
+  `server/test/DB_test.py`'s migration-specific tests (idempotency of
+  `.migrate()`, the v4 backfill-then-drop-columns replay) were replaced
+  with one test that re-running `SCHEMA` against an already-initialized
+  database doesn't error or lose data; every other DAO-level test is
+  unaffected.
+- `services/DemoSeeder.py` now seeds **two** demo accounts instead of one:
+  `admin_cut` (Danel's cut reference series, unchanged) and `admin_bulk`
+  (a new Sergio-resembling bulk reference series), both password
+  `adminadmin`. `admin_bulk` is also given customized `EngineSettings`
+  (`bmr_model="mifflin"`, `tef_mode="macros"`) and its most recent 4 weeks
+  are logged at daily granularity with carb/fat/protein grams, so the
+  seeded database actually exercises Phase 3/3.1/3.2/3.3/3.4's bulk-mode,
+  cardio, gain-quality, energy-reconciliation, daily-granularity and
+  macro-TEF/macro-target code paths end to end, not just the original
+  Danel cut. `LogManager.py` gained the parallel `SERGIO_PROFILE`/
+  `seed_bulk_reference_series` (Danel's `seed_reference_series` and its
+  constants are untouched -- composition_spec.md's golden reference stays
+  exactly as documented). `seed_if_empty` seeds each account
+  independently (idempotent per-account) and takes an optional
+  `engine_settings_manager` parameter; `api/app.py` and
+  `scripts/seed_demo_data.py` updated to pass it through.
+  New `server/test/DemoSeeder_test.py` covers both accounts' profiles,
+  idempotency, the bulk account's customized settings and mixed daily/
+  macro-logged series, and the backward-compatible no-`engine_settings_
+  manager` path.
+
 ### Added
 
 - Phase 3.4: Oleada 2 TEF by macronutrients — **Phase 3 (Oleada 2) is now
