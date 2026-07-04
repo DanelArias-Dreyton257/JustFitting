@@ -53,6 +53,13 @@ class EngineConstants:
     kappa_protein: float = constants.KAPPA_PROTEIN
     macro_kcal_mismatch_pct: float = constants.MACRO_KCAL_MISMATCH_PCT
 
+    # Phase 3.4 extension -- evidence-based macro targets (g/kg body mass);
+    # carbs derive as the remainder of target_calories, so there's no
+    # carbs_target_g_per_kg field (see services/composition/MacroTargets.py).
+    protein_target_g_per_kg: float = constants.PROTEIN_TARGET_G_PER_KG
+    fat_target_g_per_kg: float = constants.FAT_TARGET_G_PER_KG
+    macro_target_deviation_pct: float = constants.MACRO_TARGET_DEVIATION_PCT
+
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
 

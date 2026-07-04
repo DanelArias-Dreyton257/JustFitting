@@ -824,6 +824,47 @@ class ApiTestCase(unittest.TestCase):
             delta=0.01,
         )
 
+    def test_macro_targets_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/macro-targets", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_macro_targets_reflects_default_g_per_kg_and_actual_when_logged(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/macro-targets", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        # First seeded log: weight 97.0 kg, defaults 1.75/0.70 g per kg.
+        self.assertAlmostEqual(rows[0]["protein_target_g"], 1.75 * 97.0, delta=0.01)
+        self.assertAlmostEqual(rows[0]["fat_target_g"], 0.70 * 97.0, delta=0.01)
+        self.assertFalse(rows[0]["has_actual"])
+
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-11",
+                "weight_kg": 96.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2300.0,
+                "steps": 6000,
+                "carbs_g": 200.0,
+                "fat_g": 70.0,
+                "protein_g": 180.0,
+            },
+            headers=headers,
+        )
+        rows = self.client.get("/api/metrics/macro-targets", headers=headers).get_json()
+        macros_row = rows[-1]
+        self.assertTrue(macros_row["has_actual"])
+        self.assertAlmostEqual(macros_row["protein_actual_kcal"], 180.0 * 4.0)
+
     def test_acknowledge_alert_removes_it_from_the_default_list(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -1061,6 +1102,26 @@ class ApiTestCase(unittest.TestCase):
             headers=self._auth_header(token),
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_macro_targets(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        default_body = get_response.get_json()
+        self.assertAlmostEqual(default_body["protein_target_g_per_kg"], 1.75)
+        self.assertAlmostEqual(default_body["fat_target_g_per_kg"], 0.70)
+        self.assertAlmostEqual(default_body["macro_target_deviation_pct"], 0.20)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"protein_target_g_per_kg": 2.0, "fat_target_g_per_kg": 0.9},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        body = update_response.get_json()
+        self.assertAlmostEqual(body["protein_target_g_per_kg"], 2.0)
+        self.assertAlmostEqual(body["fat_target_g_per_kg"], 0.9)
 
     def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
         token = self._register().get_json()["token"]

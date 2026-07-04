@@ -11,6 +11,7 @@ from server.src.data.dto.AdherenceDTO import AdherenceDTO
 from server.src.data.dto.EnergyReconciliationDTO import EnergyReconciliationDTO
 from server.src.data.dto.GainQualityDTO import GainQualityDTO
 from server.src.data.dto.IncrementAnalyticsDTO import IncrementAnalyticsDTO
+from server.src.data.dto.MacroTargetsDTO import MacroTargetsDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.TefDTO import TefDTO
 from server.src.services.composition import (
@@ -18,6 +19,7 @@ from server.src.services.composition import (
     EnergyReconciliation,
     GainQuality,
     IncrementAnalytics,
+    MacroTargets,
     Tef,
 )
 from server.src.services.MetricsSeriesService import compute_series_for_user
@@ -125,6 +127,20 @@ def tef():
     )
     rows = Tef.compute_tef_breakdown(logs, results, ec)
     return jsonify([asdict(TefDTO.from_domain(row)) for row in rows])
+
+
+@metrics_bp.get("/macro-targets")
+@require_auth
+def macro_targets():
+    logs, results = _compute_results(g.user_id)
+    if not results:
+        return jsonify({"error": "no logs yet"}), 404
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    ec = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(g.user_id)
+    )
+    rows = MacroTargets.compute_macro_targets(logs, results, ec)
+    return jsonify([asdict(MacroTargetsDTO.from_domain(row)) for row in rows])
 
 
 @metrics_bp.get("/increment-analytics")

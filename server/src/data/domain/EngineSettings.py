@@ -39,6 +39,9 @@ class EngineSettings:
     kappa_fat: float
     kappa_protein: float
     macro_kcal_mismatch_pct: float
+    protein_target_g_per_kg: float
+    fat_target_g_per_kg: float
+    macro_target_deviation_pct: float
     start_date: date
     active: bool
     created_at: datetime
@@ -71,6 +74,9 @@ class EngineSettings:
             kappa_fat=row["kappa_fat"],
             kappa_protein=row["kappa_protein"],
             macro_kcal_mismatch_pct=row["macro_kcal_mismatch_pct"],
+            protein_target_g_per_kg=row["protein_target_g_per_kg"],
+            fat_target_g_per_kg=row["fat_target_g_per_kg"],
+            macro_target_deviation_pct=row["macro_target_deviation_pct"],
             start_date=date.fromisoformat(row["start_date"]),
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),

@@ -11,6 +11,7 @@ from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import Alerts
 from server.src.services.composition.EnergyReconciliation import EnergyReconciliationRow
 from server.src.services.composition.GainQuality import GainQualityRow
+from server.src.services.composition.MacroTargets import MacroTargetsRow
 from server.src.services.composition.models import CompositionResult, EngineConstants
 
 BASE_DATE = date(2026, 1, 4)
@@ -368,6 +369,58 @@ class MacroKcalMismatchAlertTest(unittest.TestCase):
     def test_omitting_logs_skips_the_detector(self):
         alerts = Alerts.detect_alerts([make_result(0)])
         self.assertFalse(any(a.type == "macro_kcal_mismatch" for a in alerts))
+
+
+class MacroTargetDeviationAlertTest(unittest.TestCase):
+    """Phase 3.4 extension: a week's logged protein/fat diverging from its
+    per-kg target is flagged (not blocked); carbs (a derived remainder)
+    are never checked."""
+
+    def _row(self, protein_actual_g=None, fat_actual_g=None, target_g=150.0):
+        return MacroTargetsRow(
+            date=BASE_DATE,
+            protein_target_g=target_g,
+            fat_target_g=target_g,
+            carbs_target_g=200.0,
+            protein_target_kcal=target_g * 4.0,
+            fat_target_kcal=target_g * 9.0,
+            carbs_target_kcal=800.0,
+            has_actual=protein_actual_g is not None,
+            protein_actual_g=protein_actual_g,
+            fat_actual_g=fat_actual_g,
+            carbs_actual_g=200.0 if protein_actual_g is not None else None,
+            protein_actual_kcal=None,
+            fat_actual_kcal=None,
+            carbs_actual_kcal=None,
+        )
+
+    def test_flags_protein_far_below_target(self):
+        macro_targets = [self._row(protein_actual_g=90.0, fat_actual_g=150.0, target_g=150.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], macro_targets=macro_targets)
+        flagged = [a for a in alerts if a.type == "protein_target_deviation"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_does_not_flag_a_close_match(self):
+        macro_targets = [self._row(protein_actual_g=145.0, fat_actual_g=150.0, target_g=150.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], macro_targets=macro_targets)
+        self.assertFalse(any(a.type == "protein_target_deviation" for a in alerts))
+
+    def test_flags_fat_far_above_target(self):
+        macro_targets = [self._row(protein_actual_g=150.0, fat_actual_g=250.0, target_g=150.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], macro_targets=macro_targets)
+        flagged = [a for a in alerts if a.type == "fat_target_deviation"]
+        self.assertEqual(len(flagged), 1)
+
+    def test_no_macros_logged_is_never_flagged(self):
+        macro_targets = [self._row(protein_actual_g=None, fat_actual_g=None)]
+        alerts = Alerts.detect_alerts([make_result(0)], macro_targets=macro_targets)
+        self.assertFalse(any(a.type == "protein_target_deviation" for a in alerts))
+        self.assertFalse(any(a.type == "fat_target_deviation" for a in alerts))
+
+    def test_omitting_macro_targets_skips_the_detector(self):
+        alerts = Alerts.detect_alerts([make_result(0)])
+        self.assertFalse(any(a.type == "protein_target_deviation" for a in alerts))
 
 
 if __name__ == "__main__":

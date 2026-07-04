@@ -40,6 +40,9 @@ FIELDS = (
     "kappa_fat",
     "kappa_protein",
     "macro_kcal_mismatch_pct",
+    "protein_target_g_per_kg",
+    "fat_target_g_per_kg",
+    "macro_target_deviation_pct",
 )
 
 #: (min exclusive?, max exclusive?) sanity bounds -- generous, just enough
@@ -68,6 +71,9 @@ _BOUNDS = {
     "kappa_fat": (0.0, None),
     "kappa_protein": (0.0, None),
     "macro_kcal_mismatch_pct": (0.0, 1.0),
+    "protein_target_g_per_kg": (0.0, None),
+    "fat_target_g_per_kg": (0.0, None),
+    "macro_target_deviation_pct": (0.0, 1.0),
 }
 
 _VALID_BMR_MODELS = ("cunningham", "mifflin")

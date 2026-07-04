@@ -18,6 +18,7 @@ from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import constants
 from server.src.services.composition.EnergyReconciliation import EnergyReconciliationRow
 from server.src.services.composition.GainQuality import GainQualityRow
+from server.src.services.composition.MacroTargets import MacroTargetsRow
 from server.src.services.composition.models import (
     DEFAULT_ENGINE_CONSTANTS,
     CompositionResult,
@@ -41,7 +42,7 @@ class Alert:
 
     type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
     # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate" |
-    # "macro_kcal_mismatch"
+    # "macro_kcal_mismatch" | "protein_target_deviation" | "fat_target_deviation"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -281,6 +282,43 @@ def _macro_kcal_mismatch_alerts(
     return alerts
 
 
+def _macro_target_deviation_alerts(
+    macro_targets: Sequence[MacroTargetsRow], thresholds: EngineConstants
+) -> List[Alert]:
+    """Flag (not block) a week whose logged protein or fat diverges from its
+    per-kg target (Phase 3.4 extension) by more than the configured relative
+    share -- carbs are a derived remainder, not an independent target, so
+    they're not checked here."""
+    alerts = []
+    for row in macro_targets:
+        if not row.has_actual:
+            continue
+        for macro_name, actual_g, target_g in (
+            ("protein", row.protein_actual_g, row.protein_target_g),
+            ("fat", row.fat_actual_g, row.fat_target_g),
+        ):
+            if target_g <= 0:
+                continue
+            relative_gap = (actual_g - target_g) / target_g
+            if abs(relative_gap) <= thresholds.macro_target_deviation_pct:
+                continue
+            direction = "below" if relative_gap < 0 else "above"
+            alerts.append(
+                Alert(
+                    type=f"{macro_name}_target_deviation",
+                    severity="info",
+                    date=row.date,
+                    message=(
+                        f"{macro_name.capitalize()} intake ({actual_g:.0f} g) is "
+                        f"{abs(relative_gap):.0%} {direction} the {target_g:.0f} g target."
+                    ),
+                    value=relative_gap,
+                    threshold=thresholds.macro_target_deviation_pct,
+                )
+            )
+    return alerts
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
@@ -288,6 +326,7 @@ def detect_alerts(
     gain_quality: Optional[Sequence[GainQualityRow]] = None,
     reconciliation: Optional[Sequence[EnergyReconciliationRow]] = None,
     logs: Optional[Sequence[_LogLike]] = None,
+    macro_targets: Optional[Sequence[MacroTargetsRow]] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -299,7 +338,9 @@ def detect_alerts(
     it just skips those. ``gain_quality``/``reconciliation`` (Phase 3.2) feed
     the dirty-bulk/recalibrate detectors; omitting either just skips its
     detector. ``logs`` (Phase 3.4) feeds the macro-kcal-mismatch detector;
-    omitting it just skips that detector too.
+    omitting it just skips that detector too. ``macro_targets`` (Phase 3.4
+    extension) feeds the protein/fat-target-deviation detectors; omitting it
+    just skips those too.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -312,5 +353,6 @@ def detect_alerts(
         + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
         + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
         + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])
+        + (_macro_target_deviation_alerts(macro_targets, thresholds) if macro_targets else [])
     )
     return sorted(alerts, key=lambda a: a.date)

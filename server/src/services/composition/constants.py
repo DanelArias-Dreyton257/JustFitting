@@ -138,3 +138,19 @@ ATWATER_PROTEIN_KCAL_PER_G = 4.0
 #: pattern. The source doc raises this coherence check without proposing a
 #: number; this default is this implementation's own reasoned choice.
 MACRO_KCAL_MISMATCH_PCT = 0.15
+
+#: Evidence-based per-kg-bodyweight macro targets -- an extension beyond the
+#: F9 source doc, not scoped there. Protein and fat are set directly;
+#: carbs are the "remainder of calories" once protein/fat's kcal share is
+#: subtracted from target_calories, so there's no carbs-per-kg constant.
+#: Sports-nutrition literature commonly cites 1.6-2.2 g/kg protein and
+#: 0.5-0.8 g/kg fat for a cut, and 1.5-2.0 g/kg protein and 0.7-1.0 g/kg fat
+#: for a bulk -- these defaults are a single mid-point inside both ranges,
+#: meant to be tuned per account within whichever range applies.
+PROTEIN_TARGET_G_PER_KG = 1.75
+FAT_TARGET_G_PER_KG = 0.70
+
+#: A week's logged protein/fat grams vs. its per-kg target differing by more
+#: than this relative share is flagged (not blocked) -- own reasoned
+#: default, same flag-not-block pattern as MACRO_KCAL_MISMATCH_PCT above.
+MACRO_TARGET_DEVIATION_PCT = 0.20

@@ -103,6 +103,17 @@ class EngineSettingsManagerTest(unittest.TestCase):
         with self.assertRaises(EngineSettingsManagerError):
             self.manager.update_settings(self.user_id, macro_kcal_mismatch_pct=1.5)
 
+    def test_accepts_valid_macro_target_overrides(self):
+        updated = self.manager.update_settings(
+            self.user_id, protein_target_g_per_kg=2.0, fat_target_g_per_kg=0.9
+        )
+        self.assertAlmostEqual(updated.protein_target_g_per_kg, 2.0)
+        self.assertAlmostEqual(updated.fat_target_g_per_kg, 0.9)
+
+    def test_rejects_out_of_bounds_macro_target_deviation_pct(self):
+        with self.assertRaises(EngineSettingsManagerError):
+            self.manager.update_settings(self.user_id, macro_target_deviation_pct=1.5)
+
     def test_bf_weights_must_sum_to_one_when_all_three_overridden(self):
         with self.assertRaises(EngineSettingsManagerError):
             self.manager.update_settings(self.user_id, w_rfm=0.6, w_navy=0.3, w_deur=0.3)

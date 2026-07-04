@@ -31,6 +31,9 @@ class EngineSettingsDTO:
     kappa_fat: float
     kappa_protein: float
     macro_kcal_mismatch_pct: float
+    protein_target_g_per_kg: float
+    fat_target_g_per_kg: float
+    macro_target_deviation_pct: float
     is_default: bool
     settings_id: Optional[int] = None
     start_date: Optional[str] = None
@@ -67,6 +70,9 @@ class EngineSettingsDTO:
                 kappa_fat=defaults.kappa_fat,
                 kappa_protein=defaults.kappa_protein,
                 macro_kcal_mismatch_pct=defaults.macro_kcal_mismatch_pct,
+                protein_target_g_per_kg=defaults.protein_target_g_per_kg,
+                fat_target_g_per_kg=defaults.fat_target_g_per_kg,
+                macro_target_deviation_pct=defaults.macro_target_deviation_pct,
                 is_default=True,
             )
         return EngineSettingsDTO(
@@ -93,6 +99,9 @@ class EngineSettingsDTO:
             kappa_fat=settings.kappa_fat,
             kappa_protein=settings.kappa_protein,
             macro_kcal_mismatch_pct=settings.macro_kcal_mismatch_pct,
+            protein_target_g_per_kg=settings.protein_target_g_per_kg,
+            fat_target_g_per_kg=settings.fat_target_g_per_kg,
+            macro_target_deviation_pct=settings.macro_target_deviation_pct,
             is_default=False,
             settings_id=settings.settings_id,
             start_date=settings.start_date.isoformat(),

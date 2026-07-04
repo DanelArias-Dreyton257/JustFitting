@@ -11,7 +11,7 @@ from typing import List
 from flask import Flask
 
 from server.src.data.domain.AlertLog import AlertLog
-from server.src.services.composition import Alerts, EnergyReconciliation, GainQuality
+from server.src.services.composition import Alerts, EnergyReconciliation, GainQuality, MacroTargets
 from server.src.services.MetricsSeriesService import compute_series_for_user
 
 
@@ -30,6 +30,9 @@ def sync_alerts(
         if results
         else []
     )
+    macro_targets = (
+        MacroTargets.compute_macro_targets(logs, results, thresholds) if results else []
+    )
     detected = Alerts.detect_alerts(
         results,
         thresholds,
@@ -37,6 +40,7 @@ def sync_alerts(
         gain_quality=gain_quality,
         reconciliation=reconciliation,
         logs=logs,
+        macro_targets=macro_targets,
     )
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)

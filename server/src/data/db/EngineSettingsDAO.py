@@ -38,6 +38,9 @@ class EngineSettingsDAO:
         kappa_fat: float,
         kappa_protein: float,
         macro_kcal_mismatch_pct: float,
+        protein_target_g_per_kg: float,
+        fat_target_g_per_kg: float,
+        macro_target_deviation_pct: float,
         start_date: date,
         active: bool = True,
     ) -> EngineSettings:
@@ -54,8 +57,10 @@ class EngineSettingsDAO:
                  reconciliation_error_threshold_kcal,
                  tef_mode, kappa_carbs, kappa_fat, kappa_protein,
                  macro_kcal_mismatch_pct,
+                 protein_target_g_per_kg, fat_target_g_per_kg,
+                 macro_target_deviation_pct,
                  start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -82,6 +87,9 @@ class EngineSettingsDAO:
                 kappa_fat,
                 kappa_protein,
                 macro_kcal_mismatch_pct,
+                protein_target_g_per_kg,
+                fat_target_g_per_kg,
+                macro_target_deviation_pct,
                 start_date.isoformat(),
                 int(active),
                 created_at,

@@ -268,6 +268,14 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE metrics_snapshots ADD COLUMN tef_mode TEXT NOT NULL DEFAULT 'flat';
         """,
     ),
+    (
+        19,
+        """
+        ALTER TABLE engine_settings ADD COLUMN protein_target_g_per_kg REAL NOT NULL DEFAULT 1.75;
+        ALTER TABLE engine_settings ADD COLUMN fat_target_g_per_kg REAL NOT NULL DEFAULT 0.70;
+        ALTER TABLE engine_settings ADD COLUMN macro_target_deviation_pct REAL NOT NULL DEFAULT 0.20;
+        """,
+    ),
 ]
 
 
