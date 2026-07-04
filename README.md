@@ -102,10 +102,11 @@ These are one-off steps in the GitHub/Render UIs, not run by any workflow:
 4. Add the Render service's Deploy Hook URL as the repo secret
    `RENDER_DEPLOY_HOOK_URL` (Settings → Secrets and variables → Actions →
    Secrets).
-5. If `JUSTFITTING_CORS_ORIGINS` is locked down to an allowlist rather
-   than left at its default `*`, set it on the Render service to include
-   the GitHub Pages origin (and `https://localhost` for the Android app —
-   see **Android app** below).
+
+CORS needs no setup: the server allows any origin by default
+(`JUSTFITTING_CORS_ORIGINS`, unset, defaults to `*`), the same choice
+Priotask makes -- auth is a bearer token attached by the client itself,
+not a cookie, so there's no CSRF exposure from allowing any origin.
 
 ### Known limitation
 

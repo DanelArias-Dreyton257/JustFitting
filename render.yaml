@@ -13,5 +13,3 @@ services:
         value: 3.12.7
       - key: JUSTFITTING_SEED_DEMO
         value: "true" # auto-seeds the two demo accounts on every boot of an empty DB
-      - key: JUSTFITTING_CORS_ORIGINS
-        sync: false
