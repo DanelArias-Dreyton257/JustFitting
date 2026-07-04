@@ -554,6 +554,50 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertAlmostEqual(rows[1]["fat_ratio_ideal"], 0.25)
 
+    def test_energy_balance_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/energy-balance", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_energy_balance_reflects_ingested_vs_tissue_surplus(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/energy-balance", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 2)
+        self.assertIsNotNone(rows[0]["surplus_ingested_kcal"])
+        self.assertIsNotNone(rows[0]["surplus_tissue_kcal"])
+        self.assertIsNotNone(rows[0]["error_kcal"])
+        # The most recent week has no *next* week's tissue change to compare yet.
+        self.assertIsNone(rows[1]["surplus_tissue_kcal"])
+        self.assertIsNone(rows[1]["error_kcal"])
+        self.assertAlmostEqual(rows[0]["error_threshold_kcal"], 300.0)
+
+    def test_increment_analytics_without_logs_returns_404(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/increment-analytics", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_increment_analytics_skips_the_base_week_and_tracks_the_goal_rate(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get("/api/metrics/increment-analytics", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = response.get_json()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date"], "2026-01-04")
+        self.assertAlmostEqual(rows[0]["goal_weekly_rate"], -0.005)
+        self.assertIsNotNone(rows[0]["deviation_pct"])
+
     def test_acknowledge_alert_removes_it_from_the_default_list(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -741,6 +785,25 @@ class ApiTestCase(unittest.TestCase):
             headers=self._auth_header(token),
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_settings_update_reconciliation_error_threshold(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        self.assertAlmostEqual(
+            get_response.get_json()["reconciliation_error_threshold_kcal"], 300.0
+        )
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"reconciliation_error_threshold_kcal": 150.0},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertAlmostEqual(
+            update_response.get_json()["reconciliation_error_threshold_kcal"], 150.0
+        )
 
     def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
         token = self._register().get_json()["token"]

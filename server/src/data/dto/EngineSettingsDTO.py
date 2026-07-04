@@ -25,6 +25,7 @@ class EngineSettingsDTO:
     ffmi_coef: float
     lean_tissue_kcal_per_kg: float
     fat_ratio_ideal: float
+    reconciliation_error_threshold_kcal: float
     is_default: bool
     settings_id: Optional[int] = None
     start_date: Optional[str] = None
@@ -55,6 +56,7 @@ class EngineSettingsDTO:
                 ffmi_coef=defaults.ffmi_coef,
                 lean_tissue_kcal_per_kg=defaults.lean_tissue_kcal_per_kg,
                 fat_ratio_ideal=defaults.fat_ratio_ideal,
+                reconciliation_error_threshold_kcal=defaults.reconciliation_error_threshold_kcal,
                 is_default=True,
             )
         return EngineSettingsDTO(
@@ -75,6 +77,7 @@ class EngineSettingsDTO:
             ffmi_coef=settings.ffmi_coef,
             lean_tissue_kcal_per_kg=settings.lean_tissue_kcal_per_kg,
             fat_ratio_ideal=settings.fat_ratio_ideal,
+            reconciliation_error_threshold_kcal=settings.reconciliation_error_threshold_kcal,
             is_default=False,
             settings_id=settings.settings_id,
             start_date=settings.start_date.isoformat(),

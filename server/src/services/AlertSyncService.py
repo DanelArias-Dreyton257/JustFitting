@@ -11,20 +11,28 @@ from typing import List
 from flask import Flask
 
 from server.src.data.domain.AlertLog import AlertLog
-from server.src.services.composition import Alerts
+from server.src.services.composition import Alerts, EnergyReconciliation, GainQuality
 from server.src.services.MetricsSeriesService import compute_series_for_user
 
 
 def sync_alerts(
     app: Flask, user_id: int, include_acknowledged: bool = False
 ) -> List[AlertLog]:
-    _, results = compute_series_for_user(app, user_id)
+    logs, results = compute_series_for_user(app, user_id)
     engine_settings_manager = app.extensions["engine_settings_manager"]
     thresholds = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)
     )
     goal = app.extensions["goal_plan_manager"].get_active(user_id)
-    detected = Alerts.detect_alerts(results, thresholds, goal)
+    gain_quality = GainQuality.compute_gain_quality(results) if results else []
+    reconciliation = (
+        EnergyReconciliation.compute_energy_reconciliation(logs, results, thresholds)
+        if results
+        else []
+    )
+    detected = Alerts.detect_alerts(
+        results, thresholds, goal, gain_quality=gain_quality, reconciliation=reconciliation
+    )
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)
     return alert_log_dao.list_for_user(user_id, include_acknowledged=include_acknowledged)

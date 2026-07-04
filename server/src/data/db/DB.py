@@ -231,6 +231,12 @@ MIGRATIONS: List[Tuple[int, str]] = [
         ALTER TABLE body_logs ADD COLUMN cardio_kcal REAL NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        14,
+        """
+        ALTER TABLE engine_settings ADD COLUMN reconciliation_error_threshold_kcal REAL NOT NULL DEFAULT 300.0;
+        """,
+    ),
 ]
 
 

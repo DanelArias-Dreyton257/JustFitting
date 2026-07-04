@@ -8,9 +8,16 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from server.src.api.auth import require_auth
 from server.src.data.dto.AdherenceDTO import AdherenceDTO
+from server.src.data.dto.EnergyReconciliationDTO import EnergyReconciliationDTO
 from server.src.data.dto.GainQualityDTO import GainQualityDTO
+from server.src.data.dto.IncrementAnalyticsDTO import IncrementAnalyticsDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
-from server.src.services.composition import CompositionEngine, GainQuality
+from server.src.services.composition import (
+    CompositionEngine,
+    EnergyReconciliation,
+    GainQuality,
+    IncrementAnalytics,
+)
 from server.src.services.MetricsSeriesService import compute_series_for_user
 
 metrics_bp = Blueprint("metrics", __name__, url_prefix="/api/metrics")
@@ -82,4 +89,38 @@ def gain_quality():
     rows = GainQuality.compute_gain_quality(results)
     return jsonify(
         [asdict(GainQualityDTO.from_domain(row, ec.fat_ratio_ideal)) for row in rows]
+    )
+
+
+@metrics_bp.get("/energy-balance")
+@require_auth
+def energy_balance():
+    logs, results = _compute_results(g.user_id)
+    if not results:
+        return jsonify({"error": "no logs yet"}), 404
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    ec = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(g.user_id)
+    )
+    rows = EnergyReconciliation.compute_energy_reconciliation(logs, results, ec)
+    return jsonify(
+        [
+            asdict(EnergyReconciliationDTO.from_domain(row, ec.reconciliation_error_threshold_kcal))
+            for row in rows
+        ]
+    )
+
+
+@metrics_bp.get("/increment-analytics")
+@require_auth
+def increment_analytics():
+    _, results = _compute_results(g.user_id)
+    if not results:
+        return jsonify({"error": "no logs yet"}), 404
+    goal = current_app.extensions["goal_plan_manager"].get_active(g.user_id)
+    if goal is None:
+        return jsonify({"error": "no goal plan yet"}), 404
+    rows = IncrementAnalytics.compute_increment_analytics(results, goal.weekly_rate)
+    return jsonify(
+        [asdict(IncrementAnalyticsDTO.from_domain(row, goal.weekly_rate)) for row in rows]
     )

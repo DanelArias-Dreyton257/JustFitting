@@ -8,6 +8,8 @@ from datetime import date, timedelta
 
 from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import Alerts
+from server.src.services.composition.EnergyReconciliation import EnergyReconciliationRow
+from server.src.services.composition.GainQuality import GainQualityRow
 from server.src.services.composition.models import CompositionResult, EngineConstants
 
 BASE_DATE = date(2026, 1, 4)
@@ -228,6 +230,105 @@ class BulkRateAlertTest(unittest.TestCase):
         results = [make_result(0)]
         alerts = Alerts.detect_alerts(results, goal=None)
         self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
+
+
+class DirtyBulkAlertTest(unittest.TestCase):
+    """Phase 3.2, F5/F8: a bulk week whose gain is fatter than the ideal
+    ceiling is flagged (not blocked)."""
+
+    def _row(self, week_offset=0, fat_ratio=None):
+        return GainQualityRow(
+            date=BASE_DATE + timedelta(days=7 * week_offset),
+            delta_lean_kg=0.0,
+            delta_fat_kg=0.0,
+            delta_lean_kg_cum=0.0,
+            delta_fat_kg_cum=0.0,
+            fat_ratio=fat_ratio,
+            fat_ratio_cumulative=fat_ratio,
+        )
+
+    def test_flags_a_fat_heavy_bulk_week(self):
+        gain_quality = [self._row(0, fat_ratio=0.4)]
+        alerts = Alerts.detect_alerts(
+            [make_result(0)], goal=make_goal(0.003), gain_quality=gain_quality
+        )
+        flagged = [a for a in alerts if a.type == "dirty_bulk"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_does_not_flag_a_clean_bulk_week(self):
+        gain_quality = [self._row(0, fat_ratio=0.15)]
+        alerts = Alerts.detect_alerts(
+            [make_result(0)], goal=make_goal(0.003), gain_quality=gain_quality
+        )
+        self.assertFalse(any(a.type == "dirty_bulk" for a in alerts))
+
+    def test_does_not_flag_a_cut_goal(self):
+        gain_quality = [self._row(0, fat_ratio=0.9)]
+        alerts = Alerts.detect_alerts(
+            [make_result(0)], goal=make_goal(-0.005), gain_quality=gain_quality
+        )
+        self.assertFalse(any(a.type == "dirty_bulk" for a in alerts))
+
+    def test_undefined_fat_ratio_is_never_flagged(self):
+        gain_quality = [self._row(0, fat_ratio=None)]
+        alerts = Alerts.detect_alerts(
+            [make_result(0)], goal=make_goal(0.003), gain_quality=gain_quality
+        )
+        self.assertFalse(any(a.type == "dirty_bulk" for a in alerts))
+
+    def test_omitting_gain_quality_skips_the_detector(self):
+        alerts = Alerts.detect_alerts([make_result(0)], goal=make_goal(0.003))
+        self.assertFalse(any(a.type == "dirty_bulk" for a in alerts))
+
+
+class RecalibrateAlertTest(unittest.TestCase):
+    """Phase 3.2, F5: a reconciliation error above threshold is flagged
+    (not blocked)."""
+
+    def _row(self, week_offset=0, error_kcal=None):
+        return EnergyReconciliationRow(
+            date=BASE_DATE + timedelta(days=7 * week_offset),
+            surplus_ingested_kcal=0.0,
+            surplus_tissue_kcal=0.0,
+            error_kcal=error_kcal,
+            error_rolling_mean_kcal=error_kcal,
+        )
+
+    def test_flags_an_error_above_threshold(self):
+        reconciliation = [self._row(0, error_kcal=400.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], reconciliation=reconciliation)
+        flagged = [a for a in alerts if a.type == "recalibrate"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_does_not_flag_an_error_within_threshold(self):
+        reconciliation = [self._row(0, error_kcal=100.0)]
+        alerts = Alerts.detect_alerts([make_result(0)], reconciliation=reconciliation)
+        self.assertFalse(any(a.type == "recalibrate" for a in alerts))
+
+    def test_undefined_error_is_never_flagged(self):
+        reconciliation = [self._row(0, error_kcal=None)]
+        alerts = Alerts.detect_alerts([make_result(0)], reconciliation=reconciliation)
+        self.assertFalse(any(a.type == "recalibrate" for a in alerts))
+
+    def test_omitting_reconciliation_skips_the_detector(self):
+        alerts = Alerts.detect_alerts([make_result(0)])
+        self.assertFalse(any(a.type == "recalibrate" for a in alerts))
+
+    def test_custom_threshold_shifts_the_boundary(self):
+        reconciliation = [self._row(0, error_kcal=150.0)]
+        default_alerts = Alerts.detect_alerts(
+            [make_result(0)], reconciliation=reconciliation
+        )
+        self.assertFalse(any(a.type == "recalibrate" for a in default_alerts))
+
+        tighter = Alerts.detect_alerts(
+            [make_result(0)],
+            EngineConstants(reconciliation_error_threshold_kcal=100.0),
+            reconciliation=reconciliation,
+        )
+        self.assertTrue(any(a.type == "recalibrate" for a in tighter))
 
 
 if __name__ == "__main__":

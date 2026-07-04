@@ -32,6 +32,7 @@ class EngineSettingsDAO:
         ffmi_coef: float,
         lean_tissue_kcal_per_kg: float,
         fat_ratio_ideal: float,
+        reconciliation_error_threshold_kcal: float,
         start_date: date,
         active: bool = True,
     ) -> EngineSettings:
@@ -45,8 +46,9 @@ class EngineSettingsDAO:
                  max_lean_mass_loss_share, significant_deviation_kg,
                  bmr_model, w_rfm, w_navy, w_deur, delta, ffmi_coef,
                  lean_tissue_kcal_per_kg, fat_ratio_ideal,
+                 reconciliation_error_threshold_kcal,
                  start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -67,6 +69,7 @@ class EngineSettingsDAO:
                 ffmi_coef,
                 lean_tissue_kcal_per_kg,
                 fat_ratio_ideal,
+                reconciliation_error_threshold_kcal,
                 start_date.isoformat(),
                 int(active),
                 created_at,

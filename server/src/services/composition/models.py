@@ -40,6 +40,11 @@ class EngineConstants:
     lean_tissue_kcal_per_kg: float = constants.LEAN_TISSUE_KCAL_PER_KG
     fat_ratio_ideal: float = constants.FAT_RATIO_IDEAL
 
+    # Phase 3.2 (Oleada 2, F5) -- energy reconciliation.
+    reconciliation_error_threshold_kcal: float = (
+        constants.RECONCILIATION_ERROR_THRESHOLD_KCAL
+    )
+
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
 

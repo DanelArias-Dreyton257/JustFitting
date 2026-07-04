@@ -16,6 +16,8 @@ from typing import List, Optional, Sequence
 
 from server.src.data.domain.GoalPlan import GoalPlan
 from server.src.services.composition import constants
+from server.src.services.composition.EnergyReconciliation import EnergyReconciliationRow
+from server.src.services.composition.GainQuality import GainQualityRow
 from server.src.services.composition.models import (
     DEFAULT_ENGINE_CONSTANTS,
     CompositionResult,
@@ -28,7 +30,7 @@ class Alert:
     """A single user-facing feedback item anchored to one log's date."""
 
     type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
-    # "deviation" | "bulk_rate_out_of_range"
+    # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -172,10 +174,71 @@ def _bulk_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
     ]
 
 
+def _dirty_bulk_alerts(
+    gain_quality: Sequence[GainQualityRow],
+    thresholds: EngineConstants,
+    goal: Optional[GoalPlan],
+) -> List[Alert]:
+    """Flag (not block) a bulk week whose fat share of the gain exceeds the
+    ideal ceiling (Phase 3.2, F5/F8) -- only meaningful for a bulk goal, and
+    only on a genuine net-gain week (`fat_ratio` is `None` otherwise, see
+    `GainQuality._safe_ratio`)."""
+    if goal is None or goal.direction != "bulk":
+        return []
+    alerts = []
+    for row in gain_quality:
+        if row.fat_ratio is None or row.fat_ratio <= thresholds.fat_ratio_ideal:
+            continue
+        alerts.append(
+            Alert(
+                type="dirty_bulk",
+                severity="info",
+                date=row.date,
+                message=(
+                    f"This week's gain was {row.fat_ratio:.0%} fat, above the "
+                    f"{thresholds.fat_ratio_ideal:.0%} ideal ceiling for a clean bulk."
+                ),
+                value=row.fat_ratio,
+                threshold=thresholds.fat_ratio_ideal,
+            )
+        )
+    return alerts
+
+
+def _recalibrate_alerts(
+    reconciliation: Sequence[EnergyReconciliationRow],
+    thresholds: EngineConstants,
+) -> List[Alert]:
+    """Flag (not block) a week whose ingested-vs-tissue energy-balance error
+    exceeds the configured threshold (Phase 3.2, F5) -- a persistently large
+    gap suggests the energy model needs recalibrating for this account."""
+    alerts = []
+    for row in reconciliation:
+        if row.error_kcal is None or row.error_kcal <= thresholds.reconciliation_error_threshold_kcal:
+            continue
+        alerts.append(
+            Alert(
+                type="recalibrate",
+                severity="info",
+                date=row.date,
+                message=(
+                    f"Energy-balance error was {row.error_kcal:.0f} kcal/day, above "
+                    f"the {thresholds.reconciliation_error_threshold_kcal:.0f} kcal/day "
+                    "threshold -- consider recalibrating your engine settings."
+                ),
+                value=row.error_kcal,
+                threshold=thresholds.reconciliation_error_threshold_kcal,
+            )
+        )
+    return alerts
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
     goal: Optional[GoalPlan] = None,
+    gain_quality: Optional[Sequence[GainQualityRow]] = None,
+    reconciliation: Optional[Sequence[EnergyReconciliationRow]] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -183,8 +246,10 @@ def detect_alerts(
     each detector orders/filters what it needs. ``thresholds`` overrides
     the per-user alert thresholds (Phase 1.5); defaults to today's fixed
     `constants.py` values. ``goal`` is the account's active goal plan, used
-    only by the bulk-rate-range detector (Phase 3); omitting it just skips
-    that one detector.
+    by the bulk-rate-range and dirty-bulk detectors (Phase 3/3.2); omitting
+    it just skips those. ``gain_quality``/``reconciliation`` (Phase 3.2) feed
+    the dirty-bulk/recalibrate detectors; omitting either just skips its
+    detector.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -194,5 +259,7 @@ def detect_alerts(
         + _excessive_lean_loss_alerts(ordered, thresholds)
         + _deviation_alerts(ordered, thresholds)
         + _bulk_rate_alerts(goal)
+        + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
+        + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
     )
     return sorted(alerts, key=lambda a: a.date)

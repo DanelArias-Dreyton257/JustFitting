@@ -34,6 +34,7 @@ FIELDS = (
     "ffmi_coef",
     "lean_tissue_kcal_per_kg",
     "fat_ratio_ideal",
+    "reconciliation_error_threshold_kcal",
 )
 
 #: (min exclusive?, max exclusive?) sanity bounds -- generous, just enough
@@ -57,6 +58,7 @@ _BOUNDS = {
     "ffmi_coef": (0.0, None),
     "lean_tissue_kcal_per_kg": (0.0, None),
     "fat_ratio_ideal": (0.0, 1.0),
+    "reconciliation_error_threshold_kcal": (0.0, None),
 }
 
 _VALID_BMR_MODELS = ("cunningham", "mifflin")

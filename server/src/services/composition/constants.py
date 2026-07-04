@@ -91,3 +91,18 @@ FAT_RATIO_IDEAL = 0.25
 #: IMPLAUSIBLE_WEEKLY_CHANGE_PCT's flag-not-block pattern.
 BULK_RATE_MIN = 0.0025
 BULK_RATE_MAX = 0.005
+
+#: Phase 3.2 (Oleada 2, F5/F7) -- energy reconciliation & increment analytics.
+#: See docs/composition_spec.md's "Oleada 2" section, F5.
+
+#: |ingested surplus - tissue surplus| (kcal/day) beyond this many kcal is
+#: flagged (not blocked) as a "recalibrate" alert -- same flag-not-block
+#: pattern as every other alert threshold above, and per-account
+#: overridable via `EngineConstants.reconciliation_error_threshold_kcal`.
+RECONCILIATION_ERROR_THRESHOLD_KCAL = 300.0
+
+#: How many of the most recent computed weekly errors feed the rolling-mean
+#: view `EnergyReconciliation.py` surfaces alongside the raw per-week error.
+#: Not per-account overridable (like WEIGHTED_TREND_DECAY above) -- it's a
+#: display smoothing window, not a physiological constant.
+ENERGY_RECONCILIATION_WINDOW_WEEKS = 4
