@@ -1,4 +1,6 @@
 # JustFitting
+[![CI](https://github.com/DanelArias-Dreyton257/JustFitting/actions/workflows/ci.yml/badge.svg)](https://github.com/DanelArias-Dreyton257/JustFitting/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/DanelArias-Dreyton257/JustFitting)](https://github.com/DanelArias-Dreyton257/JustFitting/releases/latest)
 
 A weekly body-composition tracker. Log a handful of easy home measurements
 — weight, waist, neck, mean calorie intake, mean daily steps — and
@@ -6,11 +8,15 @@ JustFitting derives your body-fat %, fat/lean mass split, a full energy
 model (BMR / NEAT / TDEE / target calories), a goal trajectory (target
 weight, weekly deficit, weeks-to-goal), and a forecast of future weeks.
 
-Try it: run `scripts/install.sh` then `scripts/run.sh`, open
-`http://127.0.0.1:5500`, and log in with `admin_cut` / `adminadmin` (a cut,
-resembling Danel) or `admin_bulk` / `adminadmin` (a bulk, resembling
-Sergio) — both seeded by `scripts/seed_demo_data.sh` — to see a populated
-dashboard.
+Try it out! https://danelarias-dreyton257.github.io/JustFitting/ — log in
+with `admin_cut` / `adminadmin` (a cut, resembling Danel) or `admin_bulk` /
+`adminadmin` (a bulk, resembling Sergio) to see a populated dashboard. The
+API is on Render's free tier, so the first request after idling may take
+up to a minute to wake it up.
+
+Or run it locally: `scripts/install.sh` then `scripts/run.sh`, open
+`http://127.0.0.1:5500`, and log in with the same demo accounts — both
+seeded by `scripts/seed_demo_data.sh`.
 
 ## Getting Started
 
