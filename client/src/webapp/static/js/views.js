@@ -23,7 +23,14 @@ function formatAdherence(adherence) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
 }
 
-export function renderDashboardStats(container, metrics, adherence, gainQualityLatest) {
+export function renderDashboardStats(
+  container,
+  metrics,
+  adherence,
+  gainQualityLatest,
+  energyBalanceLatest,
+  incrementAnalyticsLatest
+) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
@@ -47,6 +54,28 @@ export function renderDashboardStats(container, metrics, adherence, gainQualityL
       "Cumulative fat ratio",
       `<span class="badge ${clean ? "active" : "inactive"}">${pct.toFixed(0)}% (ideal ≤${idealPct.toFixed(0)}%)</span>`,
     ]);
+  }
+  if (energyBalanceLatest && energyBalanceLatest.error_rolling_mean_kcal != null) {
+    const err = energyBalanceLatest.error_rolling_mean_kcal;
+    const overThreshold = err > energyBalanceLatest.error_threshold_kcal;
+    tiles.push([
+      "Energy-balance error (rolling)",
+      `<span class="badge ${overThreshold ? "inactive" : "active"}">${err.toFixed(0)} kcal/day</span>`,
+    ]);
+  }
+  if (incrementAnalyticsLatest) {
+    tiles.push([
+      "Avg weekly increment",
+      `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}% (goal ${(
+        incrementAnalyticsLatest.goal_weekly_rate * 100
+      ).toFixed(2)}%)`,
+    ]);
+    if (incrementAnalyticsLatest.deviation_pct != null) {
+      tiles.push([
+        "Deviation from goal rate",
+        `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`,
+      ]);
+    }
   }
   container.innerHTML = tiles
     .map(
@@ -135,6 +164,7 @@ export function fillSettingsForm(form, dto) {
   form.ffmi_coef.value = dto.ffmi_coef;
   form.lean_tissue_kcal_per_kg.value = dto.lean_tissue_kcal_per_kg;
   form.fat_ratio_ideal_pct.value = (dto.fat_ratio_ideal * 100).toFixed(0);
+  form.reconciliation_error_threshold_kcal.value = dto.reconciliation_error_threshold_kcal;
 }
 
 export function renderSettingsStatus(container, dto) {

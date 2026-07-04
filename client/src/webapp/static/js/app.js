@@ -78,7 +78,17 @@ function navigate(viewName) {
 }
 
 async function refreshDashboard() {
-  const [latest, series, logs, alerts, adherence, goals, gainQuality] = await Promise.all([
+  const [
+    latest,
+    series,
+    logs,
+    alerts,
+    adherence,
+    goals,
+    gainQuality,
+    energyBalance,
+    incrementAnalytics,
+  ] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.listLogs().catch(() => []),
@@ -86,13 +96,17 @@ async function refreshDashboard() {
     api.adherence().catch(() => null),
     api.goals().catch(() => []),
     api.gainQuality().catch(() => []),
+    api.energyBalance().catch(() => []),
+    api.incrementAnalytics().catch(() => []),
   ]);
   state.series = series;
   renderDashboardStats(
     document.getElementById("dashboard-stats"),
     latest,
     adherence,
-    gainQuality[gainQuality.length - 1]
+    gainQuality[gainQuality.length - 1],
+    energyBalance[energyBalance.length - 1],
+    incrementAnalytics[incrementAnalytics.length - 1]
   );
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
@@ -186,6 +200,32 @@ async function refreshDashboard() {
       fat: row.delta_fat_kg,
       lean: row.delta_lean_kg,
     }))
+  );
+
+  const reconciledWeeks = energyBalance.filter(
+    (row) => row.surplus_ingested_kcal != null && row.surplus_tissue_kcal != null
+  );
+  drawMultiLineChart(
+    document.getElementById("chart-energy-balance"),
+    reconciledWeeks,
+    [
+      { accessor: (row) => row.surplus_ingested_kcal, color: "#5eb3ff", label: "Ingested" },
+      { accessor: (row) => row.surplus_tissue_kcal, color: "#f0b94d", label: "Tissue" },
+    ]
+  );
+
+  drawMultiLineChart(
+    document.getElementById("chart-increment-analytics"),
+    incrementAnalytics,
+    [
+      { accessor: (row) => row.incr_real_pct * 100, color: "#5eb3ff", label: "Actual" },
+      {
+        accessor: (row) => row.goal_weekly_rate * 100,
+        color: "#7ee787",
+        dashed: true,
+        label: "Goal rate",
+      },
+    ]
   );
 }
 
@@ -511,6 +551,7 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     ffmi_coef: Number(raw.ffmi_coef),
     lean_tissue_kcal_per_kg: Number(raw.lean_tissue_kcal_per_kg),
     fat_ratio_ideal: Number(raw.fat_ratio_ideal_pct) / 100,
+    reconciliation_error_threshold_kcal: Number(raw.reconciliation_error_threshold_kcal),
   };
   try {
     await api.updateSettings(payload);

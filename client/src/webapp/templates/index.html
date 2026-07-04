@@ -122,6 +122,22 @@
           <h3>Gain quality: weekly lean vs fat change (kg)</h3>
           <svg id="chart-gain-quality" class="chart"></svg>
         </div>
+        <div class="chart-card">
+          <h3>Energy reconciliation: ingested vs tissue surplus (kcal/day)</h3>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Ingested</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f0b94d"></span>Tissue</span>
+          </div>
+          <svg id="chart-energy-balance" class="chart"></svg>
+        </div>
+        <div class="chart-card">
+          <h3>Weekly increment vs goal rate (%)</h3>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#5eb3ff"></span>Actual</span>
+            <span class="legend-item"><span class="legend-dot legend-dot--dashed" style="background:#7ee787"></span>Goal rate</span>
+          </div>
+          <svg id="chart-increment-analytics" class="chart"></svg>
+        </div>
       </div>
     </section>
 
@@ -283,6 +299,7 @@
         <label>FFMI coefficient <input name="ffmi_coef" type="number" step="0.1" required /></label>
         <label>Lean-tissue energy density (kcal/kg) <input name="lean_tissue_kcal_per_kg" type="number" step="1" required /></label>
         <label>Ideal fat ratio ceiling (%) <input name="fat_ratio_ideal_pct" type="number" step="1" required /></label>
+        <label>Reconciliation error threshold (kcal/day) <input name="reconciliation_error_threshold_kcal" type="number" step="1" min="0" required /></label>
 
         <button type="submit">Save settings</button>
         <p class="form-error" data-for="settings-form"></p>

@@ -54,6 +54,8 @@ export const api = {
   metricsSeries: () => request("GET", "/api/metrics/series"),
   adherence: () => request("GET", "/api/metrics/adherence"),
   gainQuality: () => request("GET", "/api/metrics/gain-quality"),
+  energyBalance: () => request("GET", "/api/metrics/energy-balance"),
+  incrementAnalytics: () => request("GET", "/api/metrics/increment-analytics"),
   alerts: (includeAcknowledged = false) =>
     request("GET", `/api/alerts?include_acknowledged=${includeAcknowledged}`),
   acknowledgeAlert: (alertId) => request("POST", `/api/alerts/${alertId}/acknowledge`),
