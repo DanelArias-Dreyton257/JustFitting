@@ -1,5 +1,5 @@
 """Directly-computed thermic-effect-of-food from logged macronutrient grams
-(Phase 3.4, F9) -- see docs/composition_spec.md's "Oleada 2" section, F9.
+(Phase 3.4, F9) -- see docs/composition_spec.md's "Wave 2" section, F9.
 
 `compute_tef_kcal` is called directly by `CompositionEngine.compute_row`
 (deciding *whether* to use it -- account `tef_mode` plus this week having

@@ -29,7 +29,7 @@ from server.src.services.composition.models import (
     ProfileParams,
 )
 
-#: Bumped 1 -> 2 for Phase 3.4 (Oleada 2, F9): `CompositionResult` gained
+#: Bumped 1 -> 2 for Phase 3.4 (Wave 2, F9): `CompositionResult` gained
 #: `tef_kcal`/`tef_mode`, and a week with `tef_mode="macros"` and logged
 #: macros now uses an additive (not divisor) TDEE/target-calories formula --
 #: old snapshots at version 1 can't be reinterpreted under the new fields,
@@ -62,7 +62,7 @@ def validate_log_input(log: LogInput) -> None:
     if log.waist_cm <= log.neck_cm:
         raise ValueError("waist_cm must be greater than neck_cm")
 
-    # Phase 3.4 (Oleada 2, F9): macros are logged together or not at all --
+    # Phase 3.4 (Wave 2, F9): macros are logged together or not at all --
     # there's no principled way to compute a macro-based TEF from a partial
     # trio, so a partial log is rejected rather than silently falling back.
     macro_fields = {
@@ -152,7 +152,7 @@ def compute_row(
         log.carbs_g is not None and log.fat_g is not None and log.protein_g is not None
     )
     if ec.tef_mode == "macros" and has_macros:
-        # Phase 3.4 (Oleada 2, F9): a directly-summed kcal figure, added
+        # Phase 3.4 (Wave 2, F9): a directly-summed kcal figure, added
         # (not divided) into TDEE/target-calories -- see
         # docs/composition_spec.md's F9 section for why this replaces the
         # flat approximation additively rather than as another percentage.

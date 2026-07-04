@@ -262,7 +262,7 @@ done.
 
 A second source document, `docs/JustFitting_Oleada2_Sergio.pdf` (v1.0),
 specifies an entirely new bulk/volume module (eight capabilities, F1–F8)
-on top of the same core engine; see Phase 3 below, and the "Oleada 2"
+on top of the same core engine; see Phase 3 below, and the "Wave 2"
 sections of `docs/composition_spec.md` (formulas) and
 `docs/product_capabilities_spec.md` (capabilities, data model,
 validations) for the full spec. A **third** source document,
@@ -271,7 +271,7 @@ capability (F9) on top of that module: real TEF computed from logged
 carb/fat/protein grams instead of a flat 10% guess — see Phase 3.4, which
 also ships one capability beyond either source document (evidence-based
 protein/fat intake targets by body mass). **F1–F9 are all done as of
-Phase 3.4 — Phase 3 (Oleada 2) is complete**, with nothing left
+Phase 3.4 — Phase 3 (Wave 2) is complete**, with nothing left
 unscheduled from either source doc's own capability list.
 
 ### Phase 1 — Core engine (done)
@@ -368,10 +368,10 @@ aren't lost:
 - **Local/offline data mode** — see the design note in the Android app
   section below.
 
-### Phase 3 — Oleada 2: bulk/volume engine foundation (done)
+### Phase 3 — Wave 2: bulk/volume engine foundation (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F1, F4, F8). Lands the
-per-account configuration and BMR model choice everything else in Oleada 2
+per-account configuration and BMR model choice everything else in Wave 2
 builds on, without touching any existing (cut-mode) computed values:
 
 - Goal engine grows a `direction = cut | bulk` label derived from
@@ -389,7 +389,7 @@ builds on, without touching any existing (cut-mode) computed values:
   constant — not a per-request query param like `trend_model`/
   `activity_model`, since BMR choice affects every metrics computation, not
   just an ephemeral forecast.
-- `EngineSettings` grows Oleada 2's calibration constants — `delta` (fat
+- `EngineSettings` grows Wave 2's calibration constants — `delta` (fat
   offset), `ffmi_coef` (promoted from a literal in `Anthropometry.py`),
   `w_rfm`/`w_navy`/`w_deur` (promoted from fixed `constants.py` globals,
   guarded to sum to `1.0` when all three are overridden together),
@@ -407,10 +407,10 @@ builds on, without touching any existing (cut-mode) computed values:
   Mifflin-BMR bulk profile). `docs/composition_spec.md`'s "Formula
   reconciliation" works out why TEF should stay a divisor (not the
   multiplier the source spreadsheet uses) for both directions, so the only
-  actual formula addition across all of Oleada 2 is the cardio/EAT term
+  actual formula addition across all of Wave 2 is the cardio/EAT term
   from Phase 3.1 below, default `0`.
 
-### Phase 3.1 — Oleada 2: cardio input & gain-quality tracking (done)
+### Phase 3.1 — Wave 2: cardio input & gain-quality tracking (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F2, F3). The central new
 capability of the module — "is this bulk clean?":
@@ -432,7 +432,7 @@ capability of the module — "is this bulk clean?":
   go negative on a loss week) and a cumulative-fat-ratio-vs-ideal stat
   tile.
 
-### Phase 3.2 — Oleada 2: energy reconciliation & increment analytics (done)
+### Phase 3.2 — Wave 2: energy reconciliation & increment analytics (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F5, F7). Closes the loop
 between the energy model and what's actually being measured:
@@ -468,7 +468,7 @@ between the energy model and what's actually being measured:
   increment/deviation. The Settings view's "Body-fat & BMR calibration"
   section gained the new reconciliation-error-threshold field.
 
-### Phase 3.3 — Oleada 2: daily and weekly logs coexist (done)
+### Phase 3.3 — Wave 2: daily and weekly logs coexist (done)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (F6), generalized beyond
 what the source doc specifies. The natural foundation for the Phase 2.1
@@ -509,13 +509,13 @@ what the source doc specifies. The natural foundation for the Phase 2.1
   whatsoever (proven by the full pre-existing test suite staying green
   untouched).
 
-### Phase 3.4 — Oleada 2: TEF by macronutrients (done) — Phase 3 complete
+### Phase 3.4 — Wave 2: TEF by macronutrients (done) — Phase 3 complete
 
 Source: `docs/JustFitting_TEF_Macronutrientes.pdf` (F9). The single
-biggest precision upgrade in Oleada 2's energy model — landed last in the
+biggest precision upgrade in Wave 2's energy model — landed last in the
 sequence because it needs Phase 3.3's daily granularity to have somewhere
 to read macros from, not because it's minor. **With this phase, F1–F9 are
-all implemented — Phase 3 (Oleada 2) is complete**, with nothing left
+all implemented — Phase 3 (Wave 2) is complete**, with nothing left
 unscheduled from either source document's eight-plus-one capabilities:
 
 - Optional `carbs_g`/`fat_g`/`protein_g` grams on any logged row

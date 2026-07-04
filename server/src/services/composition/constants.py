@@ -63,8 +63,8 @@ SIGNIFICANT_DEVIATION_KG = 1.0
 #: this factor, two weeks older by its square, and so on.
 WEIGHTED_TREND_DECAY = 0.85
 
-#: Oleada 2 (Phase 3) calibration constants -- see docs/composition_spec.md's
-#: "Oleada 2" section, F8. All default to values that reproduce today's
+#: Wave 2 (Phase 3) calibration constants -- see docs/composition_spec.md's
+#: "Wave 2" section, F8. All default to values that reproduce today's
 #: Danel numbers exactly; every field below is promoted to a per-account
 #: overridable `EngineConstants`/`EngineSettings` field (Phase 3), same
 #: "no row = today's behavior" contract as every constant above.
@@ -92,8 +92,8 @@ FAT_RATIO_IDEAL = 0.25
 BULK_RATE_MIN = 0.0025
 BULK_RATE_MAX = 0.005
 
-#: Phase 3.2 (Oleada 2, F5/F7) -- energy reconciliation & increment analytics.
-#: See docs/composition_spec.md's "Oleada 2" section, F5.
+#: Phase 3.2 (Wave 2, F5/F7) -- energy reconciliation & increment analytics.
+#: See docs/composition_spec.md's "Wave 2" section, F5.
 
 #: |ingested surplus - tissue surplus| (kcal/day) beyond this many kcal is
 #: flagged (not blocked) as a "recalibrate" alert -- same flag-not-block
@@ -107,9 +107,9 @@ RECONCILIATION_ERROR_THRESHOLD_KCAL = 300.0
 #: display smoothing window, not a physiological constant.
 ENERGY_RECONCILIATION_WINDOW_WEEKS = 4
 
-#: Phase 3.4 (Oleada 2, F9) -- TEF computed directly from logged
+#: Phase 3.4 (Wave 2, F9) -- TEF computed directly from logged
 #: carb/fat/protein grams instead of the flat 10% (`TEF` above) guess.
-#: See docs/composition_spec.md's "Oleada 2" section, F9.
+#: See docs/composition_spec.md's "Wave 2" section, F9.
 
 #: kcal per gram of macro, each decomposed as energy density (kcal/g) times
 #: that macro's characteristic thermic fraction: carbs 4 * 7.5%, fat 9 *

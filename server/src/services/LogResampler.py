@@ -22,7 +22,7 @@ from server.src.data.domain.BodyLog import BodyLog
 
 
 def _mean_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
-    """Phase 3.4 (Oleada 2, F9): average whatever days logged this macro
+    """Phase 3.4 (Wave 2, F9): average whatever days logged this macro
     (minimum 1), rather than requiring every day in the week -- the same
     graceful-degradation philosophy as weight's median above. `None` if no
     day in the group logged it at all."""

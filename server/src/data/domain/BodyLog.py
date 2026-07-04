@@ -22,7 +22,7 @@ class BodyLog:
     source: str  # "real" | "projected"
     created_at: datetime
     granularity: str = "weekly"  # "daily" | "weekly"
-    # Phase 3.4 (Oleada 2, F9): together or not at all (see
+    # Phase 3.4 (Wave 2, F9): together or not at all (see
     # CompositionEngine.validate_log_input); meaningful mainly on a
     # daily-granularity row, but not restricted to one.
     carbs_g: Optional[float] = None

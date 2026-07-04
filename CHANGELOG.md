@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Phase 3.4: Oleada 2 TEF by macronutrients — **Phase 3 (Oleada 2) is now
+- Phase 3.4: Wave 2 TEF by macronutrients — **Phase 3 (Wave 2) is now
   complete** (F1–F9 all implemented; see README's roadmap).
   - **TEF from logged macros (F9)**: optional `carbs_g`/`fat_g`/
     `protein_g` on `BodyLog` (migration 16, nullable, logged together or
@@ -162,7 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     proving an account that never logs macros is completely unaffected.
   - `sw.js`'s `CACHE_NAME` bumped (`-v9` -> `-v10`) for the wizard/
     Settings/Dashboard UI changes.
-- Phase 3: Oleada 2 bulk/volume engine foundation (see README's roadmap).
+- Phase 3: Wave 2 bulk/volume engine foundation (see README's roadmap).
   - **Cut/bulk direction**: `GoalPlan.direction` (a `@property`, `"bulk"`
     iff `weekly_rate > 0`, no new column) is now exposed on
     `GET /api/users/me` and `GET /api/users/me/goals`. A new
@@ -187,7 +187,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     every metrics computation, not just an ephemeral forecast.
     `CompositionEngine.compute_row` branches on it at the same call site
     that used to always call Cunningham.
-  - **Oleada 2 calibration constants**: `EngineConstants`/`EngineSettings`
+  - **Wave 2 calibration constants**: `EngineConstants`/`EngineSettings`
     grow `delta` (fat-percentage offset, default `0.0`), `ffmi_coef`
     (default `6.3`, promoted from a literal previously hardcoded in
     `Anthropometry.py`), `w_rfm`/`w_navy`/`w_deur` (defaults
@@ -226,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sw.js`'s `CACHE_NAME` bumped (`-v5` -> `-v6`) for the Settings/Plan/
     Goal-history UI changes, same reasoning as every prior static-asset
     change.
-- Phase 3.1: Oleada 2 cardio input & gain-quality tracking (see README's
+- Phase 3.1: Wave 2 cardio input & gain-quality tracking (see README's
   roadmap).
   - **Cardio (EAT) input**: `cardio_kcal` on `body_logs` (migration 13,
     default `0`), threaded through `LogInput`, `LogManager.create_log`/
@@ -267,7 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     endpoint's 404 and happy path).
   - `sw.js`'s `CACHE_NAME` bumped (`-v6` -> `-v7`) for the Dashboard/log
     wizard/log table changes.
-- Phase 3.3: Oleada 2 daily and weekly logs coexist (see README's
+- Phase 3.3: Wave 2 daily and weekly logs coexist (see README's
   roadmap).
   - **Granularity tag**: `body_logs` gains `granularity = daily | weekly`
     (migration 15, default `'weekly'`, CHECK-constrained the same way as
@@ -325,7 +325,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     proving weekly-only accounts are completely unaffected.
   - `sw.js`'s `CACHE_NAME` bumped (`-v8` -> `-v9`) for the wizard/log-table
     UI changes.
-- Phase 3.2: Oleada 2 energy reconciliation & increment analytics (see
+- Phase 3.2: Wave 2 energy reconciliation & increment analytics (see
   README's roadmap).
   - **Energy reconciliation (F5)**: a new pure module,
     `services/composition/EnergyReconciliation.py`

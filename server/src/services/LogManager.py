@@ -76,7 +76,7 @@ DEMO_INTAKE_START = 2400.0
 DEMO_INTAKE_END = 2014.30
 
 #: Sergio's bulk/volume reference profile (docs/composition_spec.md's
-#: "Oleada 2" section) -- a second worked profile alongside Danel's above,
+#: "Wave 2" section) -- a second worked profile alongside Danel's above,
 #: a lean bulk instead of a cut. The source doc only gives a single-week
 #: snapshot, not a full series, so the boundary logs and trajectory below
 #: are this implementation's own plausible demo data, not a documented

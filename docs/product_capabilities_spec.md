@@ -87,7 +87,7 @@ engine's formulas or compute order ever change.
 See `README.md`'s roadmap section for how these gaps are grouped into
 implementation phases.
 
-## Oleada 2 — new functional capabilities (source: `docs/JustFitting_Oleada2_Sergio.pdf`, v1.0)
+## Wave 2 — new functional capabilities (source: `docs/JustFitting_Oleada2_Sergio.pdf`, v1.0)
 
 Everything above (§14–§16) comes from the original "Danel" (cut/deficit)
 spec and is implemented. This section records a **second** source
@@ -95,7 +95,7 @@ document — a bulk/volume ("Sergio") profile verified against a separate
 spreadsheet — that specifies eight new capabilities. F1–F9 (Phases 3, 3.1,
 3.2, 3.3 and 3.4) are all now implemented, plus a Phase 3.4 extension
 beyond either source doc (macro targets by body mass, below) — Phase 3
-(Oleada 2) is complete. See `docs/composition_spec.md`'s "Oleada 2" section for the full
+(Wave 2) is complete. See `docs/composition_spec.md`'s "Wave 2" section for the full
 formulas, including its "Formula reconciliation" note: the source
 document's literal TDEE/target-calorie formulas look different from
 Danel's (TEF as a multiplier, a different weight basis for the surplus),
@@ -110,7 +110,7 @@ A **third** source document, `docs/JustFitting_TEF_Macronutrientes.pdf`
 10% TEF approximation the reconciliation above justifies with a value
 computed from actually-logged carb/fat/protein grams, once F6's daily
 granularity is in place. It's the biggest single accuracy upgrade in
-Oleada 2 — two accounts with identical calories/steps/weight but
+Wave 2 — two accounts with identical calories/steps/weight but
 different macro splits get genuinely different, physiologically-grounded
 energy estimates instead of the same flat number. Phase 3.4 also shipped
 one capability beyond either source PDF: evidence-based protein/fat
@@ -144,7 +144,7 @@ macro logging existed.
 | `BodyLog` | `+ cardio_kcal (done), + granularity (daily \| weekly) (done, Phase 3.3), + carbs_g, fat_g, protein_g (done, Phase 3.4, migration 16, nullable, together or not at all)` (macros only meaningful on daily-granularity rows, but not restricted to them) | F2/F6/F9: one table, no separate `DailyEntry`/`DailyMacroEntry` entity — F6's granularity tag was already the right foundation for F9's macro fields too. |
 | `GoalPlan` | `direction` derived from `weekly_rate`'s sign (no new column needed, unless a UI wants to store the user's intent independent of the numeric rate) | F1: cut vs. bulk labeling. |
 | `EngineSettings` | `+ fat_offset, bf_weight_rfm, bf_weight_navy, bf_weight_deurenberg, ffmi_coef, lean_tissue_kcal_per_kg, fat_ratio_ideal` (F8, done); `+ tef_mode, kappa_carbs, kappa_fat, kappa_protein, macro_kcal_mismatch_pct` (F9, done, migration 17); `+ protein_target_g_per_kg, fat_target_g_per_kg, macro_target_deviation_pct` (F9+ extension, done, migration 19) | F8/F9/F9+, all historized/overridable like the Phase 1.5 fields. |
-| `CalculatedMetrics` snapshot | `+ tef_kcal, tef_mode` (F9, done, migration 18) | F9 output, same snapshot-per-`(log_id, engine_version)` pattern as today — this one *did* need an `ENGINE_VERSION` bump (`1 -> 2`), unlike every other Oleada 2 addition, since the TDEE/target-calories formula genuinely branches on `tef_mode` rather than being a read-side view. F3's gain-quality, F5/F7's reconciliation/increment figures, and F9+'s macro targets are *not* persisted this way -- like `Alerts.py`, they're read-side derived views recomputed from the already-cached series, not new snapshot columns. |
+| `CalculatedMetrics` snapshot | `+ tef_kcal, tef_mode` (F9, done, migration 18) | F9 output, same snapshot-per-`(log_id, engine_version)` pattern as today — this one *did* need an `ENGINE_VERSION` bump (`1 -> 2`), unlike every other Wave 2 addition, since the TDEE/target-calories formula genuinely branches on `tef_mode` rather than being a read-side view. F3's gain-quality, F5/F7's reconciliation/increment figures, and F9+'s macro targets are *not* persisted this way -- like `Alerts.py`, they're read-side derived views recomputed from the already-cached series, not new snapshot columns. |
 
 ### API additions
 
@@ -158,7 +158,7 @@ macro logging existed.
 - `tef_mode` is **not** a per-request parameter on metrics/projection endpoints — it's account-level only (`EngineSettings.tef_mode`, historized), the same design call as F4's `bmr_model` and for the same reason: it changes every metrics computation for an account, not just an ephemeral forecast. **Done (Phase 3.4)**, deliberately deviating from the source doc's "account setting + optional per-request override" wording.
 - `EngineSettings` read/write endpoints (`GET`/`PUT /api/users/me/settings`, already existing) extended with the F8 fields, including Phase 3.2's `reconciliation_error_threshold_kcal`, Phase 3.4's F9 fields (`tef_mode`, `kappa_carbs/fat/protein`, `macro_kcal_mismatch_pct`), and the F9+ extension's macro-target fields (`protein_target_g_per_kg`, `fat_target_g_per_kg`, `macro_target_deviation_pct`). **Done.**
 
-### Validations, assumptions and limitations (Oleada 2)
+### Validations, assumptions and limitations (Wave 2)
 
 - **One shared formula, not a fork**: the source doc's literal TDEE/
   target-calorie formulas look structurally different from Danel's (TEF as
@@ -258,7 +258,7 @@ macro logging existed.
   macro-target comparison) from only one or two of the three.
 - **Health disclaimer** (unchanged scope): energy balances and fat
   estimates remain population-level approximations, not medical or
-  nutritional prescriptions — same footer disclaimer applies to Oleada 2
+  nutritional prescriptions — same footer disclaimer applies to Wave 2
   figures.
 
 See `README.md`'s roadmap for how F1–F9 (and the F9+ extension) are

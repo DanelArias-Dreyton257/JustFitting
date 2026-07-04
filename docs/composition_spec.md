@@ -159,7 +159,7 @@ base-case row (`dW=pct=Pi=0`, `Wobj_1=W_1`, deficit 0 => `TargetCal==TDEE`),
 the Navy guard (`waist <= neck` raises `ValueError`), and a projection case
 (dates advance by 7, `intake_is_real=false`, metrics recompute).
 
-## Oleada 2 — bulk/volume model (the "Sergio" spec)
+## Wave 2 — bulk/volume model (the "Sergio" spec)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (v1.0, 2026-07-02). This is a
 second worked profile on top of the same core estimators above (RFM, Navy,
@@ -553,7 +553,7 @@ the table above's defaults untouched.
 ### F9 — TEF by macronutrients (done, Phase 3.4)
 
 Source: `docs/JustFitting_TEF_Macronutrientes.pdf` (v1.0, 2026-07-02) — a
-separate document from the eight-capability Oleada 2 spec above, but
+separate document from the eight-capability Wave 2 spec above, but
 squarely an extension of it: it refines F4's flat-10% TEF into a value
 computed from what was actually eaten, and it **needs F6's daily
 granularity** to exist first (it reads grams of carbs/fat/protein per
@@ -709,7 +709,7 @@ there's nowhere to show it; the weekly figures above are what's exposed.
 
 Evidence-based per-kg-bodyweight protein/fat targets, with carbs as the
 remainder of calories once protein/fat's kcal share is subtracted —
-requested as a follow-on to F9, not part of either the Oleada 2 or TEF
+requested as a follow-on to F9, not part of either the Wave 2 or TEF
 source PDFs. Commonly-cited sports-nutrition ranges:
 
 | Macro | Cut | Bulk |

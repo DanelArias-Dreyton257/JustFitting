@@ -45,7 +45,7 @@ def compute_body_fat(
     delta: float = BF_FAT_OFFSET,
 ) -> float:
     """Weighted mean of the three body-fat estimators, plus an optional
-    per-account offset (`delta`, Phase 3/Oleada 2's F8) -- defaults
+    per-account offset (`delta`, Phase 3/Wave 2's F8) -- defaults
     reproduce today's fixed weights and a zero offset exactly."""
     return w_rfm * rfm + w_navy * navy + w_deur * deurenberg + delta
 
