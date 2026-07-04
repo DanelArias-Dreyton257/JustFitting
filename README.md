@@ -232,17 +232,6 @@ advice.
   there's no verification. Gating it behind an emailed, single-use,
   short-lived token (and the SMTP/mail-sending infrastructure that needs)
   is the obvious next step, but isn't planned for the near term.
-- **Oleada 2 metrics in the printable Report / JSON export.** `GET
-  /api/users/me/report` (Phase 1.4) and `/export` still cover only the
-  original Danel-era metrics (profile, latest snapshot, adherence, goal
-  history, weekly series, open alerts); none of Oleada 2's read-side
-  views -- gain-quality (Phase 3.1), energy-balance or increment-analytics
-  (Phase 3.2), or TEF-breakdown/macro-targets (Phase 3.4) -- are folded in
-  yet, so a bulk account's trainer/nutritionist export is still missing
-  "is this bulk clean," "is the energy model tracking reality," and "is
-  intake hitting its macro targets" at a glance. Noted here rather than
-  scoped into a phase since it's additive to an existing view, not a new
-  capability.
 - **Dashboard perimeter/steps charts don't expand a daily-logged week.**
   Since Phase 1.2, `app.js`'s `refreshDashboard` merges `GET /api/logs`
   (raw, one row per day for a daily-granularity account) with `GET
@@ -326,7 +315,10 @@ the golden reference values above.
   read: `POST /api/alerts/<id>/acknowledge`.
 - A full progress report — profile, latest metrics, adherence, goal
   history, weekly series, open alerts — with a Print/Save-as-PDF button:
-  `GET /api/users/me/report`.
+  `GET /api/users/me/report`. Later folded in every Wave 2 read-side
+  view (gain-quality, energy-balance, increment-analytics, TEF breakdown,
+  macro targets) alongside the JSON `/export`, once those existed — see
+  Phase 3.4.
 - Goal-change history is visible in the UI, including as markers on the
   goal-trajectory chart.
 
@@ -608,6 +600,20 @@ unscheduled from either source document's eight-plus-one capabilities:
   proving an account that never logs macros is completely unaffected.
 - `sw.js`'s `CACHE_NAME` bumped (`-v9` -> `-v10`) for the wizard/
   Settings/Dashboard UI changes.
+- **Report and export now include every Wave 2 read-side view**,
+  closing the "Future work" gap this same README section used to note:
+  `GET /api/users/me/report` and `/export` both gained `gain_quality`,
+  `energy_balance`, `increment_analytics`, `tef` and `macro_targets`
+  sections (a shared `_wave2_metrics` helper in `user_routes.py`,
+  reusing the exact `services/composition/*` modules and DTOs
+  `GET /api/metrics/*` already exposes -- no new computation). The
+  printable Report view gained five matching tables, so a bulk
+  account's trainer/nutritionist export finally shows "is this bulk
+  clean," "is the energy model tracking reality," and "is intake
+  hitting its macro targets" at a glance. `/export`'s existing `logs`/
+  `profile`/`goal_history`/`audit_log` fields (the actual import/restore
+  contract) are unchanged; the new sections are additional, read-only,
+  recomputed-not-restored data.
 
 ## Android app
 

@@ -343,7 +343,20 @@ export function renderPlanStats(container, metrics, direction) {
 }
 
 export function renderReport(container, report) {
-  const { profile, latest_metrics, adherence, goal_history, series, alerts, generated_at } = report;
+  const {
+    profile,
+    latest_metrics,
+    adherence,
+    goal_history,
+    series,
+    alerts,
+    gain_quality,
+    energy_balance,
+    increment_analytics,
+    tef,
+    macro_targets,
+    generated_at,
+  } = report;
 
   const profileRows = [
     ["Height", `${profile.height_cm} cm`],
@@ -411,6 +424,68 @@ export function renderReport(container, report) {
         .join("")
     : `<p class="disclaimer">No open alerts.</p>`;
 
+  const fmt = (value, digits = 1) => (value == null ? "—" : value.toFixed(digits));
+
+  const gainQualityRows = (gain_quality || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${fmt(row.delta_lean_kg, 2)}</td>
+        <td>${fmt(row.delta_fat_kg, 2)}</td>
+        <td>${row.fat_ratio == null ? "—" : `${(row.fat_ratio * 100).toFixed(0)}%`}</td>
+      </tr>`
+    )
+    .join("");
+
+  const energyBalanceRows = (energy_balance || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${fmt(row.surplus_ingested_kcal, 0)}</td>
+        <td>${fmt(row.surplus_tissue_kcal, 0)}</td>
+        <td>${fmt(row.error_kcal, 0)}</td>
+      </tr>`
+    )
+    .join("");
+
+  const incrementRows = (increment_analytics || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${(row.incr_real_pct * 100).toFixed(2)}%</td>
+        <td>${(row.goal_weekly_rate * 100).toFixed(2)}%</td>
+        <td>${row.deviation_pct == null ? "—" : `${(row.deviation_pct * 100).toFixed(0)}%`}</td>
+      </tr>`
+    )
+    .join("");
+
+  const tefRows = (tef || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${row.tef_kcal_flat.toFixed(0)}</td>
+        <td>${fmt(row.tef_kcal_macros, 0)}</td>
+        <td><span class="badge ${row.tef_mode_used === "macros" ? "active" : "inactive"}">${row.tef_mode_used}</span></td>
+      </tr>`
+    )
+    .join("");
+
+  const macroTargetRows = (macro_targets || [])
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.date}</td>
+        <td>${row.protein_target_g.toFixed(0)} / ${fmt(row.protein_actual_g, 0)}</td>
+        <td>${row.fat_target_g.toFixed(0)} / ${fmt(row.fat_actual_g, 0)}</td>
+        <td>${row.carbs_target_g.toFixed(0)} / ${fmt(row.carbs_actual_g, 0)}</td>
+      </tr>`
+    )
+    .join("");
+
   container.innerHTML = `
     <p class="disclaimer">Generated ${new Date(generated_at).toLocaleString()}</p>
 
@@ -448,6 +523,56 @@ export function renderReport(container, report) {
       <thead><tr><th>Date</th><th>Weight</th><th>Body fat %</th><th>Target kcal</th><th>Source</th></tr></thead>
       <tbody>${seriesRows}</tbody>
     </table>
+
+    <h2>Gain quality (lean vs fat change)</h2>
+    ${
+      gainQualityRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Lean Δ (kg)</th><th>Fat Δ (kg)</th><th>Fat ratio</th></tr></thead>
+      <tbody>${gainQualityRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Energy reconciliation (ingested vs tissue surplus, kcal/day)</h2>
+    ${
+      energyBalanceRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Ingested</th><th>Tissue</th><th>Error</th></tr></thead>
+      <tbody>${energyBalanceRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Real increment vs goal rate</h2>
+    ${
+      incrementRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Actual</th><th>Goal rate</th><th>Deviation</th></tr></thead>
+      <tbody>${incrementRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>TEF: flat estimate vs macros (kcal/day)</h2>
+    ${
+      tefRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Flat</th><th>From macros</th><th>Mode used</th></tr></thead>
+      <tbody>${tefRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
+
+    <h2>Macro targets (target / actual, g)</h2>
+    ${
+      macroTargetRows
+        ? `<table class="data-table">
+      <thead><tr><th>Date</th><th>Protein</th><th>Fat</th><th>Carbs</th></tr></thead>
+      <tbody>${macroTargetRows}</tbody>
+    </table>`
+        : '<p class="disclaimer">No data yet.</p>'
+    }
 
     <h2>Open alerts</h2>
     <div class="alerts-panel">${alertRows}</div>

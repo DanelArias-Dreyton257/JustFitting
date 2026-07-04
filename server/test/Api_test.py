@@ -617,6 +617,18 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(exported["goal_history"]), 2)
         self.assertGreaterEqual(len(exported["audit_log"]), 1)
 
+    def test_export_includes_wave2_metrics(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        export_response = self.client.get("/api/users/me/export", headers=headers)
+        exported = export_response.get_json()
+        for key in ("gain_quality", "energy_balance", "increment_analytics", "tef", "macro_targets"):
+            self.assertIn(key, exported)
+        self.assertEqual(len(exported["gain_quality"]), 2)
+        self.assertEqual(len(exported["tef"]), 2)
+
     def test_alerts_empty_without_logs(self):
         token = self._register().get_json()["token"]
         response = self.client.get("/api/alerts", headers=self._auth_header(token))
@@ -969,11 +981,22 @@ class ApiTestCase(unittest.TestCase):
             "goal_history",
             "series",
             "alerts",
+            "gain_quality",
+            "energy_balance",
+            "increment_analytics",
+            "tef",
+            "macro_targets",
             "generated_at",
         ):
             self.assertIn(key, report)
         self.assertEqual(len(report["series"]), 2)
         self.assertIsNotNone(report["latest_metrics"])
+        self.assertEqual(len(report["gain_quality"]), 2)
+        self.assertEqual(len(report["energy_balance"]), 2)
+        self.assertEqual(len(report["tef"]), 2)
+        self.assertEqual(len(report["macro_targets"]), 2)
+        # Only one real week-over-week increment exists for a 2-log series.
+        self.assertEqual(len(report["increment_analytics"]), 1)
         self.assertEqual(len(report["goal_history"]), 1)
 
     def test_settings_default_before_any_override(self):

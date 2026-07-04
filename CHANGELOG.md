@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `GET /api/users/me/report` and `GET /api/users/me/export` now include
+  every Wave 2 read-side view: `gain_quality` (F3), `energy_balance`
+  (F5), `increment_analytics` (F7), `tef` (F9) and `macro_targets` (F9+)
+  -- closing the README's former "Future work" gap where a bulk account's
+  trainer/nutritionist export/report only ever showed the original
+  Danel-era metrics. A new shared `_wave2_metrics` helper in
+  `user_routes.py` computes all five from the same `services/
+  composition/*` functions and reuses the exact DTOs `GET /api/metrics/*`
+  already exposes -- no new computation, no `ENGINE_VERSION` implications.
+  `/export`'s existing `logs`/`profile`/`goal_history`/`audit_log` fields
+  (the actual import/restore contract read by `POST /api/users/me/import`)
+  are unchanged; the new sections are additional, derived, read-only data.
+  The printable Report view (`views.js`'s `renderReport`) gained five
+  matching tables (Gain quality, Energy reconciliation, Real increment,
+  TEF, Macro targets), rendered between the existing weekly series and
+  open-alerts sections. `Api_test.py`'s report/export tests extended to
+  assert on the new sections.
+
 ### Changed
 
 - `data/db/DB.py`'s versioned migration runner (19 numbered migrations,
