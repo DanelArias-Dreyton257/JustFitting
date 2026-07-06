@@ -113,9 +113,12 @@ async function enterApp() {
   state.showProjection = false;
   state.projectionWeeks = 4;
   state.projectionCache = {};
-  document.getElementById("dashboard-details").open = false;
-  document.getElementById("dashboard-projection-toggle").checked = false;
-  document.getElementById("dashboard-projection-weeks").value = "4";
+  const dashboardDetails = document.getElementById("dashboard-details");
+  if (dashboardDetails) dashboardDetails.open = false;
+  const projectionToggle = document.getElementById("dashboard-projection-toggle");
+  if (projectionToggle) projectionToggle.checked = false;
+  const projectionWeeksSelect = document.getElementById("dashboard-projection-weeks");
+  if (projectionWeeksSelect) projectionWeeksSelect.value = "4";
   navigate("dashboard");
 }
 
@@ -582,12 +585,12 @@ document.getElementById("dashboard-details").addEventListener("toggle", (event) 
   }
 });
 
-document.getElementById("dashboard-projection-toggle").addEventListener("change", (event) => {
+document.getElementById("dashboard-projection-toggle")?.addEventListener("change", (event) => {
   state.showProjection = event.target.checked;
   if (state.dashboardChartsLoaded) renderDashboardCharts();
 });
 
-document.getElementById("dashboard-projection-weeks").addEventListener("change", (event) => {
+document.getElementById("dashboard-projection-weeks")?.addEventListener("change", (event) => {
   state.projectionWeeks = Number(event.target.value);
   if (state.showProjection && state.dashboardChartsLoaded) renderDashboardCharts();
 });
