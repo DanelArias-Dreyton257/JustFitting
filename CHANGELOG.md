@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the chart's right edge on the real-only domain. `goalMarkers` is now
     filtered to `goal.start_date <= <last real log's date>` before
     merging in the forecast's "Last logged" marker.
+  - Changed how a projected point is marked, per feedback that the
+    existing styling read as a jarring color swap: `charts.js` gained a
+    shared `drawPointMarker` helper -- a projected point is now hollow
+    (unfilled, stroked in the series' own color) instead of a real
+    point's filled dot, on both `drawLineChart` and `drawMultiLineChart`.
+    Replaces an inconsistent earlier pass (a smaller dot in an unrelated
+    red on `drawLineChart` only, no visual distinction at all on
+    `drawMultiLineChart`); the connecting line itself is untouched, so
+    only the marker shape signals "not measured yet."
 - Redesigned the Dashboard into a simplified home summary (README's
   Phase 4.2, the second item from `things-to-improve.txt`'s first round
   of beta-testing feedback): three always-visible `.stat-row` card

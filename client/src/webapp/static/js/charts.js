@@ -154,6 +154,22 @@ function drawMarkerLines(svg, markers, xScale, width, height) {
   });
 }
 
+// Shared by drawLineChart/drawMultiLineChart: a projected/forecast point is
+// the same color and size as a real one, just hollow instead of filled --
+// shape carries "not a real measurement yet" rather than a color swap, so
+// the line's own color reads consistently whether or not projection is on.
+function drawPointMarker(svg, x, y, color, projected) {
+  svg.appendChild(
+    svgEl("circle", {
+      cx: x,
+      cy: y,
+      r: 3,
+      fill: projected ? "none" : color,
+      ...(projected ? { stroke: color, "stroke-width": "1.5" } : {}),
+    })
+  );
+}
+
 export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value", markers = [] } = {}) {
   svg.innerHTML = "";
   if (!series.length) {
@@ -180,14 +196,7 @@ export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value",
   svg.appendChild(svgEl("path", { d: path, fill: "none", stroke: color, "stroke-width": "2" }));
 
   points.forEach(([x, y], i) => {
-    svg.appendChild(
-      svgEl("circle", {
-        cx: x,
-        cy: y,
-        r: series[i].projected ? 2 : 3,
-        fill: series[i].projected ? "#e5686b" : color,
-      })
-    );
+    drawPointMarker(svg, x, y, color, series[i].projected);
   });
 
   attachHoverTooltip(
@@ -233,9 +242,7 @@ export function drawMultiLineChart(svg, series, lines, { isProjected = () => fal
     );
 
     points.forEach(([x, y], i) => {
-      svg.appendChild(
-        svgEl("circle", { cx: x, cy: y, r: isProjected(series[i]) ? 2 : 3, fill: line.color })
-      );
+      drawPointMarker(svg, x, y, line.color, isProjected(series[i]));
     });
   });
 

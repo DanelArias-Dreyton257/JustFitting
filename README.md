@@ -863,11 +863,18 @@ out to be wanted.
     other chart also read.
   - Every forecast row already computes with `intake_is_real=false` →
     `source="projected"` from the engine itself (the same field the
-    existing "assumed intake" weeks already use), so the pre-existing
-    small-red-dot-plus-"(forecast)"-tooltip styling in
-    `drawLineChart`/`drawMultiLineChart` applies to genuinely-future
-    weeks with no new styling code needed. The perimeters chart's
-    waist/neck accessors fall back to the new
+    existing "assumed intake" weeks already use), so the "(forecast)"
+    tooltip suffix in `drawLineChart`/`drawMultiLineChart` applies to
+    genuinely-future weeks with no new code needed. Point *markers* for a
+    projected row are hollow (unfilled, stroked in the series' own color)
+    instead of a real row's filled dot -- a shared `drawPointMarker`
+    helper used by both chart functions, replacing an earlier
+    inconsistent pass (a smaller dot in an unrelated red on
+    `drawLineChart`, no distinction at all on `drawMultiLineChart`) that
+    read as a jarring color swap rather than "this point isn't measured
+    yet." The line itself stays one continuous color/style across the
+    real-to-projected boundary; only the marker shape changes. The
+    perimeters chart's waist/neck accessors fall back to the new
     `estimated_waist`/`estimated_neck` fields when `row.log_id` is
     `null` (true for every forecast row, never true for a real logged
     week).
