@@ -42,6 +42,36 @@ let logWizardStep = 1;
 
 const navButtons = document.querySelectorAll(".nav-link");
 const logoutBtn = document.getElementById("logout-btn");
+const navToggle = document.getElementById("nav-toggle");
+const navMenu = document.getElementById("nav");
+
+function closeNavMenu() {
+  navMenu.hidden = true;
+  navToggle.setAttribute("aria-expanded", "false");
+}
+
+function openNavMenu() {
+  navMenu.hidden = false;
+  navToggle.setAttribute("aria-expanded", "true");
+}
+
+navToggle.addEventListener("click", () => {
+  if (navMenu.hidden) openNavMenu();
+  else closeNavMenu();
+});
+
+document.addEventListener("click", (event) => {
+  if (navMenu.hidden) return;
+  if (navMenu.contains(event.target) || navToggle.contains(event.target)) return;
+  closeNavMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !navMenu.hidden) {
+    closeNavMenu();
+    navToggle.focus();
+  }
+});
 
 async function boot() {
   if (isAuthenticated()) {
@@ -59,16 +89,20 @@ async function boot() {
 function showAuthOnly() {
   navButtons.forEach((btn) => (btn.hidden = true));
   logoutBtn.hidden = true;
+  navToggle.hidden = true;
+  closeNavMenu();
   showView("auth");
 }
 
 async function enterApp() {
   navButtons.forEach((btn) => (btn.hidden = false));
   logoutBtn.hidden = false;
+  navToggle.hidden = false;
   navigate("dashboard");
 }
 
 function navigate(viewName) {
+  closeNavMenu();
   showView(viewName);
   if (viewName === "dashboard") refreshDashboard();
   if (viewName === "log") refreshLogs();

@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Consolidated the top navigation into a single hamburger menu (README's
+  Phase 4.1, the first item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): the always-visible 8-button `.nav` row
+  (Dashboard/Log/Projection/Plan/Alerts/Report/Settings/Account, plus a
+  separate Logout button) is replaced by a `#nav-toggle` icon button and
+  a `.nav-menu` dropdown panel listing the same eight destinations plus
+  Logout, at every viewport width -- not just behind a mobile breakpoint,
+  since the crowding complaint applied to desktop too. The panel reuses
+  the exact same `button.nav-link[data-view]` elements `views.js`'s
+  `showView()` already selects/highlights, so view-switching and
+  active-tab highlighting needed no changes. `app.js` gained
+  open/close/outside-click/Escape handling with focus returning to the
+  toggle on close; `sw.js`'s `CACHE_NAME` bumped `-v10` -> `-v11`.
+  New Playwright coverage: `client/test/browser/Nav_test.py`, driving the
+  real client app end-to-end (open/close, item-click navigation, Escape,
+  outside-click, logout) rather than a fixture.
+
 ## [1.0.0] - 2026-07-04
 
 First public release, deployed via GitHub Actions: the static client on

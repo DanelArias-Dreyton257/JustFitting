@@ -661,6 +661,97 @@ unscheduled from either source document's eight-plus-one capabilities:
   contract) are unchanged; the new sections are additional, read-only,
   recomputed-not-restored data.
 
+### Phase 4 — UX refinement: beta-testing feedback (in progress)
+
+Source: `things-to-improve.txt`, Danel's own notes from the first round of
+beta-testing the shipped v1.0.0 app. Five items, roughly in the order
+they unlock each other (2-5 lean on 1, and on each other); this phase's
+sub-phases track them 1:1. Only **Phase 4.1** is done so far — 4.2-4.5
+are recorded as an ordered backlog so the dependency chain isn't lost,
+not yet planned in detail.
+
+#### Phase 4.1 — Consolidated top navigation (hamburger menu) (done)
+
+Problem: the top bar packed eight destinations (Dashboard, Log,
+Projection, Plan, Alerts, Report, Settings, Account) plus Logout into one
+non-wrapping flex row, which crowded/overflowed on narrow viewports --
+the primary width for the Android app -- and was already visually busy
+on desktop. No responsive/mobile nav pattern existed before this phase.
+
+- The always-visible `.nav-link` row is replaced by a single hamburger
+  icon button (`#nav-toggle`, inline SVG, no icon-font/library
+  dependency) that toggles a `.nav-menu` panel (`index.html`) listing the
+  same eight destinations plus Logout, at every viewport width (not just
+  behind a mobile breakpoint -- the "too many tabs" complaint called out
+  the always-visible row itself). The eight destinations stay a flat
+  list, no sub-grouping.
+- The panel's items are the exact same `button.nav-link
+  data-view="..."` elements `views.js`'s `showView()` already
+  selects/highlights, so `showView`'s dual view-toggle/highlight
+  responsibility needed no changes at all.
+- `app.js` gained open/close state (`openNavMenu`/`closeNavMenu`), wired
+  to the toggle's click, close-on-item-click (alongside the existing
+  `navigate(view)` call), close-on-outside-click, and close-on-`Escape`
+  (returning focus to the toggle); `showAuthOnly`/`enterApp`'s existing
+  mass show/hide of nav elements on login/logout now covers the toggle
+  button too.
+- Accessibility: `aria-expanded`/`aria-controls` on the toggle,
+  `role="menu"`/`"menuitem"` on the panel/items, `aria-label="Menu"`,
+  Enter/Space/Escape all work, focus returns to the toggle on close.
+- **A real bug caught only by manually screenshotting the running app**
+  (not by the automated tests, initially): `.nav-menu { display: flex }`
+  (an author-stylesheet rule) silently overrode the browser's default
+  `[hidden] { display: none }` (a user-agent-stylesheet rule) regardless
+  of specificity, since author rules beat user-agent rules in the
+  cascade for any tie -- so the menu rendered open even while its
+  `hidden` attribute was set. Fixed with an explicit `.nav-menu[hidden]
+  { display: none }` rule. The Playwright test suite's own `_hidden()`
+  helper had the same blind spot (it checked the `.hidden` IDL property,
+  which only reflects the attribute, not actual rendering) and was
+  rewritten to check `page.is_visible()` instead, so this class of bug
+  fails the suite next time.
+- `sw.js`'s `CACHE_NAME` bumped `-v10` -> `-v11` per this project's
+  established convention, since `index.html`/`style.css`/`app.js` all
+  changed.
+- New Playwright coverage: `client/test/browser/Nav_test.py`, driving the
+  real `client.src.Client.create_client_app` against a real API server
+  (unlike `Views_test.py`'s minimal fixture harness, which doesn't
+  include the topbar at all) -- open/close via the toggle, item-click
+  navigation + active-highlighting + auto-close, Escape, outside-click,
+  and logout all covered.
+- Purely client-side: no server/API/DB changes, no `ENGINE_VERSION`
+  implications, no `manifest.json` changes.
+
+#### Phase 4.2 — Simplified dashboard-as-home summary (backlog, unscheduled)
+
+`things-to-improve.txt` item 2: land on a simpler dashboard summary
+first -- a last-logged weight/body-fat/lean-mass-and-change section, a
+calories section, and a goal section (achieved vs. target, projected
+weeks-to-complete) -- rather than today's full chart grid as the
+landing view.
+
+#### Phase 4.3 — Projected-weeks toggle on Dashboard charts (backlog, unscheduled)
+
+`things-to-improve.txt` item 3: a toggle on the Dashboard's
+weight/waist/neck charts to overlay the projection alongside real data,
+with a dashed vertical line marking the last logged day, so the user
+sees "the next N weeks" directly on the chart they're already looking
+at.
+
+#### Phase 4.4 — Redesigned log capture (day/week view) (backlog, unscheduled)
+
+`things-to-improve.txt` item 4: a calendar-style day selector (prev/next
+arrows, day/week toggle, date picker) with the log wizard and that
+day's/week's logs shown underneath, instead of one long table of every
+log ever entered.
+
+#### Phase 4.5 — Retire the standalone Projection view (backlog, unscheduled)
+
+`things-to-improve.txt` item 5: once 4.3 and 4.4 ship, the dedicated
+Projection view can be removed entirely -- projected future data becomes
+a toggle on the Dashboard and the Log view instead of its own tab
+(further shrinking the nav Phase 4.1 already consolidated).
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
