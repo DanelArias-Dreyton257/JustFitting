@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `client/test/browser/Dashboard_test.py` (summary rendering with a
   logged change, the collapsed/lazy-loaded chart section, and a
   brand-new account's placeholder state).
+  - Fixed inconsistent formatting on the collapsed section's advanced
+    tiles, caught in review: Cumulative fat ratio and Energy-balance
+    error (rolling) wrapped their whole value in a small `.badge` pill
+    instead of the big/bold `.value` style every other tile uses, and
+    Avg weekly increment crammed its goal rate onto the same long line
+    as the value. A shared `badgeDelta()` helper (`views.js`) now keeps
+    every tile's number in the same big/bold style, moving
+    ideal/threshold/goal context into a small subtitle underneath, the
+    same way the summary sections already show a change/target line.
 - Consolidated the top navigation into a single hamburger menu (README's
   Phase 4.1, the first item from `things-to-improve.txt`'s first round
   of beta-testing feedback): the always-visible 8-button `.nav` row

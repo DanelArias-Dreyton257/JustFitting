@@ -767,7 +767,16 @@ engine work, migration, or `ENGINE_VERSION` bump was needed.
   error, average weekly increment, deviation from goal rate -- since
   Weight/Body fat/Lean mass/To-target/Weeks-to-goal/Adherence are all
   covered by the new summary sections and would otherwise be shown
-  twice.
+  twice. Its badge-bearing tiles (TEF, cumulative fat ratio,
+  energy-balance error, avg weekly increment) originally wrapped their
+  entire value in a small `.badge` pill or crammed a goal figure onto
+  the same line, which read inconsistently against every plain
+  `statTile`; a shared `badgeDelta()` helper now keeps the number in
+  the same big/bold `.value` style as every other tile, moving the
+  ideal/threshold/goal context into a small subtitle underneath (the
+  same `.delta` line style the summary sections already use), with the
+  badge itself demoted to that subtitle line rather than the whole
+  value.
 - New browser test coverage, `client/test/browser/Dashboard_test.py`
   (no dashboard-specific browser test existed before this phase --
   `Nav_test.py` only checks the view is shown): the three summary
