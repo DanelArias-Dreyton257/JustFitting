@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-06
+
+Phase 4.1-4.3 of the beta-testing UX refinement round
+(`things-to-improve.txt`): a consolidated hamburger nav, a simplified
+dashboard-as-home summary, and a projected-weeks forecast toggle on the
+Dashboard's charts.
+
 ### Changed
 
 - Added a projected-weeks toggle to the Dashboard's charts (README's
