@@ -86,7 +86,14 @@ class DashboardTest(unittest.TestCase):
 
     def _log_week(self, date: str, weight_kg: float):
         self._navigate("log")
-        self.page.fill('#log-form [name="date"]', date)
+        # Phase 4.4: the wizard's date is derived from the Log view's
+        # day/week navigator (a hidden input), not a directly-editable
+        # field -- jump the navigator's date-picker there first.
+        self.page.eval_on_selector(
+            "#log-nav-date",
+            "(el, value) => { el.value = value; el.dispatchEvent(new Event('change')); }",
+            date,
+        )
         self.page.fill('#log-form [name="weight_kg"]', str(weight_kg))
         self.page.click("#log-next")
         self.page.fill('#log-form [name="waist_cm"]', "80")
