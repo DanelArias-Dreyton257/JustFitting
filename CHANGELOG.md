@@ -37,6 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bumped `-v12` -> `-v13`. New Playwright coverage in
   `client/test/browser/Dashboard_test.py` (toggle on/off, a weeks-value
   change, and the marker line's presence/absence).
+  - Fixed a stale-cache crash on login, caught after deploying: `enterApp()`
+    unconditionally set `.checked`/`.value` on the new toggle elements,
+    which threw `Cannot set properties of null` whenever a client's
+    service worker served a fresh `app.js` alongside a still-cached, pre-
+    Phase-4.3 `index.html` (this app's `sw.js` calls `skipWaiting()`/
+    `clients.claim()`, so a page can pick up new JS before the matching
+    new HTML lands). `enterApp()`'s three DOM resets and the two new
+    toggle listeners now no-op instead of throwing when an element isn't
+    present yet.
+  - Fixed the goal-trajectory chart showing a second, unrelated dashed
+    marker once the forecast toggle widened its date domain: a goal's
+    `start_date` is the real wall-clock date it was created/changed
+    (e.g. the very first goal, dated at registration), which can fall
+    after the last logged week and previously was silently clamped to
+    the chart's right edge on the real-only domain. `goalMarkers` is now
+    filtered to `goal.start_date <= <last real log's date>` before
+    merging in the forecast's "Last logged" marker.
 - Redesigned the Dashboard into a simplified home summary (README's
   Phase 4.2, the second item from `things-to-improve.txt`'s first round
   of beta-testing feedback): three always-visible `.stat-row` card

@@ -181,6 +181,32 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(marker_lines(), 0)
 
+    def test_goal_trajectory_marker_excludes_a_future_dated_goal_change(self):
+        # Every account's initial goal plan is start_date=today (real wall-
+        # clock date), which -- unlike the fixed 2026-06-xx log dates used
+        # throughout this suite -- can land after the last logged week. That
+        # goal-change marker used to be silently clamped to the chart's
+        # right edge (off the real-only date domain); once the projection
+        # toggle widens the domain, it must not reappear mid-chart as a
+        # second, unrelated marker alongside "Last logged".
+        self._log_week("2026-06-01", 90.0)
+        self._log_week("2026-06-08", 89.0)
+        self._go_to_dashboard()
+        self.page.click("#dashboard-details > summary")
+        self.page.wait_for_function(
+            "document.getElementById('chart-weight').childElementCount > 0"
+        )
+
+        self.page.check("#dashboard-projection-toggle")
+        self.page.wait_for_function(
+            "document.querySelectorAll('#chart-weight circle').length > 2"
+        )
+
+        marker_titles = self.page.eval_on_selector_all(
+            "#chart-goal-trajectory .chart-marker-line title", "els => els.map(e => e.textContent)"
+        )
+        self.assertEqual(marker_titles, ["Last logged"])
+
     def test_dashboard_with_no_logs_shows_placeholders_not_errors(self):
         # A brand-new account has no logs yet -- summary sections should
         # degrade to a friendly message instead of throwing on null metrics.

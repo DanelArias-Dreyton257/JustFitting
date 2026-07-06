@@ -280,12 +280,22 @@ async function renderDashboardCharts() {
     { label: "Steps" }
   );
 
-  const goalMarkers = goals.map((goal) => ({
-    date: goal.start_date,
-    label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
-      goal.weekly_rate * 100
-    ).toFixed(2)}%/wk`,
-  }));
+  // A goal's start_date is set from the real wall-clock date it was
+  // created/changed, which can fall after the last logged week (e.g. the
+  // very first goal, dated at registration). Previously that always
+  // landed off the chart's real-only date domain and got silently
+  // clamped to the right edge; now that the forecast toggle can widen the
+  // domain past it, it would otherwise reappear mid-chart looking like an
+  // unrelated second "Last logged" line -- so it's excluded once it's no
+  // longer describing a change within the real data itself.
+  const goalMarkers = goals
+    .filter((goal) => !lastLoggedDate || goal.start_date <= lastLoggedDate)
+    .map((goal) => ({
+      date: goal.start_date,
+      label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
+        goal.weekly_rate * 100
+      ).toFixed(2)}%/wk`,
+    }));
   drawMultiLineChart(
     document.getElementById("chart-goal-trajectory"),
     forecastSeries,

@@ -874,6 +874,15 @@ out to be wanted.
   - Each affected chart gets a `markers: [{ date: <last real log's
     date>, label: "Last logged" }]` so the dashed line lands in the same
     place on every chart, independent of how many weeks are toggled on.
+    The goal-trajectory chart's own pre-existing goal-plan-change markers
+    (Phase 1.4) are filtered to `goal.start_date <= <last real log's
+    date>` before merging in the forecast marker: a goal's `start_date`
+    is the real wall-clock date it was created/changed (e.g. the very
+    first goal, dated at registration), which can fall after the last
+    logged week and previously just got silently clamped to the chart's
+    right edge on the real-only date domain -- widening that domain via
+    the forecast toggle would otherwise make it reappear mid-chart as a
+    second, unrelated marker alongside "Last logged".
   - Turning the toggle off (or collapsing `<details>`) redraws every
     chart from the unmodified base series, discarding the appended rows
     — the forecast is never written anywhere, matching the read-only
@@ -886,10 +895,11 @@ out to be wanted.
   deliberately simpler than the full Projection view's controls, per the
   note's own "make it like the next 4 weeks" framing.
 - **Testing**: `Api_test.py`'s existing `test_projection_endpoint` case
-  gained an assertion that the three new fields round-trip correctly; a
-  new case in `client/test/browser/Dashboard_test.py`
-  (`test_projection_toggle_overlays_forecast_and_marker`) drives the
-  toggle end-to-end against a real server+client — off by default,
+  gained an assertion that the three new fields round-trip correctly; two
+  new cases in `client/test/browser/Dashboard_test.py`
+  (`test_projection_toggle_overlays_forecast_and_marker`,
+  `test_goal_trajectory_marker_excludes_a_future_dated_goal_change`)
+  drive the toggle end-to-end against a real server+client — off by default,
   turning it on appends the expected number of forecast points (via the
   rendered SVG circle count) with the "Last logged" marker line present,
   a weeks-value change from 4 to 8 appends more, and turning the toggle
