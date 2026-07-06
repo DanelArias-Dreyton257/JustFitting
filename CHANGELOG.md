@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Redesigned the Log view's log capture around a day/week navigator
+  (README's Phase 4.4, the fourth item from `things-to-improve.txt`'s
+  first round of beta-testing feedback): a `‹`/`›` arrow pair, a Day/Week
+  toggle, and a date-picker sit above the existing wizard, defaulting to
+  today's day view. The wizard's date is now derived from the
+  navigator's selected day (a "Logging for **`<day>`**" label plus a
+  hidden field) instead of a freely-editable date input, and the table
+  underneath only ever shows that day's (or that ISO Monday-Sunday
+  week's) logs, with a "No logs for this day/week yet." placeholder when
+  empty -- replacing the previous unbounded "every log ever" table.
+  Purely client-only: `GET /api/logs` already returns every log for the
+  account in one call, so the navigator is a client-side filter over
+  data already fetched, not a new endpoint -- no migration, no
+  `ENGINE_VERSION` bump. The granularity selector's default follows the
+  active view mode (daily in day view, weekly in week view) at each
+  fresh-wizard point (opening the Log view, switching day/week, and
+  after a save), without overriding a manual mid-entry choice.
+  `sw.js`'s `CACHE_NAME` bumped `-v13` -> `-v14`. New Playwright coverage
+  in `client/test/browser/Log_test.py` (default today/day-view empty
+  state, a saved log landing in the selected day, arrow navigation, and
+  week view grouping multiple same-ISO-week logs that day view keeps
+  separate); `Dashboard_test.py`'s own log-creation helper updated to
+  drive the new date-picker instead of the now-hidden date input.
+
 - Added a projected-weeks toggle to the Dashboard's charts (README's
   Phase 4.3, the third item from `things-to-improve.txt`'s first round
   of beta-testing feedback): a "Show next weeks (forecast)" checkbox

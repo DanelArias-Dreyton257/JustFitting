@@ -666,9 +666,8 @@ unscheduled from either source document's eight-plus-one capabilities:
 Source: `things-to-improve.txt`, Danel's own notes from the first round of
 beta-testing the shipped v1.0.0 app. Five items, roughly in the order
 they unlock each other (2-5 lean on 1, and on each other); this phase's
-sub-phases track them 1:1. **Phase 4.1-4.3** are done; **4.4-4.5** remain
-an ordered backlog so the dependency chain isn't lost, not yet planned
-in detail.
+sub-phases track them 1:1. **Phase 4.1-4.4** are done; **4.5** remains a
+one-line backlog note since it depends on 4.4 having shipped.
 
 #### Phase 4.1 — Consolidated top navigation (hamburger menu) (done)
 
@@ -916,12 +915,140 @@ out to be wanted.
   this project's established convention, since `index.html`/`app.js`/
   `charts.js`/`style.css` all changed.
 
-#### Phase 4.4 — Redesigned log capture (day/week view) (backlog, unscheduled)
+#### Phase 4.4 — Redesigned log capture (day/week view) (done)
 
-`things-to-improve.txt` item 4: a calendar-style day selector (prev/next
-arrows, day/week toggle, date picker) with the log wizard and that
-day's/week's logs shown underneath, instead of one long table of every
-log ever entered.
+`things-to-improve.txt` item 4: replace the Log view's current layout --
+the wizard on top, then one unbounded table of every log the account has
+ever created underneath -- with a calendar-style navigator (prev/next
+arrows, a day/week toggle, a date picker) that puts the wizard "inside"
+a chosen day, defaults to today, and shows only that day's (or that
+week's) logs below it. The problem this solves: as an account
+accumulates logs (especially daily-granularity ones, Phase 3.3), the log
+table grows long and loses the "what did I log today" framing the note
+asks for. A **client-only** change, like Phase 4.2/4.3 -- `GET
+/api/logs` already returns every log for the account in one call, so
+"day view" / "week view" is a client-side filter over data already
+fetched, not a new endpoint. No migration, no `ENGINE_VERSION` bump, no
+server route changes.
+
+**Scope decisions**:
+
+- **The wizard's Date field is replaced by a read-only label bound to the
+  navigator's selected day**, instead of staying a freely-editable date
+  input. This is the literal reading of "the log is done inside that
+  day" -- you pick the day via the navigator first, then the wizard logs
+  *for* that day, rather than picking a day twice (once in the
+  navigator, once again in the wizard). The actual submitted value is
+  unchanged: a hidden `<input type="hidden" name="date">` keeps
+  `formToJson()`'s existing read working with no changes to the submit
+  handler; only the visible UI moves from an editable input to a display
+  label + the navigator controls. Hidden inputs are exempt from HTML
+  constraint validation, so `currentLogStepIsValid()`'s existing
+  `reportValidity()` loop over step 1's inputs needs no special-casing.
+- **"Week" means the ISO calendar week (Monday-Sunday)** containing the
+  selected day -- the same grouping `LogResampler.resample_to_weekly`
+  already uses server-side for daily-tagged rows (README's Phase 3.3), so
+  "week view" shows exactly the days the engine itself would fold
+  together, not an arbitrary rolling 7-day window.
+- **The granularity `<select>`'s default follows the view mode** (`daily`
+  in day view, `weekly` in week view) as a convenience -- day view is
+  where per-day logging naturally happens, matching the note's own
+  framing -- but it stays a manual override otherwise; nothing forces a
+  value. Easy to drop if this reads as more surprising than helpful.
+- **No inline edit UI is added.** Today the Log view only supports
+  create + delete (`update_log` exists server-side but has no client
+  form); that stays true here. Not asked for by the note, and the
+  smaller filtered list doesn't itself require it.
+- **No pagination or new date-range API.** `state.logs` already holds
+  every log for the account after one `GET /api/logs` call (Phase 4.2
+  established this is cheap enough not to worry about -- a personal
+  weekly tracker tops out at a few hundred rows even after years); the
+  navigator only changes which subset of the already-fetched array is
+  rendered.
+- **The old "every log ever" table is retired, not relocated.** Full
+  history stays reachable via the date-picker (jump straight to any past
+  date), the Report view's full weekly series table, and the JSON Export
+  button -- not a data-loss concern.
+
+**Client — `index.html`** (`#view-log`): a new `.log-nav` control row
+above the existing `<form id="log-form">`:
+
+- `‹`/`›` arrow buttons (`#log-nav-prev`/`#log-nav-next`) flanking a
+  label (`#log-nav-label`) -- "Today" / a weekday-and-date string in day
+  view, "Week of `<Mon>` - `<Sun>`" in week view, with `‹`/`›` stepping by
+  1 day or 7 days depending on the active mode.
+- A two-button Day/Week toggle (`#log-nav-day`/`#log-nav-week`, styled
+  like the existing `.nav-link.active` pattern) instead of a `<select>`,
+  since there are only ever two states.
+- A date-picker (`#log-nav-date`, `<input type="date">`) to jump directly
+  to any date; in week view it jumps to the ISO week containing the
+  picked date.
+- Step 1 of the wizard drops its visible `date` input for a `<p>` reading
+  "Logging for **`<selected day>`**" plus the hidden date field described
+  above.
+- Below the wizard, the log table's heading becomes dynamic
+  (`#log-list-heading`: "Today's logs" / "This week's logs" / "Logs for
+  `<date>`" once the user has navigated away from today), and the table
+  itself only ever renders the filtered subset -- with a
+  `<p class="disclaimer">` placeholder ("No logs for this day/week yet.")
+  when that subset is empty, the same empty-state pattern Phase 4.2's
+  summary sections already use.
+
+**Client — `app.js`**: new state, `logNav: { selectedDate: <today's ISO
+date>, viewMode: "day" | "week" }`, reset to today/day-view alongside the
+other per-login state `enterApp()` already resets (dashboard flags,
+projection toggle) so a second account never inherits the first one's
+place in its log history.
+
+- `refreshLogs()` keeps fetching the full `state.logs` array unchanged,
+  then calls two new pure-render helpers: `renderLogNav()` (label,
+  date-picker value, active toggle button, the wizard's hidden date field
+  and display label) and `renderFilteredLogList()` (computes the day/week
+  subset of `state.logs` and calls the existing `renderLogTable` plus the
+  new heading/placeholder logic).
+- A small pure helper, `isoWeekRange(dateStr)`, returns the
+  Monday/Sunday bounds for a date -- used both for the week-view label
+  and the week-view filter -- mirroring the same ISO-week convention
+  `LogResampler` uses server-side, kept client-side since it's pure date
+  math with no fetch involved (consistent with `formToJson`, an existing
+  pure helper already living in `app.js`, not `views.js`).
+- New DOM listeners for the prev/next arrows, the two toggle buttons, and
+  the date-picker's `change` event, all routed through one
+  `setLogNav(patch)` that merges into `state.logNav` and re-renders the
+  nav + filtered list from the already-fetched `state.logs` -- no
+  re-fetch, matching Phase 4.3's "toggling a control shouldn't refetch
+  everything" precedent.
+- The log-submit handler's existing `await refreshLogs()` call is
+  unchanged; since the submitted date always comes from
+  `state.logNav.selectedDate`, a newly-created log always lands inside
+  the currently-viewed day/week and appears immediately.
+
+**Client — `views.js`**: `renderLogTable` itself is unchanged -- it's
+still handed a plain array of logs, just a filtered one now instead of
+all of them, and an empty array already renders an empty `tbody`.
+`app.js`'s `renderFilteredLogList()` toggles `#log-table`/`#log-list-empty`'s
+`hidden` attributes based on the filtered count, rather than teaching
+`renderLogTable` a new empty-state branch.
+
+**Client — `style.css`**: a `.log-nav` flex row (arrows + label + toggle
++ date-picker) styled consistently with the existing `.inline-form` /
+`.nav-link.active` patterns -- no new visual language introduced.
+
+**Testing**: a new `client/test/browser/Log_test.py` (no log-view-specific
+browser test existed before this phase -- `Views_test.py` only checks the
+minimal fixture harness, `Api_test.py` covers the HTTP layer): default
+day view opens on today with an empty-state placeholder on a fresh
+account; saving a log through the wizard lands it in the
+currently-selected day and appears in the filtered list immediately; the
+prev/next arrows move the selected day and update both the label and the
+filtered list; switching to week view groups two logs from the same ISO
+week together while day view shows only one at a time. `Dashboard_test.py`'s
+own `_log_week` helper, which used to `fill()` the wizard's date input
+directly, now drives the new `#log-nav-date` date-picker instead, since
+that input is hidden.
+
+**Housekeeping**: `sw.js`'s `CACHE_NAME` bumped `-v13` -> `-v14`, since
+`index.html`/`app.js`/`style.css` all changed.
 
 #### Phase 4.5 — Retire the standalone Projection view (backlog, unscheduled)
 
