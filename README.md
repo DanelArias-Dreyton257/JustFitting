@@ -666,9 +666,9 @@ unscheduled from either source document's eight-plus-one capabilities:
 Source: `things-to-improve.txt`, Danel's own notes from the first round of
 beta-testing the shipped v1.0.0 app. Five items, roughly in the order
 they unlock each other (2-5 lean on 1, and on each other); this phase's
-sub-phases track them 1:1. Only **Phase 4.1** is done so far — 4.2-4.5
-are recorded as an ordered backlog so the dependency chain isn't lost,
-not yet planned in detail.
+sub-phases track them 1:1. **Phase 4.1-4.3** are done; **4.4-4.5** remain
+an ordered backlog so the dependency chain isn't lost, not yet planned
+in detail.
 
 #### Phase 4.1 — Consolidated top navigation (hamburger menu) (done)
 
@@ -797,13 +797,106 @@ engine work, migration, or `ENGINE_VERSION` bump was needed.
   "Bulk" direction badge.
 - No server/API/DB changes.
 
-#### Phase 4.3 — Projected-weeks toggle on Dashboard charts (backlog, unscheduled)
+#### Phase 4.3 — Projected-weeks toggle on Dashboard charts (done)
 
-`things-to-improve.txt` item 3: a toggle on the Dashboard's
-weight/waist/neck charts to overlay the projection alongside real data,
-with a dashed vertical line marking the last logged day, so the user
-sees "the next N weeks" directly on the chart they're already looking
-at.
+`things-to-improve.txt` item 3: a toggle on the Dashboard's charts to
+overlay the forecast alongside real data, with a dashed vertical line
+marking the last logged day, so the user sees "the next N weeks"
+directly on the chart they're already looking at instead of switching to
+the separate Projection view.
+
+**Scope**: the toggle affects the five line/multi-line charts inside
+`#dashboard-details` that have a real "future" to extrapolate — Weight,
+Body fat %, Target calories, Waist/Neck (perimeters), and Goal
+trajectory. It does **not** touch Steps (a flat continuation under the
+default constant-activity forecast has little visual value) or the two
+bar charts (Fat/lean mass stack, Gain-quality diverging bars), since bar
+marks don't have as clean an "append future bars past a marker line"
+convention as a continuous line does — left for a later pass if it turns
+out to be wanted.
+
+- **Server** (`server/src/api/projection_routes.py`): `GET
+  /api/projection` today returns `MetricsDTO` rows only, which cover
+  weight (derived as `fat_mass_kg + lean_mass_kg`), body fat %, and
+  target calories, but not the forecasted waist/neck themselves — those
+  only exist on the `LogInput` half of
+  `Projection.project_series_with_inputs`'s return pairs, currently
+  surfaced only by the persisting `POST /api/projection` via
+  `ProjectionDTO`. The `GET` route switches from `project_series` to
+  `project_series_with_inputs` and adds three keys to each returned row
+  — `estimated_weight`, `estimated_waist`, `estimated_neck` (the same
+  names `ProjectionDTO` already uses for the same values) — alongside
+  the existing `MetricsDTO` fields. Purely additive: every existing
+  field keeps its exact meaning and value, so the standalone Projection
+  view (`renderProjectionTable`, which only reads
+  `fat_mass_kg`/`lean_mass_kg`/`body_fat`/`target_calories`) needs no
+  change. No migration, no `ENGINE_VERSION` bump — this is a read-side
+  response-shape change, not a compute-chain change.
+- **Client — `charts.js`**: `drawMultiLineChart` already supports a
+  `markers` option (a dashed vertical line with a hover title, used
+  today for goal-plan-change markers on the goal-trajectory chart), but
+  `drawLineChart` (the single-line Weight/Body fat/Calories charts) has
+  no equivalent. The marker-drawing block is extracted into a shared
+  `drawMarkerLines(svg, markers, xScale, width, height)` helper used by
+  both, and `drawLineChart` gains the same `markers = []` option
+  `drawMultiLineChart` already has.
+- **Client — `index.html`**: a small control row — a checkbox ("Show
+  next N weeks") plus a weeks `<select>` (4/8/12, default 4, matching
+  the note's own "the next 4 weeks" phrasing) — is added inside
+  `#dashboard-details`, above the existing chart grid, so it's only ever
+  interactive once the charts themselves are expanded/loaded (Phase
+  4.2's lazy-load guard already ensures that).
+- **Client — `app.js`**: `refreshDashboardCharts()` splits into a
+  data-fetch half (unchanged) and a pure `renderDashboardCharts()` draw
+  half, so toggling the projection control doesn't refetch
+  logs/goals/energy-balance/etc. — only the forecast itself. New state:
+  `state.showProjection` (bool, default `false`) and
+  `state.projectionWeeks` (default `4`), plus a small per-weeks-value
+  cache (`state.projectionCache`) so flipping the toggle off and back
+  on, or re-picking the same weeks value, doesn't re-hit the API. When
+  the toggle is on:
+  - `api.projection(weeks, "real", "constant")` is fetched (plain-OLS
+    trend, real-only regression base, constant activity — the same
+    defaults the standalone Projection view opens with) and its rows
+    are appended to a *copy* of each affected chart's series, never
+    mutating `state.series` itself, which the summary section and every
+    other chart also read.
+  - Every forecast row already computes with `intake_is_real=false` →
+    `source="projected"` from the engine itself (the same field the
+    existing "assumed intake" weeks already use), so the pre-existing
+    small-red-dot-plus-"(forecast)"-tooltip styling in
+    `drawLineChart`/`drawMultiLineChart` applies to genuinely-future
+    weeks with no new styling code needed. The perimeters chart's
+    waist/neck accessors fall back to the new
+    `estimated_waist`/`estimated_neck` fields when `row.log_id` is
+    `null` (true for every forecast row, never true for a real logged
+    week).
+  - Each affected chart gets a `markers: [{ date: <last real log's
+    date>, label: "Last logged" }]` so the dashed line lands in the same
+    place on every chart, independent of how many weeks are toggled on.
+  - Turning the toggle off (or collapsing `<details>`) redraws every
+    chart from the unmodified base series, discarding the appended rows
+    — the forecast is never written anywhere, matching the read-only
+    nature of `GET /api/projection` today.
+- **Out of scope for this phase**: the "N weeks to goal" figure is
+  already shown as text in the Phase 4.2 Goal summary card; this phase
+  is only the chart overlay, not a new number. Configuring
+  `base`/`activity`/`trend_model` from the Dashboard toggle (rather than
+  the standalone Projection view) is also left out — the toggle is
+  deliberately simpler than the full Projection view's controls, per the
+  note's own "make it like the next 4 weeks" framing.
+- **Testing**: `Api_test.py`'s existing `test_projection_endpoint` case
+  gained an assertion that the three new fields round-trip correctly; a
+  new case in `client/test/browser/Dashboard_test.py`
+  (`test_projection_toggle_overlays_forecast_and_marker`) drives the
+  toggle end-to-end against a real server+client — off by default,
+  turning it on appends the expected number of forecast points (via the
+  rendered SVG circle count) with the "Last logged" marker line present,
+  a weeks-value change from 4 to 8 appends more, and turning the toggle
+  back off removes them all.
+- **Housekeeping**: `sw.js`'s `CACHE_NAME` bumped `-v12` -> `-v13` per
+  this project's established convention, since `index.html`/`app.js`/
+  `charts.js`/`style.css` all changed.
 
 #### Phase 4.4 — Redesigned log capture (day/week view) (backlog, unscheduled)
 

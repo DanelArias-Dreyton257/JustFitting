@@ -162,6 +162,12 @@ main {
   color: var(--text-muted);
 }
 
+.inline-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 input,
 select {
   background: var(--surface-alt);

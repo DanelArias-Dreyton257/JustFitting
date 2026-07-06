@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Added a projected-weeks toggle to the Dashboard's charts (README's
+  Phase 4.3, the third item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): a "Show next weeks (forecast)" checkbox
+  plus a 4/8/12-week selector, inside the collapsed "Full charts &
+  advanced stats" section, overlays `GET /api/projection`'s forecast
+  rows onto the Weight, Body fat %, Calories, Waist & neck, and Weight
+  vs. goal trajectory charts, with a dashed "Last logged" marker line at
+  the last real log's date. `GET /api/projection` now also returns
+  `estimated_weight`/`estimated_waist`/`estimated_neck` (the same names
+  `ProjectionDTO` already used for a saved run) alongside its existing
+  `MetricsDTO` fields -- purely additive, so the standalone Projection
+  view is unaffected and no migration/`ENGINE_VERSION` bump was needed.
+  Forecast rows already compute with `source="projected"` from the
+  engine itself, so the existing small-red-dot/"(forecast)"-tooltip
+  styling applies with no new styling code; the perimeters chart's
+  waist/neck accessors fall back to the new fields when a row has no
+  `log_id` (true for every forecast row). `charts.js`'s marker-line
+  drawing (previously only on `drawMultiLineChart`, used for goal-plan-
+  change markers) is now a shared `drawMarkerLines` helper also used by
+  `drawLineChart`. `app.js`'s `refreshDashboardCharts()` split into a
+  data-fetch half and a pure `renderDashboardCharts()` draw half, so
+  toggling the control only (re)fetches the forecast itself, cached per
+  weeks value. Steps and the two bar charts (fat/lean mass, gain
+  quality) are deliberately left out of the overlay -- see the README's
+  Phase 4.3 write-up for the scoping rationale. `sw.js`'s `CACHE_NAME`
+  bumped `-v12` -> `-v13`. New Playwright coverage in
+  `client/test/browser/Dashboard_test.py` (toggle on/off, a weeks-value
+  change, and the marker line's presence/absence).
 - Redesigned the Dashboard into a simplified home summary (README's
   Phase 4.2, the second item from `things-to-improve.txt`'s first round
   of beta-testing feedback): three always-visible `.stat-row` card

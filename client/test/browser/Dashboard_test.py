@@ -139,6 +139,48 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertIsNotNone(self.page.get_attribute("#dashboard-details", "open"))
 
+    def test_projection_toggle_overlays_forecast_and_marker(self):
+        # Projection.project_series_with_inputs needs >= 2 real logs to fit
+        # a trend, so two weeks are logged before expanding the charts.
+        self._log_week("2026-06-01", 90.0)
+        self._log_week("2026-06-08", 89.0)
+        self._go_to_dashboard()
+        self.page.click("#dashboard-details > summary")
+        self.page.wait_for_function(
+            "document.getElementById('chart-weight').childElementCount > 0"
+        )
+
+        def weight_points():
+            return self.page.eval_on_selector_all("#chart-weight circle", "els => els.length")
+
+        def marker_lines():
+            return self.page.eval_on_selector_all(
+                "#chart-weight .chart-marker-line", "els => els.length"
+            )
+
+        base_count = weight_points()
+        self.assertEqual(base_count, 2)
+        self.assertEqual(marker_lines(), 0)
+
+        self.page.check("#dashboard-projection-toggle")
+        self.page.wait_for_function(
+            f"document.querySelectorAll('#chart-weight circle').length > {base_count}"
+        )
+        # Default forecast window is 4 weeks appended past the 2 real logs.
+        self.assertEqual(weight_points(), base_count + 4)
+        self.assertEqual(marker_lines(), 1)
+
+        self.page.select_option("#dashboard-projection-weeks", "8")
+        self.page.wait_for_function(
+            f"document.querySelectorAll('#chart-weight circle').length === {base_count + 8}"
+        )
+
+        self.page.uncheck("#dashboard-projection-toggle")
+        self.page.wait_for_function(
+            f"document.querySelectorAll('#chart-weight circle').length === {base_count}"
+        )
+        self.assertEqual(marker_lines(), 0)
+
     def test_dashboard_with_no_logs_shows_placeholders_not_errors(self):
         # A brand-new account has no logs yet -- summary sections should
         # degrade to a friendly message instead of throwing on null metrics.

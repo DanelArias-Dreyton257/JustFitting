@@ -41,6 +41,10 @@ const state = {
   latestMetrics: null,
   planPreviewParams: null,
   dashboardChartsLoaded: false,
+  dashboardData: null,
+  showProjection: false,
+  projectionWeeks: 4,
+  projectionCache: {},
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -105,7 +109,13 @@ async function enterApp() {
   logoutBtn.hidden = false;
   navToggle.hidden = false;
   state.dashboardChartsLoaded = false;
+  state.dashboardData = null;
+  state.showProjection = false;
+  state.projectionWeeks = 4;
+  state.projectionCache = {};
   document.getElementById("dashboard-details").open = false;
+  document.getElementById("dashboard-projection-toggle").checked = false;
+  document.getElementById("dashboard-projection-weeks").value = "4";
   navigate("dashboard");
 }
 
@@ -150,8 +160,6 @@ async function refreshDashboardSummary() {
 }
 
 async function refreshDashboardCharts() {
-  const series = state.series;
-  const gainQuality = state.gainQuality;
   const [logs, goals, energyBalance, incrementAnalytics, tef, macroTargets] = await Promise.all([
     api.listLogs().catch(() => []),
     api.goals().catch(() => []),
@@ -160,6 +168,30 @@ async function refreshDashboardCharts() {
     api.tef().catch(() => []),
     api.macroTargets().catch(() => []),
   ]);
+  state.dashboardData = { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets };
+  await renderDashboardCharts();
+}
+
+// Fetches the forecast rows for the current toggle/weeks selection, cached
+// per weeks value so re-toggling or re-rendering doesn't re-hit the API.
+async function getProjectionRows() {
+  if (!state.showProjection) return [];
+  const weeks = state.projectionWeeks;
+  if (state.projectionCache[weeks]) return state.projectionCache[weeks];
+  try {
+    const rows = await api.projection(weeks, "real", "constant");
+    state.projectionCache[weeks] = rows;
+    return rows;
+  } catch (err) {
+    return [];
+  }
+}
+
+async function renderDashboardCharts() {
+  if (!state.dashboardData) return;
+  const { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets } = state.dashboardData;
+  const series = state.series;
+  const gainQuality = state.gainQuality;
 
   renderDashboardStats(
     document.getElementById("dashboard-stats"),
@@ -172,23 +204,32 @@ async function refreshDashboardCharts() {
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
   const isProjected = (row) => row.source === "projected";
 
+  // Phase 4.3: appending the forecast to a *copy* of the real series --
+  // never `state.series` itself -- so the summary section and every other
+  // chart below stay on real data only.
+  const forecastRows = await getProjectionRows();
+  const forecastSeries = forecastRows.length ? series.concat(forecastRows) : series;
+  const lastLoggedDate = series.length ? series[series.length - 1].date : null;
+  const forecastMarkers =
+    forecastRows.length && lastLoggedDate ? [{ date: lastLoggedDate, label: "Last logged" }] : [];
+
   drawLineChart(
     document.getElementById("chart-weight"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.fat_mass_kg + row.lean_mass_kg,
       projected: row.source === "projected",
     })),
-    { label: "Weight" }
+    { label: "Weight", markers: forecastMarkers }
   );
   drawLineChart(
     document.getElementById("chart-bodyfat"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.body_fat * 100,
       projected: row.source === "projected",
     })),
-    { label: "Body fat %" }
+    { label: "Body fat %", markers: forecastMarkers }
   );
   drawStackedBars(
     document.getElementById("chart-mass"),
@@ -196,29 +237,35 @@ async function refreshDashboardCharts() {
   );
   drawLineChart(
     document.getElementById("chart-calories"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.target_calories,
       projected: row.source === "projected",
     })),
-    { label: "Target calories" }
+    { label: "Target calories", markers: forecastMarkers }
   );
   drawMultiLineChart(
     document.getElementById("chart-perimeters"),
-    series,
+    forecastSeries,
     [
       {
-        accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0,
+        accessor: (row) => {
+          const log = logsById.get(row.log_id);
+          return log ? log.waist_cm : row.estimated_waist || 0;
+        },
         color: "#5eb3ff",
         label: "Waist",
       },
       {
-        accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0,
+        accessor: (row) => {
+          const log = logsById.get(row.log_id);
+          return log ? log.neck_cm : row.estimated_neck || 0;
+        },
         color: "#f0b94d",
         label: "Neck",
       },
     ],
-    { isProjected }
+    { isProjected, markers: forecastMarkers }
   );
   drawLineChart(
     document.getElementById("chart-steps"),
@@ -238,7 +285,7 @@ async function refreshDashboardCharts() {
   }));
   drawMultiLineChart(
     document.getElementById("chart-goal-trajectory"),
-    series,
+    forecastSeries,
     [
       { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff", label: "Actual" },
       {
@@ -248,7 +295,7 @@ async function refreshDashboardCharts() {
         label: "Target",
       },
     ],
-    { isProjected, markers: goalMarkers }
+    { isProjected, markers: [...goalMarkers, ...forecastMarkers] }
   );
 
   drawDivergingBars(
@@ -533,6 +580,16 @@ document.getElementById("dashboard-details").addEventListener("toggle", (event) 
     state.dashboardChartsLoaded = true;
     refreshDashboardCharts();
   }
+});
+
+document.getElementById("dashboard-projection-toggle").addEventListener("change", (event) => {
+  state.showProjection = event.target.checked;
+  if (state.dashboardChartsLoaded) renderDashboardCharts();
+});
+
+document.getElementById("dashboard-projection-weeks").addEventListener("change", (event) => {
+  state.projectionWeeks = Number(event.target.value);
+  if (state.showProjection && state.dashboardChartsLoaded) renderDashboardCharts();
 });
 
 document.getElementById("report-print-btn").addEventListener("click", () => {
