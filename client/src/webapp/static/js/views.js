@@ -131,7 +131,7 @@ export function renderDashboardStats(
       statTile(
         "Cumulative fat ratio",
         `${pct.toFixed(0)}%`,
-        badgeDelta(`ideal ≤${idealPct.toFixed(0)}%`, pct <= idealPct)
+        `<span class="delta">ideal ≤${idealPct.toFixed(0)}%</span>`
       )
     );
   }
@@ -142,7 +142,7 @@ export function renderDashboardStats(
       statTile(
         "Energy-balance error (rolling)",
         `${err.toFixed(0)} kcal/day`,
-        badgeDelta(`threshold ${threshold.toFixed(0)} kcal/day`, err <= threshold)
+        `<span class="delta">threshold ${threshold.toFixed(0)} kcal/day</span>`
       )
     );
   }

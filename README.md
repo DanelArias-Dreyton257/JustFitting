@@ -771,12 +771,14 @@ engine work, migration, or `ENGINE_VERSION` bump was needed.
   energy-balance error, avg weekly increment) originally wrapped their
   entire value in a small `.badge` pill or crammed a goal figure onto
   the same line, which read inconsistently against every plain
-  `statTile`; a shared `badgeDelta()` helper now keeps the number in
-  the same big/bold `.value` style as every other tile, moving the
-  ideal/threshold/goal context into a small subtitle underneath (the
-  same `.delta` line style the summary sections already use), with the
-  badge itself demoted to that subtitle line rather than the whole
-  value.
+  `statTile`; every tile's number now stays in the same big/bold
+  `.value` style, with ideal/threshold/goal context moved into a small
+  subtitle underneath (the same neutral `.delta` line style the
+  summary sections' "target"/"goal" subtitles already use). Only TEF's
+  mode tag ("flat"/"macros", a label rather than a good/bad judgment)
+  keeps a colored `badgeDelta()` pill; cumulative fat ratio's "ideal"
+  and energy-balance error's "threshold" subtitles are now plain,
+  uncolored text like every other subtitle.
 - New browser test coverage, `client/test/browser/Dashboard_test.py`
   (no dashboard-specific browser test existed before this phase --
   `Nav_test.py` only checks the view is shown): the three summary

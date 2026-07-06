@@ -39,10 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     error (rolling) wrapped their whole value in a small `.badge` pill
     instead of the big/bold `.value` style every other tile uses, and
     Avg weekly increment crammed its goal rate onto the same long line
-    as the value. A shared `badgeDelta()` helper (`views.js`) now keeps
-    every tile's number in the same big/bold style, moving
-    ideal/threshold/goal context into a small subtitle underneath, the
-    same way the summary sections already show a change/target line.
+    as the value. Every tile's number now stays in the same big/bold
+    style, moving ideal/threshold/goal context into a small subtitle
+    underneath, the same way the summary sections already show a
+    change/target line. On a follow-up pass, Cumulative fat ratio's
+    "ideal" and Energy-balance error's "threshold" subtitles were
+    further switched from a colored `badgeDelta()` pill to the same
+    plain, uncolored subtitle text as every other tile's "goal"/
+    "target" line -- only TEF's "flat"/"macros" mode tag (a label, not
+    a good/bad judgment) still uses the colored badge.
 - Consolidated the top navigation into a single hamburger menu (README's
   Phase 4.1, the first item from `things-to-improve.txt`'s first round
   of beta-testing feedback): the always-visible 8-button `.nav` row
