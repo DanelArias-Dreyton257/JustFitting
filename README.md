@@ -843,9 +843,10 @@ out to be wanted.
 - **Client — `index.html`**: a small control row — a checkbox ("Show
   next N weeks") plus a weeks `<select>` (4/8/12, default 4, matching
   the note's own "the next 4 weeks" phrasing) — is added inside
-  `#dashboard-details`, above the existing chart grid, so it's only ever
-  interactive once the charts themselves are expanded/loaded (Phase
-  4.2's lazy-load guard already ensures that).
+  `#dashboard-details`, after the advanced-stats tile row and before the
+  chart grid it actually affects, so it's only ever interactive once the
+  charts themselves are expanded/loaded (Phase 4.2's lazy-load guard
+  already ensures that).
 - **Client — `app.js`**: `refreshDashboardCharts()` splits into a
   data-fetch half (unchanged) and a pure `renderDashboardCharts()` draw
   half, so toggling the projection control doesn't refetch
