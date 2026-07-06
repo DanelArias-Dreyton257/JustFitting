@@ -24,17 +24,29 @@
 
   <header class="topbar">
     <span class="brand">JustFitting</span>
-    <nav class="nav" id="nav">
-      <button class="nav-link" data-view="dashboard">Dashboard</button>
-      <button class="nav-link" data-view="log">Log</button>
-      <button class="nav-link" data-view="projection">Projection</button>
-      <button class="nav-link" data-view="plan">Plan</button>
-      <button class="nav-link" data-view="alert-history">Alerts</button>
-      <button class="nav-link" data-view="report">Report</button>
-      <button class="nav-link" data-view="settings">Settings</button>
-      <button class="nav-link" data-view="account">Account</button>
+    <button
+      class="nav-toggle"
+      id="nav-toggle"
+      aria-expanded="false"
+      aria-controls="nav"
+      aria-label="Menu"
+      hidden
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+    </button>
+    <nav class="nav-menu" id="nav" role="menu" hidden>
+      <button class="nav-link" role="menuitem" data-view="dashboard">Dashboard</button>
+      <button class="nav-link" role="menuitem" data-view="log">Log</button>
+      <button class="nav-link" role="menuitem" data-view="projection">Projection</button>
+      <button class="nav-link" role="menuitem" data-view="plan">Plan</button>
+      <button class="nav-link" role="menuitem" data-view="alert-history">Alerts</button>
+      <button class="nav-link" role="menuitem" data-view="report">Report</button>
+      <button class="nav-link" role="menuitem" data-view="settings">Settings</button>
+      <button class="nav-link" role="menuitem" data-view="account">Account</button>
+      <button class="logout-btn" id="logout-btn" role="menuitem" hidden>Log out</button>
     </nav>
-    <button class="logout-btn" id="logout-btn" hidden>Log out</button>
   </header>
 
   <main id="app">
@@ -95,7 +107,36 @@
       <h1>Dashboard</h1>
       <p class="disclaimer" id="sex-disclaimer" hidden></p>
       <div class="alerts-panel" id="dashboard-alerts" hidden></div>
+
+      <div class="summary-section">
+        <h2>Weight &amp; Body Composition</h2>
+        <div class="stat-row" id="summary-weight-stats"></div>
+      </div>
+      <div class="summary-section">
+        <h2>Calories</h2>
+        <div class="stat-row" id="summary-calories-stats"></div>
+      </div>
+      <div class="summary-section">
+        <h2>Goal</h2>
+        <div class="stat-row" id="summary-goal-stats"></div>
+      </div>
+
+      <details id="dashboard-details">
+      <summary>Full charts &amp; advanced stats</summary>
       <div class="stat-row" id="dashboard-stats"></div>
+      <div class="inline-form" id="dashboard-projection-controls">
+        <label class="checkbox-label">
+          <input type="checkbox" id="dashboard-projection-toggle" />
+          Show next weeks (forecast)
+        </label>
+        <label>Weeks
+          <select id="dashboard-projection-weeks">
+            <option value="4" selected>4</option>
+            <option value="8">8</option>
+            <option value="12">12</option>
+          </select>
+        </label>
+      </div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Weight (kg)</h3><svg id="chart-weight" class="chart"></svg></div>
         <div class="chart-card"><h3>Body fat (%)</h3><svg id="chart-bodyfat" class="chart"></svg></div>
@@ -158,6 +199,7 @@
           <svg id="chart-macro-split" class="chart"></svg>
         </div>
       </div>
+      </details>
     </section>
 
     <section id="view-log" class="view" hidden>

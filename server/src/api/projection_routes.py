@@ -55,7 +55,7 @@ def projection():
 
     profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
     try:
-        results = Projection.project_series(
+        pairs = Projection.project_series_with_inputs(
             profile_params,
             engine_inputs,
             weeks,
@@ -66,7 +66,14 @@ def projection():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return jsonify([asdict(MetricsDTO.from_domain(result)) for result in results])
+    payload = []
+    for log_input, result in pairs:
+        row = asdict(MetricsDTO.from_domain(result))
+        row["estimated_weight"] = log_input.weight_kg
+        row["estimated_waist"] = log_input.waist_cm
+        row["estimated_neck"] = log_input.neck_cm
+        payload.append(row)
+    return jsonify(payload)
 
 
 @projection_bp.post("/projection")

@@ -23,77 +23,151 @@ function formatAdherence(adherence) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
 }
 
+function formatDelta(value, unit, decimals = 1) {
+  if (value == null || Number.isNaN(value)) return "";
+  const arrow = value > 0 ? "▲" : value < 0 ? "▼" : "–";
+  const sign = value > 0 ? "+" : "";
+  return `<span class="delta">${arrow} ${sign}${value.toFixed(decimals)} ${unit}</span>`;
+}
+
+function statTile(label, value, delta = "") {
+  return `
+      <div class="stat-tile">
+        <div class="label">${label}</div>
+        <div class="value">${value}</div>
+        ${delta}
+      </div>`;
+}
+
+function badgeDelta(text, ok) {
+  return `<span class="delta"><span class="badge ${ok ? "active" : "inactive"}">${text}</span></span>`;
+}
+
+export function renderWeightSummary(container, latest, previousMetrics, gainQualityLatest) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
+    return;
+  }
+  const bodyFatDeltaPp = previousMetrics ? (latest.body_fat - previousMetrics.body_fat) * 100 : null;
+  container.innerHTML = [
+    statTile(
+      "Weight",
+      `${(latest.fat_mass_kg + latest.lean_mass_kg).toFixed(1)} kg`,
+      formatDelta(latest.weight_delta_kg, "kg")
+    ),
+    statTile(
+      "Body fat",
+      `${(latest.body_fat * 100).toFixed(1)}%`,
+      formatDelta(bodyFatDeltaPp, "pp")
+    ),
+    statTile(
+      "Lean mass",
+      `${latest.lean_mass_kg.toFixed(1)} kg`,
+      formatDelta(gainQualityLatest ? gainQualityLatest.delta_lean_kg : null, "kg", 2)
+    ),
+  ].join("");
+}
+
+export function renderCaloriesSummary(container, latest, adherence) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
+    return;
+  }
+  container.innerHTML = [
+    statTile("Target calories", `${latest.target_calories.toFixed(0)} kcal`),
+    statTile("TDEE", `${latest.tdee.toFixed(0)} kcal`),
+    statTile("Adherence", formatAdherence(adherence)),
+  ].join("");
+}
+
+export function renderGoalSummary(container, latest, profile) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your goal progress.</p>`;
+    return;
+  }
+  const isBulk = profile && profile.direction === "bulk";
+  const bodyFatValue =
+    profile && profile.target_bf != null
+      ? `${(latest.body_fat * 100).toFixed(1)}% <span class="delta">target ${(
+          profile.target_bf * 100
+        ).toFixed(1)}%</span>`
+      : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const tiles = [
+    statTile("Body fat vs target", bodyFatValue),
+    statTile("Weight to goal", `${Math.abs(latest.weight_to_shed_kg).toFixed(1)} kg`),
+    statTile("Weeks to goal", metricsWeeksToGoal(latest)),
+  ];
+  if (profile && profile.direction) {
+    tiles.push(statTile("Direction", isBulk ? "Bulk" : "Cut"));
+  }
+  container.innerHTML = tiles.join("");
+}
+
+function metricsWeeksToGoal(metrics) {
+  return metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—";
+}
+
 export function renderDashboardStats(
   container,
   metrics,
-  adherence,
   gainQualityLatest,
   energyBalanceLatest,
   incrementAnalyticsLatest
 ) {
-  if (!metrics) {
-    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
-    return;
-  }
-  const tiles = [
-    ["Body fat", `${(metrics.body_fat * 100).toFixed(1)}%`],
-    ["Fat mass", `${metrics.fat_mass_kg.toFixed(1)} kg`],
-    ["Lean mass", `${metrics.lean_mass_kg.toFixed(1)} kg`],
-    ["Weight", `${(metrics.fat_mass_kg + metrics.lean_mass_kg).toFixed(1)} kg`],
-    ["To target", `${(metrics.above_target * 100).toFixed(1)} pp`],
-    ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
-  ];
-  if (adherence) {
-    tiles.push(["Adherence", formatAdherence(adherence)]);
-  }
-  if (metrics.tef_kcal != null) {
-    tiles.push([
-      "TEF (this week)",
-      `${metrics.tef_kcal.toFixed(0)} kcal <span class="badge ${
-        metrics.tef_mode === "macros" ? "active" : "inactive"
-      }">${metrics.tef_mode}</span>`,
-    ]);
+  const tiles = [];
+  if (metrics && metrics.tef_kcal != null) {
+    tiles.push(
+      statTile(
+        "TEF (this week)",
+        `${metrics.tef_kcal.toFixed(0)} kcal`,
+        badgeDelta(metrics.tef_mode, metrics.tef_mode === "macros")
+      )
+    );
   }
   if (gainQualityLatest && gainQualityLatest.fat_ratio_cumulative != null) {
     const pct = gainQualityLatest.fat_ratio_cumulative * 100;
     const idealPct = gainQualityLatest.fat_ratio_ideal * 100;
-    const clean = pct <= idealPct;
-    tiles.push([
-      "Cumulative fat ratio",
-      `<span class="badge ${clean ? "active" : "inactive"}">${pct.toFixed(0)}% (ideal ≤${idealPct.toFixed(0)}%)</span>`,
-    ]);
+    tiles.push(
+      statTile(
+        "Cumulative fat ratio",
+        `${pct.toFixed(0)}%`,
+        `<span class="delta">ideal ≤${idealPct.toFixed(0)}%</span>`
+      )
+    );
   }
   if (energyBalanceLatest && energyBalanceLatest.error_rolling_mean_kcal != null) {
     const err = energyBalanceLatest.error_rolling_mean_kcal;
-    const overThreshold = err > energyBalanceLatest.error_threshold_kcal;
-    tiles.push([
-      "Energy-balance error (rolling)",
-      `<span class="badge ${overThreshold ? "inactive" : "active"}">${err.toFixed(0)} kcal/day</span>`,
-    ]);
+    const threshold = energyBalanceLatest.error_threshold_kcal;
+    tiles.push(
+      statTile(
+        "Energy-balance error (rolling)",
+        `${err.toFixed(0)} kcal/day`,
+        `<span class="delta">threshold ${threshold.toFixed(0)} kcal/day</span>`
+      )
+    );
   }
   if (incrementAnalyticsLatest) {
-    tiles.push([
-      "Avg weekly increment",
-      `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}% (goal ${(
-        incrementAnalyticsLatest.goal_weekly_rate * 100
-      ).toFixed(2)}%)`,
-    ]);
+    tiles.push(
+      statTile(
+        "Avg weekly increment",
+        `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}%`,
+        `<span class="delta">goal ${(incrementAnalyticsLatest.goal_weekly_rate * 100).toFixed(2)}%</span>`
+      )
+    );
     if (incrementAnalyticsLatest.deviation_pct != null) {
-      tiles.push([
-        "Deviation from goal rate",
-        `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`,
-      ]);
+      tiles.push(
+        statTile(
+          "Deviation from goal rate",
+          `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`
+        )
+      );
     }
   }
-  container.innerHTML = tiles
-    .map(
-      ([label, value]) => `
-      <div class="stat-tile">
-        <div class="label">${label}</div>
-        <div class="value">${value}</div>
-      </div>`
-    )
-    .join("");
+  if (tiles.length === 0) {
+    container.innerHTML = `<p class="disclaimer">No advanced stats yet.</p>`;
+    return;
+  }
+  container.innerHTML = tiles.join("");
 }
 
 export function renderAlerts(container, alerts) {

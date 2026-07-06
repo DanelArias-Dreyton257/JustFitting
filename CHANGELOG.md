@@ -5,6 +5,120 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Added a projected-weeks toggle to the Dashboard's charts (README's
+  Phase 4.3, the third item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): a "Show next weeks (forecast)" checkbox
+  plus a 4/8/12-week selector, inside the collapsed "Full charts &
+  advanced stats" section, overlays `GET /api/projection`'s forecast
+  rows onto the Weight, Body fat %, Calories, Waist & neck, and Weight
+  vs. goal trajectory charts, with a dashed "Last logged" marker line at
+  the last real log's date. `GET /api/projection` now also returns
+  `estimated_weight`/`estimated_waist`/`estimated_neck` (the same names
+  `ProjectionDTO` already used for a saved run) alongside its existing
+  `MetricsDTO` fields -- purely additive, so the standalone Projection
+  view is unaffected and no migration/`ENGINE_VERSION` bump was needed.
+  Forecast rows already compute with `source="projected"` from the
+  engine itself, so the existing small-red-dot/"(forecast)"-tooltip
+  styling applies with no new styling code; the perimeters chart's
+  waist/neck accessors fall back to the new fields when a row has no
+  `log_id` (true for every forecast row). `charts.js`'s marker-line
+  drawing (previously only on `drawMultiLineChart`, used for goal-plan-
+  change markers) is now a shared `drawMarkerLines` helper also used by
+  `drawLineChart`. `app.js`'s `refreshDashboardCharts()` split into a
+  data-fetch half and a pure `renderDashboardCharts()` draw half, so
+  toggling the control only (re)fetches the forecast itself, cached per
+  weeks value. Steps and the two bar charts (fat/lean mass, gain
+  quality) are deliberately left out of the overlay -- see the README's
+  Phase 4.3 write-up for the scoping rationale. `sw.js`'s `CACHE_NAME`
+  bumped `-v12` -> `-v13`. New Playwright coverage in
+  `client/test/browser/Dashboard_test.py` (toggle on/off, a weeks-value
+  change, and the marker line's presence/absence).
+  - Fixed a stale-cache crash on login, caught after deploying: `enterApp()`
+    unconditionally set `.checked`/`.value` on the new toggle elements,
+    which threw `Cannot set properties of null` whenever a client's
+    service worker served a fresh `app.js` alongside a still-cached, pre-
+    Phase-4.3 `index.html` (this app's `sw.js` calls `skipWaiting()`/
+    `clients.claim()`, so a page can pick up new JS before the matching
+    new HTML lands). `enterApp()`'s three DOM resets and the two new
+    toggle listeners now no-op instead of throwing when an element isn't
+    present yet.
+  - Fixed the goal-trajectory chart showing a second, unrelated dashed
+    marker once the forecast toggle widened its date domain: a goal's
+    `start_date` is the real wall-clock date it was created/changed
+    (e.g. the very first goal, dated at registration), which can fall
+    after the last logged week and previously was silently clamped to
+    the chart's right edge on the real-only domain. `goalMarkers` is now
+    filtered to `goal.start_date <= <last real log's date>` before
+    merging in the forecast's "Last logged" marker.
+  - Changed how a projected point is marked, per feedback that the
+    existing styling read as a jarring color swap: `charts.js` gained a
+    shared `drawPointMarker` helper -- a projected point is now hollow
+    (unfilled, stroked in the series' own color) instead of a real
+    point's filled dot, on both `drawLineChart` and `drawMultiLineChart`.
+    Replaces an inconsistent earlier pass (a smaller dot in an unrelated
+    red on `drawLineChart` only, no visual distinction at all on
+    `drawMultiLineChart`); the connecting line itself is untouched, so
+    only the marker shape signals "not measured yet."
+- Redesigned the Dashboard into a simplified home summary (README's
+  Phase 4.2, the second item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): three always-visible `.stat-row` card
+  sections -- Weight & Body Composition (weight/body fat/lean mass,
+  each with a change-vs-previous-week indicator), Calories (target
+  calories, TDEE, adherence), and Goal (body fat vs. target, weight to
+  goal, weeks to goal, cut/bulk direction) -- replace the full chart
+  grid as the landing view. The existing 12-chart grid and the
+  remaining advanced stat tiles (TEF, cumulative fat ratio, rolling
+  energy-balance error, weekly-increment deviation) move into a
+  collapsed-by-default `<details>` section, lazy-fetched and drawn only
+  on first expand instead of on every dashboard load. A purely
+  client-side change -- every figure the summary needs was already
+  computed and exposed by `GET /api/metrics/latest`, `/gain-quality`,
+  `/adherence`, and `/users/me`, so no server/API/DB/`ENGINE_VERSION`
+  change was needed. `app.js`'s `refreshDashboard()` split into
+  `refreshDashboardSummary()` (the new cheap default) and
+  `refreshDashboardCharts()` (the deferred, guarded-to-run-once fetch
+  for the collapsed section); `views.js` gained
+  `renderWeightSummary`/`renderCaloriesSummary`/`renderGoalSummary` and
+  a shared `formatDelta` helper. `sw.js`'s `CACHE_NAME` bumped
+  `-v11` -> `-v12`. New Playwright coverage:
+  `client/test/browser/Dashboard_test.py` (summary rendering with a
+  logged change, the collapsed/lazy-loaded chart section, and a
+  brand-new account's placeholder state).
+  - Fixed inconsistent formatting on the collapsed section's advanced
+    tiles, caught in review: Cumulative fat ratio and Energy-balance
+    error (rolling) wrapped their whole value in a small `.badge` pill
+    instead of the big/bold `.value` style every other tile uses, and
+    Avg weekly increment crammed its goal rate onto the same long line
+    as the value. Every tile's number now stays in the same big/bold
+    style, moving ideal/threshold/goal context into a small subtitle
+    underneath, the same way the summary sections already show a
+    change/target line. On a follow-up pass, Cumulative fat ratio's
+    "ideal" and Energy-balance error's "threshold" subtitles were
+    further switched from a colored `badgeDelta()` pill to the same
+    plain, uncolored subtitle text as every other tile's "goal"/
+    "target" line -- only TEF's "flat"/"macros" mode tag (a label, not
+    a good/bad judgment) still uses the colored badge.
+- Consolidated the top navigation into a single hamburger menu (README's
+  Phase 4.1, the first item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): the always-visible 8-button `.nav` row
+  (Dashboard/Log/Projection/Plan/Alerts/Report/Settings/Account, plus a
+  separate Logout button) is replaced by a `#nav-toggle` icon button and
+  a `.nav-menu` dropdown panel listing the same eight destinations plus
+  Logout, at every viewport width -- not just behind a mobile breakpoint,
+  since the crowding complaint applied to desktop too. The panel reuses
+  the exact same `button.nav-link[data-view]` elements `views.js`'s
+  `showView()` already selects/highlights, so view-switching and
+  active-tab highlighting needed no changes. `app.js` gained
+  open/close/outside-click/Escape handling with focus returning to the
+  toggle on close; `sw.js`'s `CACHE_NAME` bumped `-v10` -> `-v11`.
+  New Playwright coverage: `client/test/browser/Nav_test.py`, driving the
+  real client app end-to-end (open/close, item-click navigation, Escape,
+  outside-click, logout) rather than a fixture.
+
 ## [1.0.0] - 2026-07-04
 
 First public release, deployed via GitHub Actions: the static client on

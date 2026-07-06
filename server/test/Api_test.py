@@ -425,6 +425,14 @@ class ApiTestCase(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(len(body), 3)
         self.assertTrue(all(row["source"] == "projected" for row in body))
+        self.assertTrue(
+            all(
+                isinstance(row["estimated_weight"], (int, float))
+                and isinstance(row["estimated_waist"], (int, float))
+                and isinstance(row["estimated_neck"], (int, float))
+                for row in body
+            )
+        )
 
     def test_export_and_import_roundtrip(self):
         token = self._register().get_json()["token"]

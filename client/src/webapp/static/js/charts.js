@@ -133,7 +133,44 @@ function attachHoverTooltip(svg, points, formatTooltip) {
   svg.addEventListener("mouseleave", onLeave);
 }
 
-export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value" } = {}) {
+// Shared by drawLineChart/drawMultiLineChart: a dashed vertical line at
+// `marker.date` (e.g. the last logged day, or a goal-plan change), with its
+// label as a hover title rather than a permanent annotation.
+function drawMarkerLines(svg, markers, xScale, width, height) {
+  markers.forEach((marker) => {
+    const rawX = xScale(toEpoch(marker.date));
+    const x = Math.min(Math.max(rawX, LAYOUT.left), width - LAYOUT.right);
+    const markerLine = svgEl("line", {
+      x1: x,
+      x2: x,
+      y1: LAYOUT.top,
+      y2: height - LAYOUT.bottom,
+      class: "chart-marker-line",
+    });
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = marker.label;
+    markerLine.appendChild(title);
+    svg.appendChild(markerLine);
+  });
+}
+
+// Shared by drawLineChart/drawMultiLineChart: a projected/forecast point is
+// the same color and size as a real one, just hollow instead of filled --
+// shape carries "not a real measurement yet" rather than a color swap, so
+// the line's own color reads consistently whether or not projection is on.
+function drawPointMarker(svg, x, y, color, projected) {
+  svg.appendChild(
+    svgEl("circle", {
+      cx: x,
+      cy: y,
+      r: 3,
+      fill: projected ? "none" : color,
+      ...(projected ? { stroke: color, "stroke-width": "1.5" } : {}),
+    })
+  );
+}
+
+export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value", markers = [] } = {}) {
   svg.innerHTML = "";
   if (!series.length) {
     attachHoverTooltip(svg, [], () => "");
@@ -151,6 +188,7 @@ export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value" 
   const xPositions = series.map((point) => xScale(toEpoch(point.date)));
 
   drawAxes(svg, { series, xPositions, yScale, yDomain, width, height });
+  drawMarkerLines(svg, markers, xScale, width, height);
 
   const points = series.map((point, i) => [xPositions[i], yScale(point.value)]);
   const path = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
@@ -158,14 +196,7 @@ export function drawLineChart(svg, series, { color = "#5eb3ff", label = "Value" 
   svg.appendChild(svgEl("path", { d: path, fill: "none", stroke: color, "stroke-width": "2" }));
 
   points.forEach(([x, y], i) => {
-    svg.appendChild(
-      svgEl("circle", {
-        cx: x,
-        cy: y,
-        r: series[i].projected ? 2 : 3,
-        fill: series[i].projected ? "#e5686b" : color,
-      })
-    );
+    drawPointMarker(svg, x, y, color, series[i].projected);
   });
 
   attachHoverTooltip(
@@ -211,27 +242,11 @@ export function drawMultiLineChart(svg, series, lines, { isProjected = () => fal
     );
 
     points.forEach(([x, y], i) => {
-      svg.appendChild(
-        svgEl("circle", { cx: x, cy: y, r: isProjected(series[i]) ? 2 : 3, fill: line.color })
-      );
+      drawPointMarker(svg, x, y, line.color, isProjected(series[i]));
     });
   });
 
-  markers.forEach((marker) => {
-    const rawX = xScale(toEpoch(marker.date));
-    const x = Math.min(Math.max(rawX, LAYOUT.left), width - LAYOUT.right);
-    const markerLine = svgEl("line", {
-      x1: x,
-      x2: x,
-      y1: LAYOUT.top,
-      y2: height - LAYOUT.bottom,
-      class: "chart-marker-line",
-    });
-    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-    title.textContent = marker.label;
-    markerLine.appendChild(title);
-    svg.appendChild(markerLine);
-  });
+  drawMarkerLines(svg, markers, xScale, width, height);
 
   attachHoverTooltip(
     svg,

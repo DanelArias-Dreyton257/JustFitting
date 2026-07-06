@@ -38,12 +38,42 @@ body {
   font-weight: 700;
   font-size: 1.1rem;
   color: var(--accent);
+  flex: 1;
 }
 
-.nav {
+.nav-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 0.4rem;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.nav-toggle:hover,
+.nav-toggle[aria-expanded="true"] {
+  background: var(--surface-alt);
+}
+
+.nav-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 1.5rem;
+  z-index: 20;
   display: flex;
-  gap: 0.5rem;
-  flex: 1;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 12rem;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.nav-menu[hidden] {
+  display: none;
 }
 
 .nav-link {
@@ -54,6 +84,7 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 0.95rem;
+  text-align: left;
 }
 
 .nav-link.active,
@@ -70,6 +101,17 @@ body {
   border-radius: var(--radius);
   padding: 0.4rem 0.8rem;
   cursor: pointer;
+}
+
+.nav-menu .logout-btn {
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  padding-top: 0.6rem;
+  text-align: left;
 }
 
 main {
@@ -118,6 +160,12 @@ main {
   gap: 0.25rem;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.inline-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 input,
@@ -246,6 +294,58 @@ button#projection-refresh:hover {
   font-size: 1.5rem;
   font-weight: 700;
   margin-top: 0.15rem;
+}
+
+.stat-tile .delta {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.summary-section {
+  margin-bottom: 1.5rem;
+}
+
+.summary-section h2 {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+}
+
+#dashboard-details {
+  margin-top: 0.5rem;
+}
+
+#dashboard-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.6rem 0;
+  color: var(--text-muted);
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+#dashboard-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+#dashboard-details > summary::before {
+  content: "▸ ";
+  display: inline-block;
+}
+
+#dashboard-details[open] > summary::before {
+  content: "▾ ";
+}
+
+#dashboard-details > summary:hover {
+  color: var(--text);
+}
+
+#dashboard-details[open] > summary {
+  margin-bottom: 0.5rem;
 }
 
 .chart-grid {

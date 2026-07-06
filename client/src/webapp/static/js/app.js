@@ -5,6 +5,9 @@ import {
   showView,
   setFormError,
   renderDashboardStats,
+  renderWeightSummary,
+  renderCaloriesSummary,
+  renderGoalSummary,
   renderAlerts,
   renderAlertHistory,
   renderGoalHistory,
@@ -34,7 +37,14 @@ const state = {
   profile: null,
   logs: [],
   series: [],
+  gainQuality: [],
+  latestMetrics: null,
   planPreviewParams: null,
+  dashboardChartsLoaded: false,
+  dashboardData: null,
+  showProjection: false,
+  projectionWeeks: 4,
+  projectionCache: {},
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -42,6 +52,36 @@ let logWizardStep = 1;
 
 const navButtons = document.querySelectorAll(".nav-link");
 const logoutBtn = document.getElementById("logout-btn");
+const navToggle = document.getElementById("nav-toggle");
+const navMenu = document.getElementById("nav");
+
+function closeNavMenu() {
+  navMenu.hidden = true;
+  navToggle.setAttribute("aria-expanded", "false");
+}
+
+function openNavMenu() {
+  navMenu.hidden = false;
+  navToggle.setAttribute("aria-expanded", "true");
+}
+
+navToggle.addEventListener("click", () => {
+  if (navMenu.hidden) openNavMenu();
+  else closeNavMenu();
+});
+
+document.addEventListener("click", (event) => {
+  if (navMenu.hidden) return;
+  if (navMenu.contains(event.target) || navToggle.contains(event.target)) return;
+  closeNavMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !navMenu.hidden) {
+    closeNavMenu();
+    navToggle.focus();
+  }
+});
 
 async function boot() {
   if (isAuthenticated()) {
@@ -59,18 +99,33 @@ async function boot() {
 function showAuthOnly() {
   navButtons.forEach((btn) => (btn.hidden = true));
   logoutBtn.hidden = true;
+  navToggle.hidden = true;
+  closeNavMenu();
   showView("auth");
 }
 
 async function enterApp() {
   navButtons.forEach((btn) => (btn.hidden = false));
   logoutBtn.hidden = false;
+  navToggle.hidden = false;
+  state.dashboardChartsLoaded = false;
+  state.dashboardData = null;
+  state.showProjection = false;
+  state.projectionWeeks = 4;
+  state.projectionCache = {};
+  const dashboardDetails = document.getElementById("dashboard-details");
+  if (dashboardDetails) dashboardDetails.open = false;
+  const projectionToggle = document.getElementById("dashboard-projection-toggle");
+  if (projectionToggle) projectionToggle.checked = false;
+  const projectionWeeksSelect = document.getElementById("dashboard-projection-weeks");
+  if (projectionWeeksSelect) projectionWeeksSelect.value = "4";
   navigate("dashboard");
 }
 
 function navigate(viewName) {
+  closeNavMenu();
   showView(viewName);
-  if (viewName === "dashboard") refreshDashboard();
+  if (viewName === "dashboard") refreshDashboardSummary();
   if (viewName === "log") refreshLogs();
   if (viewName === "projection") refreshProjection();
   if (viewName === "plan") refreshPlan();
@@ -80,64 +135,104 @@ function navigate(viewName) {
   if (viewName === "settings") refreshSettings();
 }
 
-async function refreshDashboard() {
-  const [
-    latest,
-    series,
-    logs,
-    alerts,
-    adherence,
-    goals,
-    gainQuality,
-    energyBalance,
-    incrementAnalytics,
-    tef,
-    macroTargets,
-  ] = await Promise.all([
+async function refreshDashboardSummary() {
+  const [latest, series, gainQuality, adherence, alerts] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
-    api.listLogs().catch(() => []),
-    api.alerts().catch(() => []),
-    api.adherence().catch(() => null),
-    api.goals().catch(() => []),
     api.gainQuality().catch(() => []),
+    api.adherence().catch(() => null),
+    api.alerts().catch(() => []),
+  ]);
+  state.series = series;
+  state.gainQuality = gainQuality;
+  state.latestMetrics = latest;
+
+  const realSeries = series.filter((row) => row.source === "real");
+  const previousMetrics = realSeries.length > 1 ? realSeries[realSeries.length - 2] : null;
+
+  renderWeightSummary(
+    document.getElementById("summary-weight-stats"),
+    latest,
+    previousMetrics,
+    gainQuality[gainQuality.length - 1]
+  );
+  renderCaloriesSummary(document.getElementById("summary-calories-stats"), latest, adherence);
+  renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
+  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
+  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
+}
+
+async function refreshDashboardCharts() {
+  const [logs, goals, energyBalance, incrementAnalytics, tef, macroTargets] = await Promise.all([
+    api.listLogs().catch(() => []),
+    api.goals().catch(() => []),
     api.energyBalance().catch(() => []),
     api.incrementAnalytics().catch(() => []),
     api.tef().catch(() => []),
     api.macroTargets().catch(() => []),
   ]);
-  state.series = series;
+  state.dashboardData = { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets };
+  await renderDashboardCharts();
+}
+
+// Fetches the forecast rows for the current toggle/weeks selection, cached
+// per weeks value so re-toggling or re-rendering doesn't re-hit the API.
+async function getProjectionRows() {
+  if (!state.showProjection) return [];
+  const weeks = state.projectionWeeks;
+  if (state.projectionCache[weeks]) return state.projectionCache[weeks];
+  try {
+    const rows = await api.projection(weeks, "real", "constant");
+    state.projectionCache[weeks] = rows;
+    return rows;
+  } catch (err) {
+    return [];
+  }
+}
+
+async function renderDashboardCharts() {
+  if (!state.dashboardData) return;
+  const { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets } = state.dashboardData;
+  const series = state.series;
+  const gainQuality = state.gainQuality;
+
   renderDashboardStats(
     document.getElementById("dashboard-stats"),
-    latest,
-    adherence,
+    state.latestMetrics,
     gainQuality[gainQuality.length - 1],
     energyBalance[energyBalance.length - 1],
     incrementAnalytics[incrementAnalytics.length - 1]
   );
-  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
-  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
   const isProjected = (row) => row.source === "projected";
 
+  // Phase 4.3: appending the forecast to a *copy* of the real series --
+  // never `state.series` itself -- so the summary section and every other
+  // chart below stay on real data only.
+  const forecastRows = await getProjectionRows();
+  const forecastSeries = forecastRows.length ? series.concat(forecastRows) : series;
+  const lastLoggedDate = series.length ? series[series.length - 1].date : null;
+  const forecastMarkers =
+    forecastRows.length && lastLoggedDate ? [{ date: lastLoggedDate, label: "Last logged" }] : [];
+
   drawLineChart(
     document.getElementById("chart-weight"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.fat_mass_kg + row.lean_mass_kg,
       projected: row.source === "projected",
     })),
-    { label: "Weight" }
+    { label: "Weight", markers: forecastMarkers }
   );
   drawLineChart(
     document.getElementById("chart-bodyfat"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.body_fat * 100,
       projected: row.source === "projected",
     })),
-    { label: "Body fat %" }
+    { label: "Body fat %", markers: forecastMarkers }
   );
   drawStackedBars(
     document.getElementById("chart-mass"),
@@ -145,29 +240,35 @@ async function refreshDashboard() {
   );
   drawLineChart(
     document.getElementById("chart-calories"),
-    series.map((row) => ({
+    forecastSeries.map((row) => ({
       date: row.date,
       value: row.target_calories,
       projected: row.source === "projected",
     })),
-    { label: "Target calories" }
+    { label: "Target calories", markers: forecastMarkers }
   );
   drawMultiLineChart(
     document.getElementById("chart-perimeters"),
-    series,
+    forecastSeries,
     [
       {
-        accessor: (row) => (logsById.get(row.log_id) || {}).waist_cm || 0,
+        accessor: (row) => {
+          const log = logsById.get(row.log_id);
+          return log ? log.waist_cm : row.estimated_waist || 0;
+        },
         color: "#5eb3ff",
         label: "Waist",
       },
       {
-        accessor: (row) => (logsById.get(row.log_id) || {}).neck_cm || 0,
+        accessor: (row) => {
+          const log = logsById.get(row.log_id);
+          return log ? log.neck_cm : row.estimated_neck || 0;
+        },
         color: "#f0b94d",
         label: "Neck",
       },
     ],
-    { isProjected }
+    { isProjected, markers: forecastMarkers }
   );
   drawLineChart(
     document.getElementById("chart-steps"),
@@ -179,15 +280,25 @@ async function refreshDashboard() {
     { label: "Steps" }
   );
 
-  const goalMarkers = goals.map((goal) => ({
-    date: goal.start_date,
-    label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
-      goal.weekly_rate * 100
-    ).toFixed(2)}%/wk`,
-  }));
+  // A goal's start_date is set from the real wall-clock date it was
+  // created/changed, which can fall after the last logged week (e.g. the
+  // very first goal, dated at registration). Previously that always
+  // landed off the chart's real-only date domain and got silently
+  // clamped to the right edge; now that the forecast toggle can widen the
+  // domain past it, it would otherwise reappear mid-chart looking like an
+  // unrelated second "Last logged" line -- so it's excluded once it's no
+  // longer describing a change within the real data itself.
+  const goalMarkers = goals
+    .filter((goal) => !lastLoggedDate || goal.start_date <= lastLoggedDate)
+    .map((goal) => ({
+      date: goal.start_date,
+      label: `Plan changed: target BF ${(goal.target_bf * 100).toFixed(1)}%, rate ${(
+        goal.weekly_rate * 100
+      ).toFixed(2)}%/wk`,
+    }));
   drawMultiLineChart(
     document.getElementById("chart-goal-trajectory"),
-    series,
+    forecastSeries,
     [
       { accessor: (row) => row.fat_mass_kg + row.lean_mass_kg, color: "#5eb3ff", label: "Actual" },
       {
@@ -197,7 +308,7 @@ async function refreshDashboard() {
         label: "Target",
       },
     ],
-    { isProjected, markers: goalMarkers }
+    { isProjected, markers: [...goalMarkers, ...forecastMarkers] }
   );
 
   drawDivergingBars(
@@ -474,7 +585,24 @@ document.getElementById("dashboard-alerts").addEventListener("click", async (eve
   const btn = event.target.closest(".alert-dismiss-btn");
   if (!btn) return;
   await api.acknowledgeAlert(btn.dataset.alertId);
-  await refreshDashboard();
+  await refreshDashboardSummary();
+});
+
+document.getElementById("dashboard-details").addEventListener("toggle", (event) => {
+  if (event.target.open && !state.dashboardChartsLoaded) {
+    state.dashboardChartsLoaded = true;
+    refreshDashboardCharts();
+  }
+});
+
+document.getElementById("dashboard-projection-toggle")?.addEventListener("change", (event) => {
+  state.showProjection = event.target.checked;
+  if (state.dashboardChartsLoaded) renderDashboardCharts();
+});
+
+document.getElementById("dashboard-projection-weeks")?.addEventListener("change", (event) => {
+  state.projectionWeeks = Number(event.target.value);
+  if (state.showProjection && state.dashboardChartsLoaded) renderDashboardCharts();
 });
 
 document.getElementById("report-print-btn").addEventListener("click", () => {
