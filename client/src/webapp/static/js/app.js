@@ -33,6 +33,59 @@ import {
 
 const MACRO_COLORS = { protein: "#5eb3ff", fat: "#f0b94d", carbs: "#7ee787" };
 
+// Phase 4.4: local-date (not UTC) helpers for the Log view's day/week
+// navigator -- ISO week bounds mirror LogResampler.resample_to_weekly's
+// own Monday-Sunday grouping convention server-side.
+function toIsoDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function todayIso() {
+  return toIsoDate(new Date());
+}
+
+function addDays(isoDate, days) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  return toIsoDate(date);
+}
+
+function isoWeekRange(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayOfWeek = date.getDay(); // 0 = Sun .. 6 = Sat
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: toIsoDate(monday), end: toIsoDate(sunday) };
+}
+
+function formatShortDate(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatDayLabel(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const weekday = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  return isoDate === todayIso() ? `Today — ${weekday}` : weekday;
+}
+
+function formatWeekLabel(isoDate) {
+  const { start, end } = isoWeekRange(isoDate);
+  return `Week of ${formatShortDate(start)} – ${formatShortDate(end)}`;
+}
+
 const state = {
   profile: null,
   logs: [],
@@ -45,6 +98,7 @@ const state = {
   showProjection: false,
   projectionWeeks: 4,
   projectionCache: {},
+  logNav: { selectedDate: todayIso(), viewMode: "day" },
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -113,6 +167,7 @@ async function enterApp() {
   state.showProjection = false;
   state.projectionWeeks = 4;
   state.projectionCache = {};
+  state.logNav = { selectedDate: todayIso(), viewMode: "day" };
   const dashboardDetails = document.getElementById("dashboard-details");
   if (dashboardDetails) dashboardDetails.open = false;
   const projectionToggle = document.getElementById("dashboard-projection-toggle");
@@ -386,8 +441,64 @@ async function renderDashboardCharts() {
 
 async function refreshLogs() {
   state.logs = await api.listLogs();
-  renderLogTable(document.querySelector("#log-table tbody"), state.logs);
+  resetWizardGranularityDefault();
+  renderLogNav();
+  renderFilteredLogList();
   goToLogStep(1);
+}
+
+// Sets the wizard's granularity default from the active view mode (day ->
+// daily, week -> weekly) -- only called at "fresh wizard" points (entering
+// the Log view, switching day/week, and after a successful save) so it
+// never clobbers a manual choice mid-entry.
+function resetWizardGranularityDefault() {
+  document.getElementById("log-wizard-granularity").value =
+    state.logNav.viewMode === "week" ? "weekly" : "daily";
+}
+
+function renderLogNav() {
+  const { selectedDate, viewMode } = state.logNav;
+  const isWeek = viewMode === "week";
+
+  document.getElementById("log-nav-label").textContent = isWeek
+    ? formatWeekLabel(selectedDate)
+    : formatDayLabel(selectedDate);
+  document.getElementById("log-nav-date").value = selectedDate;
+  document.getElementById("log-nav-day").classList.toggle("active", !isWeek);
+  document.getElementById("log-nav-week").classList.toggle("active", isWeek);
+
+  document.getElementById("log-wizard-date-input").value = selectedDate;
+  document.getElementById("log-wizard-date-label").textContent = isWeek
+    ? formatWeekLabel(selectedDate)
+    : formatDayLabel(selectedDate);
+
+  const heading = document.getElementById("log-list-heading");
+  if (isWeek) {
+    const thisWeek = isoWeekRange(todayIso()).start === isoWeekRange(selectedDate).start;
+    heading.textContent = thisWeek ? "This week's logs" : `Logs for ${formatWeekLabel(selectedDate)}`;
+  } else {
+    heading.textContent = selectedDate === todayIso() ? "Today's logs" : `Logs for ${formatDayLabel(selectedDate)}`;
+  }
+}
+
+function renderFilteredLogList() {
+  const { selectedDate, viewMode } = state.logNav;
+  let filtered;
+  if (viewMode === "week") {
+    const { start, end } = isoWeekRange(selectedDate);
+    filtered = state.logs.filter((log) => log.date >= start && log.date <= end);
+  } else {
+    filtered = state.logs.filter((log) => log.date === selectedDate);
+  }
+  document.getElementById("log-table").hidden = filtered.length === 0;
+  document.getElementById("log-list-empty").hidden = filtered.length !== 0;
+  renderLogTable(document.querySelector("#log-table tbody"), filtered);
+}
+
+function setLogNav(patch) {
+  Object.assign(state.logNav, patch);
+  renderLogNav();
+  renderFilteredLogList();
 }
 
 function goToLogStep(step) {
@@ -533,6 +644,34 @@ document.getElementById("register-form").addEventListener("submit", async (event
   } catch (err) {
     setFormError("register-form", err.message);
   }
+});
+
+document.getElementById("log-nav-prev").addEventListener("click", () => {
+  const step = state.logNav.viewMode === "week" ? 7 : 1;
+  setLogNav({ selectedDate: addDays(state.logNav.selectedDate, -step) });
+});
+
+document.getElementById("log-nav-next").addEventListener("click", () => {
+  const step = state.logNav.viewMode === "week" ? 7 : 1;
+  setLogNav({ selectedDate: addDays(state.logNav.selectedDate, step) });
+});
+
+document.getElementById("log-nav-day").addEventListener("click", () => {
+  state.logNav.viewMode = "day";
+  resetWizardGranularityDefault();
+  renderLogNav();
+  renderFilteredLogList();
+});
+
+document.getElementById("log-nav-week").addEventListener("click", () => {
+  state.logNav.viewMode = "week";
+  resetWizardGranularityDefault();
+  renderLogNav();
+  renderFilteredLogList();
+});
+
+document.getElementById("log-nav-date").addEventListener("change", (event) => {
+  if (event.target.value) setLogNav({ selectedDate: event.target.value });
 });
 
 document.getElementById("log-next").addEventListener("click", () => {
