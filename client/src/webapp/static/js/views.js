@@ -23,30 +23,95 @@ function formatAdherence(adherence) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
 }
 
+function formatDelta(value, unit, decimals = 1) {
+  if (value == null || Number.isNaN(value)) return "";
+  const arrow = value > 0 ? "▲" : value < 0 ? "▼" : "–";
+  const sign = value > 0 ? "+" : "";
+  return `<span class="delta">${arrow} ${sign}${value.toFixed(decimals)} ${unit}</span>`;
+}
+
+function statTile(label, value, delta = "") {
+  return `
+      <div class="stat-tile">
+        <div class="label">${label}</div>
+        <div class="value">${value}</div>
+        ${delta}
+      </div>`;
+}
+
+export function renderWeightSummary(container, latest, previousMetrics, gainQualityLatest) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
+    return;
+  }
+  const bodyFatDeltaPp = previousMetrics ? (latest.body_fat - previousMetrics.body_fat) * 100 : null;
+  container.innerHTML = [
+    statTile(
+      "Weight",
+      `${(latest.fat_mass_kg + latest.lean_mass_kg).toFixed(1)} kg`,
+      formatDelta(latest.weight_delta_kg, "kg")
+    ),
+    statTile(
+      "Body fat",
+      `${(latest.body_fat * 100).toFixed(1)}%`,
+      formatDelta(bodyFatDeltaPp, "pp")
+    ),
+    statTile(
+      "Lean mass",
+      `${latest.lean_mass_kg.toFixed(1)} kg`,
+      formatDelta(gainQualityLatest ? gainQualityLatest.delta_lean_kg : null, "kg", 2)
+    ),
+  ].join("");
+}
+
+export function renderCaloriesSummary(container, latest, adherence) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
+    return;
+  }
+  container.innerHTML = [
+    statTile("Target calories", `${latest.target_calories.toFixed(0)} kcal`),
+    statTile("TDEE", `${latest.tdee.toFixed(0)} kcal`),
+    statTile("Adherence", formatAdherence(adherence)),
+  ].join("");
+}
+
+export function renderGoalSummary(container, latest, profile) {
+  if (!latest) {
+    container.innerHTML = `<p class="disclaimer">Log a week to see your goal progress.</p>`;
+    return;
+  }
+  const isBulk = profile && profile.direction === "bulk";
+  const bodyFatValue =
+    profile && profile.target_bf != null
+      ? `${(latest.body_fat * 100).toFixed(1)}% <span class="delta">target ${(
+          profile.target_bf * 100
+        ).toFixed(1)}%</span>`
+      : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const tiles = [
+    statTile("Body fat vs target", bodyFatValue),
+    statTile("Weight to goal", `${Math.abs(latest.weight_to_shed_kg).toFixed(1)} kg`),
+    statTile("Weeks to goal", metricsWeeksToGoal(latest)),
+  ];
+  if (profile && profile.direction) {
+    tiles.push(statTile("Direction", isBulk ? "Bulk" : "Cut"));
+  }
+  container.innerHTML = tiles.join("");
+}
+
+function metricsWeeksToGoal(metrics) {
+  return metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—";
+}
+
 export function renderDashboardStats(
   container,
   metrics,
-  adherence,
   gainQualityLatest,
   energyBalanceLatest,
   incrementAnalyticsLatest
 ) {
-  if (!metrics) {
-    container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
-    return;
-  }
-  const tiles = [
-    ["Body fat", `${(metrics.body_fat * 100).toFixed(1)}%`],
-    ["Fat mass", `${metrics.fat_mass_kg.toFixed(1)} kg`],
-    ["Lean mass", `${metrics.lean_mass_kg.toFixed(1)} kg`],
-    ["Weight", `${(metrics.fat_mass_kg + metrics.lean_mass_kg).toFixed(1)} kg`],
-    ["To target", `${(metrics.above_target * 100).toFixed(1)} pp`],
-    ["Weeks to goal", metrics.weeks_to_goal > 0 ? metrics.weeks_to_goal.toFixed(1) : "—"],
-  ];
-  if (adherence) {
-    tiles.push(["Adherence", formatAdherence(adherence)]);
-  }
-  if (metrics.tef_kcal != null) {
+  const tiles = [];
+  if (metrics && metrics.tef_kcal != null) {
     tiles.push([
       "TEF (this week)",
       `${metrics.tef_kcal.toFixed(0)} kcal <span class="badge ${
@@ -85,15 +150,11 @@ export function renderDashboardStats(
       ]);
     }
   }
-  container.innerHTML = tiles
-    .map(
-      ([label, value]) => `
-      <div class="stat-tile">
-        <div class="label">${label}</div>
-        <div class="value">${value}</div>
-      </div>`
-    )
-    .join("");
+  if (tiles.length === 0) {
+    container.innerHTML = `<p class="disclaimer">No advanced stats yet.</p>`;
+    return;
+  }
+  container.innerHTML = tiles.map(([label, value]) => statTile(label, value)).join("");
 }
 
 export function renderAlerts(container, alerts) {

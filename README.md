@@ -722,13 +722,69 @@ on desktop. No responsive/mobile nav pattern existed before this phase.
 - Purely client-side: no server/API/DB changes, no `ENGINE_VERSION`
   implications, no `manifest.json` changes.
 
-#### Phase 4.2 — Simplified dashboard-as-home summary (backlog, unscheduled)
+#### Phase 4.2 — Simplified dashboard-as-home summary (done)
 
 `things-to-improve.txt` item 2: land on a simpler dashboard summary
 first -- a last-logged weight/body-fat/lean-mass-and-change section, a
 calories section, and a goal section (achieved vs. target, projected
 weeks-to-complete) -- rather than today's full chart grid as the
-landing view.
+landing view. A client-only change: every figure the new summary needs
+was already computed and exposed by existing endpoints (`GET
+/api/metrics/latest`'s `MetricsDTO` -- `body_fat`, `fat_mass_kg`,
+`lean_mass_kg`, `weight_delta_kg`, `tdee`, `target_calories`,
+`weight_to_shed_kg`, `weeks_to_goal`; `GET /api/metrics/gain-quality`'s
+`delta_lean_kg`; `GET /api/users/me`'s `target_bf`/`direction`), so no
+engine work, migration, or `ENGINE_VERSION` bump was needed.
+
+- `#view-dashboard` (`index.html`) splits into an always-visible
+  summary -- three `.stat-row` card sections (Weight & Body
+  Composition, Calories, Goal) fed by a small, cheap fetch set -- and a
+  `<details id="dashboard-details">`-collapsed "Full charts & advanced
+  stats" section holding the existing 12-chart grid, collapsed by
+  default and lazy-loaded only on first expand rather than fetched on
+  every dashboard load. A custom `▸`/`▾` marker and a top border
+  (`style.css`) replace the bare browser-default disclosure triangle so
+  the section reads as clickable rather than a plain heading.
+- `client/src/webapp/static/js/app.js`'s `refreshDashboard()` split
+  into `refreshDashboardSummary()` (the new default on
+  `navigate("dashboard")`: `metricsLatest`, `metricsSeries`,
+  `gainQuality`, `adherence`, `alerts`) and `refreshDashboardCharts()`
+  (`listLogs`, `goals`, `energyBalance`, `incrementAnalytics`, `tef`,
+  `macroTargets`, reusing the series/gain-quality already fetched by
+  the summary via `state`), the latter wired to the `<details>`
+  element's `toggle` event and guarded (`state.dashboardChartsLoaded`)
+  so it runs at most once per login session; `enterApp()` resets that
+  flag and re-collapses the section on every fresh login so a second
+  account's charts are never shown stale.
+- `views.js` gains `renderWeightSummary`, `renderCaloriesSummary`,
+  `renderGoalSummary`, and shared `formatDelta`/`statTile` helpers
+  (▲/▼/– plus the signed value, in a neutral/muted color rather than
+  red/green -- "good" direction depends on the account's cut/bulk
+  `direction` and differs per metric, so that judgment is deliberately
+  left for later rather than guessed at now). `renderDashboardStats`
+  (the collapsed section's tile row) now only surfaces the genuinely
+  *advanced* figures -- TEF, cumulative fat ratio, energy-balance
+  error, average weekly increment, deviation from goal rate -- since
+  Weight/Body fat/Lean mass/To-target/Weeks-to-goal/Adherence are all
+  covered by the new summary sections and would otherwise be shown
+  twice.
+- New browser test coverage, `client/test/browser/Dashboard_test.py`
+  (no dashboard-specific browser test existed before this phase --
+  `Nav_test.py` only checks the view is shown): the three summary
+  sections render expected values (including a change indicator once a
+  second week is logged), a brand-new account with no logs gets a
+  friendly placeholder instead of an error, `#dashboard-details` starts
+  closed with chart SVGs empty until expanded, and expanding it draws
+  the charts.
+- `sw.js`'s `CACHE_NAME` bumped (`-v11` -> `-v12`) per this project's
+  established convention.
+- Manually verified against both seeded demo accounts
+  (`scripts/seed_demo_data.sh`): `admin_cut`'s summary reproduces the
+  README's own Danel worked example almost exactly (BF 19.9%, TDEE 2583
+  kcal, target 2027 kcal, ~11.9 weeks to goal); `admin_bulk` renders the
+  same layout correctly with upward weight/lean-mass deltas and a
+  "Bulk" direction badge.
+- No server/API/DB changes.
 
 #### Phase 4.3 — Projected-weeks toggle on Dashboard charts (backlog, unscheduled)
 

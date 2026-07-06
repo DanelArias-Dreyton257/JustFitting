@@ -5,6 +5,9 @@ import {
   showView,
   setFormError,
   renderDashboardStats,
+  renderWeightSummary,
+  renderCaloriesSummary,
+  renderGoalSummary,
   renderAlerts,
   renderAlertHistory,
   renderGoalHistory,
@@ -34,7 +37,10 @@ const state = {
   profile: null,
   logs: [],
   series: [],
+  gainQuality: [],
+  latestMetrics: null,
   planPreviewParams: null,
+  dashboardChartsLoaded: false,
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -98,13 +104,15 @@ async function enterApp() {
   navButtons.forEach((btn) => (btn.hidden = false));
   logoutBtn.hidden = false;
   navToggle.hidden = false;
+  state.dashboardChartsLoaded = false;
+  document.getElementById("dashboard-details").open = false;
   navigate("dashboard");
 }
 
 function navigate(viewName) {
   closeNavMenu();
   showView(viewName);
-  if (viewName === "dashboard") refreshDashboard();
+  if (viewName === "dashboard") refreshDashboardSummary();
   if (viewName === "log") refreshLogs();
   if (viewName === "projection") refreshProjection();
   if (viewName === "plan") refreshPlan();
@@ -114,43 +122,52 @@ function navigate(viewName) {
   if (viewName === "settings") refreshSettings();
 }
 
-async function refreshDashboard() {
-  const [
-    latest,
-    series,
-    logs,
-    alerts,
-    adherence,
-    goals,
-    gainQuality,
-    energyBalance,
-    incrementAnalytics,
-    tef,
-    macroTargets,
-  ] = await Promise.all([
+async function refreshDashboardSummary() {
+  const [latest, series, gainQuality, adherence, alerts] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
-    api.listLogs().catch(() => []),
-    api.alerts().catch(() => []),
-    api.adherence().catch(() => null),
-    api.goals().catch(() => []),
     api.gainQuality().catch(() => []),
+    api.adherence().catch(() => null),
+    api.alerts().catch(() => []),
+  ]);
+  state.series = series;
+  state.gainQuality = gainQuality;
+  state.latestMetrics = latest;
+
+  const realSeries = series.filter((row) => row.source === "real");
+  const previousMetrics = realSeries.length > 1 ? realSeries[realSeries.length - 2] : null;
+
+  renderWeightSummary(
+    document.getElementById("summary-weight-stats"),
+    latest,
+    previousMetrics,
+    gainQuality[gainQuality.length - 1]
+  );
+  renderCaloriesSummary(document.getElementById("summary-calories-stats"), latest, adherence);
+  renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
+  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
+  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
+}
+
+async function refreshDashboardCharts() {
+  const series = state.series;
+  const gainQuality = state.gainQuality;
+  const [logs, goals, energyBalance, incrementAnalytics, tef, macroTargets] = await Promise.all([
+    api.listLogs().catch(() => []),
+    api.goals().catch(() => []),
     api.energyBalance().catch(() => []),
     api.incrementAnalytics().catch(() => []),
     api.tef().catch(() => []),
     api.macroTargets().catch(() => []),
   ]);
-  state.series = series;
+
   renderDashboardStats(
     document.getElementById("dashboard-stats"),
-    latest,
-    adherence,
+    state.latestMetrics,
     gainQuality[gainQuality.length - 1],
     energyBalance[energyBalance.length - 1],
     incrementAnalytics[incrementAnalytics.length - 1]
   );
-  renderAlerts(document.getElementById("dashboard-alerts"), alerts);
-  renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 
   const logsById = new Map(logs.map((log) => [log.log_id, log]));
   const isProjected = (row) => row.source === "projected";
@@ -508,7 +525,14 @@ document.getElementById("dashboard-alerts").addEventListener("click", async (eve
   const btn = event.target.closest(".alert-dismiss-btn");
   if (!btn) return;
   await api.acknowledgeAlert(btn.dataset.alertId);
-  await refreshDashboard();
+  await refreshDashboardSummary();
+});
+
+document.getElementById("dashboard-details").addEventListener("toggle", (event) => {
+  if (event.target.open && !state.dashboardChartsLoaded) {
+    state.dashboardChartsLoaded = true;
+    refreshDashboardCharts();
+  }
 });
 
 document.getElementById("report-print-btn").addEventListener("click", () => {

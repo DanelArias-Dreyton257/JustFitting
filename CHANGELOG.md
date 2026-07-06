@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Redesigned the Dashboard into a simplified home summary (README's
+  Phase 4.2, the second item from `things-to-improve.txt`'s first round
+  of beta-testing feedback): three always-visible `.stat-row` card
+  sections -- Weight & Body Composition (weight/body fat/lean mass,
+  each with a change-vs-previous-week indicator), Calories (target
+  calories, TDEE, adherence), and Goal (body fat vs. target, weight to
+  goal, weeks to goal, cut/bulk direction) -- replace the full chart
+  grid as the landing view. The existing 12-chart grid and the
+  remaining advanced stat tiles (TEF, cumulative fat ratio, rolling
+  energy-balance error, weekly-increment deviation) move into a
+  collapsed-by-default `<details>` section, lazy-fetched and drawn only
+  on first expand instead of on every dashboard load. A purely
+  client-side change -- every figure the summary needs was already
+  computed and exposed by `GET /api/metrics/latest`, `/gain-quality`,
+  `/adherence`, and `/users/me`, so no server/API/DB/`ENGINE_VERSION`
+  change was needed. `app.js`'s `refreshDashboard()` split into
+  `refreshDashboardSummary()` (the new cheap default) and
+  `refreshDashboardCharts()` (the deferred, guarded-to-run-once fetch
+  for the collapsed section); `views.js` gained
+  `renderWeightSummary`/`renderCaloriesSummary`/`renderGoalSummary` and
+  a shared `formatDelta` helper. `sw.js`'s `CACHE_NAME` bumped
+  `-v11` -> `-v12`. New Playwright coverage:
+  `client/test/browser/Dashboard_test.py` (summary rendering with a
+  logged change, the collapsed/lazy-loaded chart section, and a
+  brand-new account's placeholder state).
 - Consolidated the top navigation into a single hamburger menu (README's
   Phase 4.1, the first item from `things-to-improve.txt`'s first round
   of beta-testing feedback): the always-visible 8-button `.nav` row

@@ -107,6 +107,22 @@
       <h1>Dashboard</h1>
       <p class="disclaimer" id="sex-disclaimer" hidden></p>
       <div class="alerts-panel" id="dashboard-alerts" hidden></div>
+
+      <div class="summary-section">
+        <h2>Weight &amp; Body Composition</h2>
+        <div class="stat-row" id="summary-weight-stats"></div>
+      </div>
+      <div class="summary-section">
+        <h2>Calories</h2>
+        <div class="stat-row" id="summary-calories-stats"></div>
+      </div>
+      <div class="summary-section">
+        <h2>Goal</h2>
+        <div class="stat-row" id="summary-goal-stats"></div>
+      </div>
+
+      <details id="dashboard-details">
+      <summary>Full charts &amp; advanced stats</summary>
       <div class="stat-row" id="dashboard-stats"></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Weight (kg)</h3><svg id="chart-weight" class="chart"></svg></div>
@@ -170,6 +186,7 @@
           <svg id="chart-macro-split" class="chart"></svg>
         </div>
       </div>
+      </details>
     </section>
 
     <section id="view-log" class="view" hidden>
