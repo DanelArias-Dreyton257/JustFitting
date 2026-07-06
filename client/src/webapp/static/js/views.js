@@ -39,6 +39,10 @@ function statTile(label, value, delta = "") {
       </div>`;
 }
 
+function badgeDelta(text, ok) {
+  return `<span class="delta"><span class="badge ${ok ? "active" : "inactive"}">${text}</span></span>`;
+}
+
 export function renderWeightSummary(container, latest, previousMetrics, gainQualityLatest) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
@@ -112,49 +116,58 @@ export function renderDashboardStats(
 ) {
   const tiles = [];
   if (metrics && metrics.tef_kcal != null) {
-    tiles.push([
-      "TEF (this week)",
-      `${metrics.tef_kcal.toFixed(0)} kcal <span class="badge ${
-        metrics.tef_mode === "macros" ? "active" : "inactive"
-      }">${metrics.tef_mode}</span>`,
-    ]);
+    tiles.push(
+      statTile(
+        "TEF (this week)",
+        `${metrics.tef_kcal.toFixed(0)} kcal`,
+        badgeDelta(metrics.tef_mode, metrics.tef_mode === "macros")
+      )
+    );
   }
   if (gainQualityLatest && gainQualityLatest.fat_ratio_cumulative != null) {
     const pct = gainQualityLatest.fat_ratio_cumulative * 100;
     const idealPct = gainQualityLatest.fat_ratio_ideal * 100;
-    const clean = pct <= idealPct;
-    tiles.push([
-      "Cumulative fat ratio",
-      `<span class="badge ${clean ? "active" : "inactive"}">${pct.toFixed(0)}% (ideal ≤${idealPct.toFixed(0)}%)</span>`,
-    ]);
+    tiles.push(
+      statTile(
+        "Cumulative fat ratio",
+        `${pct.toFixed(0)}%`,
+        badgeDelta(`ideal ≤${idealPct.toFixed(0)}%`, pct <= idealPct)
+      )
+    );
   }
   if (energyBalanceLatest && energyBalanceLatest.error_rolling_mean_kcal != null) {
     const err = energyBalanceLatest.error_rolling_mean_kcal;
-    const overThreshold = err > energyBalanceLatest.error_threshold_kcal;
-    tiles.push([
-      "Energy-balance error (rolling)",
-      `<span class="badge ${overThreshold ? "inactive" : "active"}">${err.toFixed(0)} kcal/day</span>`,
-    ]);
+    const threshold = energyBalanceLatest.error_threshold_kcal;
+    tiles.push(
+      statTile(
+        "Energy-balance error (rolling)",
+        `${err.toFixed(0)} kcal/day`,
+        badgeDelta(`threshold ${threshold.toFixed(0)} kcal/day`, err <= threshold)
+      )
+    );
   }
   if (incrementAnalyticsLatest) {
-    tiles.push([
-      "Avg weekly increment",
-      `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}% (goal ${(
-        incrementAnalyticsLatest.goal_weekly_rate * 100
-      ).toFixed(2)}%)`,
-    ]);
+    tiles.push(
+      statTile(
+        "Avg weekly increment",
+        `${(incrementAnalyticsLatest.incr_real_mean_pct * 100).toFixed(2)}%`,
+        `<span class="delta">goal ${(incrementAnalyticsLatest.goal_weekly_rate * 100).toFixed(2)}%</span>`
+      )
+    );
     if (incrementAnalyticsLatest.deviation_pct != null) {
-      tiles.push([
-        "Deviation from goal rate",
-        `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`,
-      ]);
+      tiles.push(
+        statTile(
+          "Deviation from goal rate",
+          `${(incrementAnalyticsLatest.deviation_pct * 100).toFixed(0)}%`
+        )
+      );
     }
   }
   if (tiles.length === 0) {
     container.innerHTML = `<p class="disclaimer">No advanced stats yet.</p>`;
     return;
   }
-  container.innerHTML = tiles.map(([label, value]) => statTile(label, value)).join("");
+  container.innerHTML = tiles.join("");
 }
 
 export function renderAlerts(container, alerts) {
