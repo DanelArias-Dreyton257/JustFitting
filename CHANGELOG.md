@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-07-06
-
-Phase 4.1-4.3 of the beta-testing UX refinement round
-(`things-to-improve.txt`): a consolidated hamburger nav, a simplified
-dashboard-as-home summary, and a projected-weeks forecast toggle on the
-Dashboard's charts.
-
 ### Changed
 
 - Redesigned the Log view's log capture around a day/week navigator
@@ -39,6 +32,15 @@ Dashboard's charts.
   week view grouping multiple same-ISO-week logs that day view keeps
   separate); `Dashboard_test.py`'s own log-creation helper updated to
   drive the new date-picker instead of the now-hidden date input.
+
+## [1.1.0] - 2026-07-06
+
+Phase 4.1-4.3 of the beta-testing UX refinement round
+(`things-to-improve.txt`): a consolidated hamburger nav, a simplified
+dashboard-as-home summary, and a projected-weeks forecast toggle on the
+Dashboard's charts.
+
+### Changed
 
 - Added a projected-weeks toggle to the Dashboard's charts (README's
   Phase 4.3, the third item from `things-to-improve.txt`'s first round
