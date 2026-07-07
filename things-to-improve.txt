@@ -3,3 +3,14 @@
 3 - A toggle switch in dashboard should make it possible to show the projected weeks into the plots (of the weight progression and neck and waist etc) marking the last loged day as a vertical dashed line. So the user can see how far they are from their goal and how long it will take to reach it (make it like "the next 4 weeks").
 4 - A cleaner representation of the logging will be great, maybe the best way is to have a timetable menu where each day can be selected and the log is done "inside" that day. Automatically is put into the today tab where you can see what was logged today. And you could have a day view or a week view. The final idea is to have a more clean look since it should show only thre loggings done in that day so when lots of loggings are done is not a extremelly long and confusing table. If possible it would be great to have like the day youre in on top with a left and right arrows, then a toggle for day and week view and a kick date selector as well. then after that the log wizard and then the "today's" or "this week's" depending on view, logs.
 5 - After a cleaner version of the logging is done, the projected tab should be redesigned as well, the end idea is that that tab can be removed directly, and just eb a toggle on the dashboard and on the log so it show in future dates the "projected log".
+
+Things to change (Beta-testing) Phase 5
+---
+1 - CACHE_NAME of sw.js shouldnt be manual to be changed
+2 - On creating an account, instead of making user select target body fat and weekly rate, this is linked to having a goal. The idea should be that user is created and then has everything "empty" because no log exiss until they go to the Goal section and a new goal is selected. For easy usage, a 15% body fat for males and 22% for females, the weekly rate to 0.00% so it means no change.
+3 - Make into charts/plots make it so it takes only into account the actual goal plan period since it make take anissue into projections and plotting tendencies etc.
+4 - In logging wizard, by default it should take the last log values, at least in perimeters
+5 - FIX Weight to goal working weirdly (bug?). I found it showing 0.5kg always. 
+6 - FIX Calories taraget calories tdee and adherence are not comprehensible, what do they mean maybe other metrics are best. Adherence is weird because you would expect that target calories indicate how much should you eat, TDEE how much DID you eat and adherence the difference daily but doesn't match. 
+7 - Log editing posible
+8 - Account setting goal and profile be separated, goal has its own tab, so only profile setting should be there
