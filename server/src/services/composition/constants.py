@@ -36,6 +36,15 @@ DAYS_PER_WEEK = 7
 SEX_MALE = 1
 SEX_FEMALE = 0
 
+#: Phase 5.2 -- sane per-sex defaults for a brand-new account's goal plan,
+#: used only when registration omits target_bf/weekly_rate. Every account
+#: still always gets *a* goal plan (the engine has no "no goal" mode); this
+#: just avoids asking for one at signup, deferring the real choice to the
+#: Plan tab's preview/commit flow.
+DEFAULT_TARGET_BF_MALE = 0.15
+DEFAULT_TARGET_BF_FEMALE = 0.22
+DEFAULT_WEEKLY_RATE = 0.0
+
 #: Alerts & feedback thresholds (see services/composition/Alerts.py).
 #: These, plus TEF/KCAL_PER_KG_FAT/NEAT_STEP_FACTOR above, are the module
 #: defaults used when a user has no `EngineSettings` override (Phase 1.5,

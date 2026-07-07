@@ -728,8 +728,6 @@ document.getElementById("register-form").addEventListener("submit", async (event
     height_cm: Number(raw.height_cm),
     sex: Number(raw.sex),
     birthdate: raw.birthdate,
-    target_bf: Number(raw.target_bf_pct) / 100,
-    weekly_rate: Number(raw.weekly_rate_pct) / 100,
   };
   try {
     const { token, profile } = await api.register(payload);
@@ -886,8 +884,6 @@ document.getElementById("profile-form").addEventListener("submit", async (event)
     height_cm: Number(raw.height_cm),
     sex: Number(raw.sex),
     birthdate: raw.birthdate,
-    target_bf: Number(raw.target_bf_pct) / 100,
-    weekly_rate: Number(raw.weekly_rate_pct) / 100,
   };
   try {
     state.profile = await api.updateProfile(payload);

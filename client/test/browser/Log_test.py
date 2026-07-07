@@ -26,8 +26,6 @@ def _register_payload(username: str) -> dict:
         "height_cm": "176",
         "sex": "1",
         "birthdate": "2001-08-22",
-        "target_bf_pct": "15",
-        "weekly_rate_pct": "-0.5",
     }
 
 

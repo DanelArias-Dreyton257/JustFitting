@@ -377,8 +377,6 @@ export function fillProfileForm(form, profile) {
   form.height_cm.value = profile.height_cm;
   form.sex.value = String(profile.sex);
   form.birthdate.value = profile.birthdate;
-  form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
-  form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
 }
 
 export function showWizardStep(form, step, totalSteps) {

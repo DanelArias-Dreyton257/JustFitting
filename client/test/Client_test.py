@@ -62,6 +62,25 @@ class ClientSmokeTest(unittest.TestCase):
         self.assertNotIn(b'id="view-projection"', response.data)
         self.assertIn(b'id="settings-show-projected-logs"', response.data)
 
+    def test_register_and_profile_forms_have_no_goal_fields(self):
+        # Phase 5.2/5.8: account creation and the Account view no longer ask
+        # for a goal -- target_bf/weekly_rate only ever appear inside the
+        # Plan tab's own preview/commit flow now.
+        response = self.client.get("/")
+        register_form = response.data.split(b'id="register-form"')[1].split(b"</form>")[0]
+        self.assertNotIn(b"target_bf_pct", register_form)
+        self.assertNotIn(b"weekly_rate_pct", register_form)
+
+        profile_form = response.data.split(b'id="profile-form"')[1].split(b"</form>")[0]
+        self.assertNotIn(b"target_bf_pct", profile_form)
+        self.assertNotIn(b"weekly_rate_pct", profile_form)
+
+        # The Plan tab's own form is untouched -- it remains the sole place
+        # a goal is set.
+        plan_form = response.data.split(b'id="plan-form"')[1].split(b"</form>")[0]
+        self.assertIn(b"target_bf_pct", plan_form)
+        self.assertIn(b"weekly_rate_pct", plan_form)
+
 
 if __name__ == "__main__":
     unittest.main()

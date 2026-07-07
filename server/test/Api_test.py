@@ -67,6 +67,40 @@ class ApiTestCase(unittest.TestCase):
         still_valid = self.client.get("/api/users/me", headers=self._auth_header(token))
         self.assertEqual(still_valid.status_code, 200)
 
+    def test_register_without_goal_fields_resolves_sane_per_sex_defaults(self):
+        # Phase 5.2: registration no longer requires target_bf/weekly_rate.
+        male_response = self.client.post(
+            "/api/users",
+            json={
+                "username": "male_default",
+                "email": "male_default@example.com",
+                "password": "hunter22",
+                "height_cm": 176,
+                "sex": 1,
+                "birthdate": "2001-08-22",
+            },
+        )
+        self.assertEqual(male_response.status_code, 201)
+        male_profile = male_response.get_json()["profile"]
+        self.assertAlmostEqual(male_profile["target_bf"], 0.15)
+        self.assertAlmostEqual(male_profile["weekly_rate"], 0.0)
+
+        female_response = self.client.post(
+            "/api/users",
+            json={
+                "username": "female_default",
+                "email": "female_default@example.com",
+                "password": "hunter22",
+                "height_cm": 165,
+                "sex": 0,
+                "birthdate": "2001-08-22",
+            },
+        )
+        self.assertEqual(female_response.status_code, 201)
+        female_profile = female_response.get_json()["profile"]
+        self.assertAlmostEqual(female_profile["target_bf"], 0.22)
+        self.assertAlmostEqual(female_profile["weekly_rate"], 0.0)
+
     def test_register_rejects_duplicate_username(self):
         self._register()
         duplicate = self._register(email="other@example.com")
