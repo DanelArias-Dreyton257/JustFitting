@@ -216,10 +216,10 @@ def _unconfigured_goal_alerts(
             severity="info",
             date=goal.start_date,
             message=(
-                "This account's first goal was auto-assigned as a placeholder "
-                "(0% weekly rate -- no planned change) since none was set at "
-                "signup. Visit the Plan tab to set your own target body fat "
-                "and weekly rate."
+                f"This account's first goal was auto-assigned as a placeholder "
+                f"({goal.target_bf:.0%} body fat and {goal.weekly_rate:.0%} weekly "
+                f"rate). Visit the Plan tab to set your own target body fat and "
+                f"weekly rate."
             ),
             value=goal.weekly_rate,
             threshold=0.0,
