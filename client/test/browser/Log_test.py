@@ -228,6 +228,40 @@ class LogNavTest(unittest.TestCase):
         self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_future}")')
         self.assertIn("projected", self.page.inner_text("#log-table tbody tr").lower())
 
+    def test_wizard_prefills_perimeters_from_last_real_log(self):
+        # A brand-new account's first-ever wizard opens blank.
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), ""
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), ""
+        )
+
+        self._log_on(_MONDAY.isoformat(), 90.0)
+
+        # Right after saving, the wizard resets then re-prefills from the
+        # log just saved -- proving the prefill (not leftover form state,
+        # since the form is reset() before refreshLogs() re-fills it).
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), "80"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), "35"
+        )
+
+        # Still prefilled after a later "fresh wizard" reset point (a
+        # day/week toggle), not just the moment right after saving.
+        self.page.click("#log-nav-week")
+        self.page.wait_for_function(
+            "document.getElementById('log-nav-week').classList.contains('active')"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), "80"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), "35"
+        )
+
     def test_show_projected_preference_stays_inert_on_a_real_logged_day(self):
         iso_week1 = _MONDAY.isoformat()
         iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()

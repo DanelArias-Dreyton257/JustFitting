@@ -445,7 +445,7 @@ async function renderDashboardCharts() {
 
 async function refreshLogs() {
   state.logs = await api.listLogs();
-  resetWizardGranularityDefault();
+  resetWizardDefaults();
   renderLogNav();
   renderFilteredLogList();
   refreshProjectedRow();
@@ -459,6 +459,31 @@ async function refreshLogs() {
 function resetWizardGranularityDefault() {
   document.getElementById("log-wizard-granularity").value =
     state.logNav.viewMode === "week" ? "weekly" : "daily";
+}
+
+function mostRecentRealLog() {
+  const realLogs = state.logs.filter((log) => log.source === "real");
+  return realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
+}
+
+// Most weeks a person's waist/neck barely change, so the wizard opens
+// pre-filled from the account's last real log -- weight stays blank since
+// it's the one number that's supposed to change and get re-measured every
+// time, and intake/steps/cardio/macros stay blank too (today's actual
+// entry, not a carry-forward).
+function prefillWizardFromLastLog() {
+  const lastLog = mostRecentRealLog();
+  const form = document.getElementById("log-form");
+  form.waist_cm.value = lastLog ? lastLog.waist_cm : "";
+  form.neck_cm.value = lastLog ? lastLog.neck_cm : "";
+}
+
+// Every "fresh wizard" reset point (entering the Log view, switching
+// day/week) resets both the granularity default and the perimeter prefill
+// together.
+function resetWizardDefaults() {
+  resetWizardGranularityDefault();
+  prefillWizardFromLastLog();
 }
 
 function renderLogNav() {
@@ -720,7 +745,7 @@ document.getElementById("log-nav-next").addEventListener("click", () => {
 
 document.getElementById("log-nav-day").addEventListener("click", () => {
   state.logNav.viewMode = "day";
-  resetWizardGranularityDefault();
+  resetWizardDefaults();
   renderLogNav();
   renderFilteredLogList();
   refreshProjectedRow();
@@ -728,7 +753,7 @@ document.getElementById("log-nav-day").addEventListener("click", () => {
 
 document.getElementById("log-nav-week").addEventListener("click", () => {
   state.logNav.viewMode = "week";
-  resetWizardGranularityDefault();
+  resetWizardDefaults();
   renderLogNav();
   renderFilteredLogList();
   refreshProjectedRow();
