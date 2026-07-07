@@ -786,7 +786,7 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
     waist_cm: Number(raw.waist_cm),
     neck_cm: Number(raw.neck_cm),
     intake_kcal: Number(raw.intake_kcal),
-    steps: Number(raw.steps),
+    steps: Number(raw.steps) || 0,
     cardio_kcal: Number(raw.cardio_kcal) || 0,
     granularity: raw.granularity || "weekly",
     carbs_g: optionalNumber(raw.carbs_g),
