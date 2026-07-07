@@ -1171,6 +1171,272 @@ the removed standalone view's markup now also asserts
 complete** -- all five `things-to-improve.txt` items from the first round
 of beta-testing are shipped.
 
+### Phase 5 — Beta-testing feedback, round 2 (planned, pending review)
+
+Source: `things-to-improve.txt`'s "Things to change (Beta-testing) Phase 5"
+section, Danel's second round of beta-testing notes -- eight items, mostly
+independent of each other (unlike Phase 4's chained items). Sub-phases
+below track them 1:1 in the order the note lists them.
+
+#### Phase 5.1 — Self-versioning service-worker cache
+
+Problem: every prior phase's Housekeeping note ends with a manually-bumped
+`sw.js` `CACHE_NAME` (`-v9` -> `-v10`, ... -> `-v15` so far) -- easy to
+forget, and it's pure busywork a machine can do itself.
+
+- `sw.js` computes its own cache name at runtime instead of using a literal:
+  it fetches every `APP_SHELL` file fresh (`cache: "no-store"`), hashes
+  their concatenated bytes with `crypto.subtle.digest("SHA-256", ...)`, and
+  uses the first ~16 hex chars, prefixed `justfitting-shell-`, as the cache
+  name. `install` fetches+hashes+populates the freshly-named cache in one
+  pass (no double-fetch: the same `Response` object used for hashing is
+  the one `cache.put()` stores); `activate` re-fetches+re-hashes to know
+  "today's" name and deletes every *other* `justfitting-shell-*` cache; the
+  `fetch` handler's stale-while-revalidate write-back looks up the current
+  cache name via a cheap `caches.keys()` scan (no re-hash) rather than a
+  hardcoded constant.
+- Any future edit to any shell file changes the hash automatically ->
+  automatically a new cache -> the old one purged on the next `activate`.
+  **Zero manual version bumps, ever, going forward** -- this is the last
+  phase whose Housekeeping note will ever say "CACHE_NAME bumped".
+- No build-script or Android-packaging changes -- purely inside `sw.js`,
+  so it works identically for the local dev server, the GitHub Pages
+  static build, and the Android-bundled `dist/`.
+- Trade-off: `install`/`activate` each do one extra fetch+hash pass over
+  the (small, handful-of-KB) app shell -- negligible, and only happens
+  once per service-worker lifecycle event, never per page load or
+  network request.
+- **Testing**: this repo has no existing service-worker test infrastructure
+  (Playwright's page-level tests don't inspect `caches`/SW lifecycle), and
+  standing one up is disproportionate to a single small file -- covered by
+  manual verification instead (DevTools Application tab: cache name changes
+  after editing a shell file; the old cache is gone after the next reload),
+  called out explicitly rather than silently skipped.
+
+#### Phase 5.2 — Registration no longer asks for a goal; sane per-sex defaults
+
+Problem: `POST /api/users` requires `target_bf`/`weekly_rate` and creates a
+goal plan immediately at registration. The note wants account creation
+decoupled from goal-setting entirely: a new account should start from a
+harmless default (15% BF male / 22% female, 0% weekly rate = "no change
+yet"), with the user visiting the Goal (Plan) section only once they
+actually want to set a real goal.
+
+- New constants (`services/composition/constants.py`):
+  `DEFAULT_TARGET_BF_MALE = 0.15`, `DEFAULT_TARGET_BF_FEMALE = 0.22`,
+  `DEFAULT_WEEKLY_RATE = 0.0`.
+- `UserManager.register()`'s `target_bf`/`weekly_rate` parameters become
+  optional (default `None`); when omitted, they're resolved from the new
+  constants by `sex` before calling `create_goal_plan` -- a goal plan is
+  still always created (the engine has no "no goal" mode and isn't
+  getting one here; every account still needs *a* goal to compute
+  anything against), it's just invisibly defaulted rather than
+  user-chosen at signup.
+- `POST /api/users` (`user_routes.py`) drops `target_bf`/`weekly_rate`
+  from its required payload keys.
+- **Client**: the register form (`index.html`/`app.js`) drops the "Target
+  body fat (%)"/"Weekly rate (%)" fields entirely -- registration becomes
+  just username/email/password/height/sex/birthdate.
+- "Has everything empty" (the note's phrase) is already true today for a
+  fresh account with no logs (Phase 4.2's placeholders) -- this phase
+  doesn't change that; it only stops *asking for a goal* at signup.
+- Ties directly into Phase 5.8 below (goal editing lives only in the Plan
+  tab from here on, for both new and existing accounts).
+- **Testing**: server-side cases (`UserManager_test.py`/`Api_test.py`) for
+  both sexes' defaults when `target_bf`/`weekly_rate` are omitted, and
+  that explicitly passing them still works (nothing currently needs that,
+  but nothing should break it either); browser coverage that the register
+  form has no goal fields and registration succeeds without them.
+
+#### Phase 5.3 — Scope computed series/charts/projections to the active goal's period
+
+Problem: `MetricsSeriesService.compute_series_for_user` and the projection
+routes always compute/fit over **every** real log the account has ever
+made, applying only the **currently active** goal's `target_bf`/
+`weekly_rate` uniformly across all of it (`GoalPlanManager.
+build_profile_params` returns a single `ProfileParams`, not one per
+historical period). So changing your goal (e.g. finishing a cut, starting
+a bulk) silently recomputes every historical week's target/trajectory/
+deficit as if the new goal had applied the whole time, and feeds
+pre-change data into the forecast's trend regression -- "the issue in
+projections and plotting tendencies" the note flags.
+
+- Fix: `compute_series_for_user` filters logs to `date >=
+  active_goal.start_date` before resampling/computing -- the engine only
+  ever "sees" the current goal's own period. `projection_routes.py`'s
+  `_forecast_inputs` gets the same filter for its regression source.
+- For the common case (an account that's never changed its goal),
+  `start_date` is at-or-before the first log, so this is a no-op -- only
+  accounts that have actually changed goals are affected, and only for
+  data predating the change.
+- `GET /api/logs` (the raw log list -- Log view's table, `/export`) is
+  **unaffected**, intentionally: full raw history stays reachable there,
+  the same "not a data-loss concern" precedent Phase 4.4 established for
+  the log table. Only the *derived* series (metrics, charts, alerts,
+  adherence, projections, report) is scoped to the active period.
+- **Consequence to flag explicitly**: the goal-trajectory chart's
+  goal-change markers (Phase 1.4) become moot for any change before the
+  current period, since that earlier data no longer appears on the chart
+  at all -- at most one marker is ever visible from now on (the current
+  goal's own start). Not a bug, a direct consequence of the fix; worth a
+  one-line disclaimer on that chart if it reads as surprising in practice.
+- **Alternative considered and rejected for now**: recomputing each
+  historical row against whichever goal was *actually* active on its own
+  date (true historized replay). More thorough, but a much bigger engine
+  change (the whole "`ProfileParams` is one value per series" assumption
+  would need to become per-row) for a fix the note's own wording ("only...
+  the actual goal plan period") reads as asking for the simpler
+  period-filter, not a full historical replay.
+- **Testing**: a new/extended `MetricsSeriesService_test.py` case with a
+  synthetic two-goal history, asserting logs before the goal change are
+  excluded from the computed series; a matching `Projection_test.py`/
+  `Api_test.py` case for the regression source; every existing
+  single-goal-history test must stay green untouched (proving the
+  no-op case for accounts that never change their goal).
+
+#### Phase 5.4 — Log wizard defaults to the last log's perimeters
+
+Problem: the wizard always opens with blank Waist/Neck fields, even though
+most weeks a person's perimeters barely change -- the note asks it to
+start pre-filled from whatever was last logged.
+
+- `refreshLogs()`'s existing "fresh wizard" reset points (entering the Log
+  view, switching day/week, after a successful save -- the same points
+  `resetWizardGranularityDefault()` already hooks) gain a sibling
+  `prefillWizardFromLastLog()`: finds the most recent `source === "real"`
+  log across the whole account (not scoped to the navigated day/week) and
+  pre-fills `waist_cm`/`neck_cm` from it; leaves them blank for a
+  brand-new account with no real logs yet.
+- Scoped to perimeters only, per the note's own "at least in perimeters"
+  -- weight is deliberately left blank (it's the one number that's
+  supposed to change and get re-measured every time; defaulting it risks
+  the user not noticing a stale value and mis-logging), and
+  intake/steps/cardio/macros stay blank too (today's actual entry, not a
+  carry-forward).
+- A manual edit to the pre-filled value is naturally preserved (it's just
+  a normal input's default value, not a rewritten one) until the next
+  fresh-wizard reset point.
+- **Testing**: a new `Log_test.py` case -- after saving a log with a given
+  waist/neck, opening the wizard again (a nav change, or the next day)
+  shows those same values pre-filled; a brand-new account's first-ever
+  wizard still opens blank.
+
+#### Phase 5.5 — Fix "Weight to goal" (was showing the weekly delta, not the total remaining)
+
+Problem (confirmed bug, reported as "always showing 0.5kg"): the Goal
+summary's "Weight to goal" tile reads `Math.abs(latest.weight_to_shed_kg)`
+-- but `weight_to_shed_kg` (`Pi`, `Trajectory.py`) is `prev_week_weight -
+this_week's_objective`, i.e. **this week's** incremental target change
+(`-prev_weight * weekly_rate`), which for a steady ~0.5%/week rate on a
+~90-100kg body is *always* going to land around 0.45-0.5kg regardless of
+how close the goal actually is -- exactly the symptom reported. It's the
+wrong field for "how far am I from my goal" -- that's a *stock* (total
+remaining distance), not the *flow* (this week's slice of it).
+
+- Fix is client-only: `MetricsDTO` already carries `final_weight_kg`
+  (`lean_mass_kg / (1 - target_bf)`, `Trajectory.compute_final_weight`'s
+  own goal-weight figure) -- "Weight to goal" becomes `(latest.fat_mass_kg
+  + latest.lean_mass_kg) - latest.final_weight_kg` (current total weight
+  minus the goal weight), the actual total remaining distance, computed
+  from fields the API already returns. No server change, no new endpoint.
+- `weight_to_shed_kg` itself is untouched and stays correct for its actual
+  job (driving `daily_deficit`/`target_calories` inside the engine) --
+  only the Dashboard tile was wired to the wrong field.
+- **Testing**: a `Dashboard_test.py` case asserting the "Weight to goal"
+  tile shrinks week over week as logged weight approaches
+  `final_weight_kg`, rather than staying flat at ~0.5kg across weeks.
+
+#### Phase 5.6 — Clearer Calories summary: label what each figure means
+
+Problem: the note's own framing is the clearest problem statement --
+"you'd expect target calories = how much you should eat, TDEE = how much
+you did eat, and adherence = the daily difference, but it doesn't match":
+TDEE is actually *estimated energy expenditure* (never intake), and
+Adherence is the *mean* deviation of real intake from target *across every
+real-intake week*, not a single day's arithmetic between the other two
+tiles -- both true and correctly computed today, but presented as three
+bare numbers with no explanation of what they are or how (if at all) they
+relate to each other.
+
+- `renderCaloriesSummary` (`views.js`) gains a subtitle line under each
+  tile (reusing the existing muted `.delta`-style subtitle convention
+  Phase 4.2 established for "target"/"threshold" context): "Target
+  calories" -> "what to eat this week to stay on pace"; "TDEE" ->
+  "estimated calories burned/day (not intake)"; "Adherence" -> "avg.
+  actual vs target, real-intake weeks only".
+- Adds a fourth tile, **this week's logged intake** (the latest real
+  log's `intake_kcal`, already fetched, no new endpoint), directly
+  alongside Target/TDEE so the three genuinely comparable numbers (ate /
+  should-eat / burn) sit next to each other instead of requiring the user
+  to remember or look up the raw log table.
+- **Out of scope**: renaming/restructuring the underlying metrics
+  themselves -- the note's own "maybe other metrics are best" is left as
+  an unscoped future idea, not decided here. This phase is a
+  comprehension/labeling fix over already-correct numbers, not an engine
+  change.
+- **Testing**: a `Dashboard_test.py` case asserting the new subtitles and
+  the logged-intake tile render with the expected text/values.
+
+#### Phase 5.7 — Log editing
+
+Problem: `PUT /api/logs/<id>` (`log_routes.py`), `LogManager.update_log`,
+and the client's `api.updateLog()` already exist end-to-end -- there's
+simply no UI to trigger them, so only Create and Delete are reachable from
+the Log view's table today.
+
+- An "Edit" button (`views.js`'s `renderLogTable`, next to the existing
+  Delete button, `.edit-log-btn`) opens the same 4-step wizard already
+  used for creating a log, pre-filled with that row's full values
+  (weight/waist/neck/intake/steps/cardio/macros/granularity). `app.js`
+  gains `state.editingLogId` (`null` while creating) and an
+  `enterEditMode(log)`/`exitEditMode()` pair.
+- **The log's date is not editable in edit mode** -- the wizard's date
+  label reads "Editing log for `<original date>`" instead of "Logging for
+  `<navigated day>`", sidestepping a real conflict: the wizard's date is
+  otherwise bound to the Log view's day/week navigator (Phase 4.4), which
+  wouldn't necessarily match the edited row's own date (e.g. editing a
+  Monday log while week view also shows a Thursday one). Every other
+  field stays editable.
+- The wizard's Save button reads "Save changes" and submits via
+  `api.updateLog(state.editingLogId, payload)` instead of
+  `api.createLog(payload)` while in edit mode; a "Cancel" affordance
+  returns to create-mode without saving. After a successful edit, the
+  view refreshes and re-enters create-mode for the currently navigated
+  day/week (same as after a create).
+- **Out of scope**: bulk edit, changing a log's date/granularity via edit,
+  any new undo/audit-log UI (the server already audits log changes per
+  Phase 1.1 -- this phase surfaces no new audit data, just the edit path
+  itself).
+- **Testing**: a new `Log_test.py` case -- editing a log's weight through
+  the wizard updates the table row in place (same `log_id`, no new row
+  created) and the change round-trips through a page reload.
+
+#### Phase 5.8 — Split Account into Profile-only; Goal lives solely in the Plan tab
+
+Problem: the Account view's `#profile-form` still has Target body
+fat/Weekly rate fields that, on save, call the *same* `PUT /api/users/me`
+used to create a brand-new, unpreviewed goal plan -- a second, blunter
+path to change your goal that completely bypasses the Plan tab's existing
+preview-then-commit flow (`GET /api/plan/preview` -> commit), which is
+confusing and lets a goal change happen with no preview of its
+consequences first.
+
+- Account's `#profile-form` (`index.html`) drops the Target body
+  fat/Weekly rate fields -- Height/Sex/Birthdate only. `app.js`'s
+  profile-form submit handler stops sending `target_bf`/`weekly_rate` in
+  its payload.
+- The Plan tab remains the **only** place a goal changes, via its
+  existing preview -> commit flow -- no server change, since that commit
+  path already reuses the exact endpoint Account used to call directly.
+- Directly complements Phase 5.2: once both land, `target_bf`/
+  `weekly_rate` never appear anywhere except inside the Plan tab's own
+  preview/commit flow, for both a brand-new account and an existing one
+  editing later.
+- **Testing**: browser coverage that `#profile-form` no longer has
+  `target_bf_pct`/`weekly_rate_pct` fields, and that editing
+  height/sex/birthdate alone still round-trips correctly without
+  touching the active goal.
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
