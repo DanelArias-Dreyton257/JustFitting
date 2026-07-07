@@ -42,12 +42,19 @@ class Alert:
 
     type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
     # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate" |
-    # "macro_kcal_mismatch" | "protein_target_deviation" | "fat_target_deviation"
+    # "macro_kcal_mismatch" | "protein_target_deviation" | "fat_target_deviation" |
+    # "unconfigured_goal"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
     value: float
     threshold: float
+
+
+#: Below this magnitude, a goal's weekly_rate is treated as exactly the
+#: Phase 5.2 "no change yet" default -- same tolerance as
+#: Trajectory.compute_weeks_to_goal's own zero-rate guard.
+_ZERO_RATE_EPSILON = 1e-9
 
 
 def _implausible_change_alerts(
@@ -182,6 +189,40 @@ def _bulk_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
             ),
             value=goal.weekly_rate,
             threshold=threshold,
+        )
+    ]
+
+
+def _unconfigured_goal_alerts(
+    goal: Optional[GoalPlan], goal_history_count: Optional[int]
+) -> List[Alert]:
+    """Flag a brand-new account's still-untouched, auto-assigned default
+    goal (Phase 5.2 -- registration no longer asks for a goal, so a
+    first-time user might not realize one was silently assigned). Fires
+    only while the goal is still the account's one-and-only-ever goal
+    plan *and* its `weekly_rate` is still exactly the "no change yet"
+    default -- any deliberately chosen goal necessarily has a nonzero
+    rate, and re-committing via the Plan tab always historizes a new
+    goal row (`GoalPlanManager.create_goal_plan`), so this can never
+    re-trigger once the user has actually visited the Plan tab, even if
+    they land on the same numbers again."""
+    if goal is None or goal_history_count != 1:
+        return []
+    if abs(goal.weekly_rate) >= _ZERO_RATE_EPSILON:
+        return []
+    return [
+        Alert(
+            type="unconfigured_goal",
+            severity="info",
+            date=goal.start_date,
+            message=(
+                "This account's first goal was auto-assigned as a placeholder "
+                "(0% weekly rate -- no planned change) since none was set at "
+                "signup. Visit the Plan tab to set your own target body fat "
+                "and weekly rate."
+            ),
+            value=goal.weekly_rate,
+            threshold=0.0,
         )
     ]
 
@@ -327,6 +368,7 @@ def detect_alerts(
     reconciliation: Optional[Sequence[EnergyReconciliationRow]] = None,
     logs: Optional[Sequence[_LogLike]] = None,
     macro_targets: Optional[Sequence[MacroTargetsRow]] = None,
+    goal_history_count: Optional[int] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -340,7 +382,13 @@ def detect_alerts(
     detector. ``logs`` (Phase 3.4) feeds the macro-kcal-mismatch detector;
     omitting it just skips that detector too. ``macro_targets`` (Phase 3.4
     extension) feeds the protein/fat-target-deviation detectors; omitting it
-    just skips those too.
+    just skips those too. ``goal_history_count`` (Phase 5.2 follow-up) is
+    how many goal plans this account has ever had (including the active
+    one); it feeds the unconfigured-goal detector, which only fires when
+    it's exactly `1` -- omitting it just skips that detector, same as
+    every other optional signal above. Unlike every other detector here,
+    this one needs no logged week at all, so it fires even for a
+    brand-new account with zero logs.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     ordered = sorted(results, key=lambda r: r.date)
@@ -350,6 +398,7 @@ def detect_alerts(
         + _excessive_lean_loss_alerts(ordered, thresholds)
         + _deviation_alerts(ordered, thresholds)
         + _bulk_rate_alerts(goal)
+        + _unconfigured_goal_alerts(goal, goal_history_count)
         + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
         + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
         + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])

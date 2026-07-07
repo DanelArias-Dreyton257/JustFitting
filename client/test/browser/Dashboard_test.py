@@ -294,6 +294,23 @@ class DashboardTest(unittest.TestCase):
         # _log_week logs intake_kcal=2000.
         self.assertIn("2000 kcal", calories_text)
 
+    def test_unconfigured_goal_alert_shows_for_a_fresh_account_and_is_dismissible(self):
+        # Phase 5.2 follow-up: a brand-new account's auto-assigned default
+        # goal (0% weekly rate) surfaces a reminder to visit the Plan tab --
+        # even before any log exists, via the same alerts panel/dismiss
+        # flow every other alert already uses.
+        self._go_to_dashboard()
+        self.page.wait_for_selector("#dashboard-alerts .alert-item")
+        self.assertEqual(
+            self.page.get_attribute("#dashboard-alerts .alert-item", "data-type"),
+            "unconfigured_goal",
+        )
+
+        self.page.click("#dashboard-alerts .alert-dismiss-btn")
+        self.page.wait_for_function(
+            "document.querySelectorAll('#dashboard-alerts .alert-item').length === 0"
+        )
+
     def test_dashboard_with_no_logs_shows_placeholders_not_errors(self):
         # A brand-new account has no logs yet -- summary sections should
         # degrade to a friendly message instead of throwing on null metrics.

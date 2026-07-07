@@ -677,6 +677,30 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), [])
 
+    def test_alerts_flags_an_unconfigured_default_goal_with_zero_logs(self):
+        # Phase 5.2 follow-up: registering without target_bf/weekly_rate
+        # (the real register form's path since Phase 5.2) resolves to a 0%
+        # weekly rate, which should surface a dismissible reminder to visit
+        # the Plan tab -- even before any log exists.
+        response = self.client.post(
+            "/api/users",
+            json={
+                "username": "noplan",
+                "email": "noplan@example.com",
+                "password": "hunter22",
+                "height_cm": 176,
+                "sex": 1,
+                "birthdate": "2001-08-22",
+            },
+        )
+        token = response.get_json()["token"]
+        alerts = self.client.get(
+            "/api/alerts", headers=self._auth_header(token)
+        ).get_json()
+        flagged = [a for a in alerts if a["type"] == "unconfigured_goal"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0]["severity"], "info")
+
     def test_alerts_flags_an_implausible_weekly_change(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
