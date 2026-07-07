@@ -91,10 +91,13 @@ class LogNavTest(unittest.TestCase):
         self.page.wait_for_selector("#view-dashboard:not([hidden])")
         self._navigate_to_log()
 
-    def _navigate_to_log(self):
+    def _navigate(self, view: str):
         self.page.click("#nav-toggle")
-        self.page.click('.nav-link[data-view="log"]')
-        self.page.wait_for_selector("#view-log:not([hidden])")
+        self.page.click(f'.nav-link[data-view="{view}"]')
+        self.page.wait_for_selector(f"#view-{view}:not([hidden])")
+
+    def _navigate_to_log(self):
+        self._navigate("log")
 
     def _jump_to_date(self, iso_date: str):
         self.page.eval_on_selector(
@@ -170,6 +173,75 @@ class LogNavTest(unittest.TestCase):
         self.page.wait_for_function(
             "document.querySelectorAll('#log-table tbody tr').length === 1"
         )
+
+    def _set_show_projected(self, checked: bool):
+        # Phase 4.5: the preference lives in Settings (a localStorage-backed
+        # browser preference, not part of the historized account settings
+        # form), not on the Log view itself.
+        self._navigate("settings")
+        if checked:
+            self.page.check("#settings-show-projected-logs")
+        else:
+            self.page.uncheck("#settings-show-projected-logs")
+        self._navigate_to_log()
+
+    def test_show_projected_preference_injects_a_projected_row_past_the_last_logged_week(self):
+        # Projection.project_series_with_inputs needs >= 2 real logs to fit a
+        # trend (same precondition Dashboard_test.py's own projection test
+        # relies on).
+        iso_week1 = _MONDAY.isoformat()
+        iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
+        iso_future = (_MONDAY + datetime.timedelta(days=14)).isoformat()
+        self._log_on(iso_week1, 90.0)
+        self._log_on(iso_week2, 89.0)
+
+        self._set_show_projected(True)
+        self._jump_to_date(iso_future)
+        self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_future}")')
+        self.assertTrue(self.page.is_visible("#log-table"))
+        self.assertFalse(self.page.is_visible("#log-list-empty"))
+
+        row = self.page.locator("#log-table tbody tr").first
+        row_text = row.inner_text().lower()
+        self.assertIn("projected", row_text)
+        self.assertIn("weekly", row_text)
+        self.assertEqual(row.locator(".delete-log-btn").count(), 0)
+        # Weight is the row's 2nd cell (Date is 1st) -- rounded to 1 decimal.
+        weight_cell = row.locator("td").nth(1).inner_text()
+        self.assertRegex(weight_cell, r"^\d+\.\d$")
+
+        self._set_show_projected(False)
+        self.page.wait_for_selector("#log-list-empty:visible")
+        self.assertFalse(self.page.is_visible("#log-table"))
+
+    def test_show_projected_defaults_to_on_for_a_fresh_browser_profile(self):
+        # No visit to Settings at all -- getShowProjectedLogs() treats an
+        # unset localStorage key as true, so a brand-new browser profile
+        # sees projected rows without having to find the checkbox first.
+        iso_week1 = _MONDAY.isoformat()
+        iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
+        iso_future = (_MONDAY + datetime.timedelta(days=14)).isoformat()
+        self._log_on(iso_week1, 90.0)
+        self._log_on(iso_week2, 89.0)
+
+        self._jump_to_date(iso_future)
+        self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_future}")')
+        self.assertIn("projected", self.page.inner_text("#log-table tbody tr").lower())
+
+    def test_show_projected_preference_stays_inert_on_a_real_logged_day(self):
+        iso_week1 = _MONDAY.isoformat()
+        iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
+        self._log_on(iso_week1, 90.0)
+        self._log_on(iso_week2, 89.0)
+
+        self._set_show_projected(True)
+        self._jump_to_date(iso_week1)
+        self.page.wait_for_function(
+            "document.querySelectorAll('#log-table tbody tr').length === 1"
+        )
+        row = self.page.locator("#log-table tbody tr").first
+        self.assertIn("real", row.inner_text().lower())
+        self.assertEqual(row.locator(".delete-log-btn").count(), 1)
 
 
 if __name__ == "__main__":

@@ -55,7 +55,12 @@ class ClientSmokeTest(unittest.TestCase):
             self.assertIn(section_id, response.data)
         self.assertIn(b'id="reset-password-form"', response.data)
         self.assertIn(b'id="sex-disclaimer"', response.data)
-        self.assertIn(b'id="projection-activity"', response.data)
+
+    def test_index_has_no_standalone_projection_view(self):
+        response = self.client.get("/")
+        self.assertNotIn(b'data-view="projection"', response.data)
+        self.assertNotIn(b'id="view-projection"', response.data)
+        self.assertIn(b'id="settings-show-projected-logs"', response.data)
 
 
 if __name__ == "__main__":
