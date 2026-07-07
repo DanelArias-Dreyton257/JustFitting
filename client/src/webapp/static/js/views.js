@@ -30,6 +30,19 @@ function formatDelta(value, unit, decimals = 1) {
   return `<span class="delta">${arrow} ${sign}${value.toFixed(decimals)} ${unit}</span>`;
 }
 
+// Like formatDelta, but for "how far is the current value from a target"
+// rather than "how much did this change since last week" -- appends a
+// trailing "to goal" and lets the caller bake a leading space into `unit`
+// (or not, for "%") instead of always inserting one. Normalizing through
+// toFixed first avoids a stray "-0.0" once a goal is essentially reached.
+function formatGoalDelta(remaining, unit) {
+  if (remaining == null || Number.isNaN(remaining)) return "";
+  const rounded = Number(remaining.toFixed(1));
+  const arrow = rounded > 0 ? "▲" : rounded < 0 ? "▼" : "–";
+  const sign = rounded > 0 ? "+" : "";
+  return `<span class="delta">${arrow} ${sign}${rounded.toFixed(1)}${unit} to goal</span>`;
+}
+
 function statTile(label, value, delta = "") {
   return `
       <div class="stat-tile">
@@ -103,15 +116,21 @@ export function renderGoalSummary(container, latest, profile) {
     return;
   }
   const isBulk = profile && profile.direction === "bulk";
-  const bodyFatValue =
-    profile && profile.target_bf != null
-      ? `${(latest.body_fat * 100).toFixed(1)}% <span class="delta">target ${(
-          profile.target_bf * 100
-        ).toFixed(1)}%</span>`
-      : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const hasTarget = profile && profile.target_bf != null;
+  const targetBodyFatValue = hasTarget
+    ? `${(profile.target_bf * 100).toFixed(1)}%`
+    : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const targetBodyFatDelta = hasTarget
+    ? formatGoalDelta((profile.target_bf - latest.body_fat) * 100, "%")
+    : "";
+  const currentWeightKg = latest.fat_mass_kg + latest.lean_mass_kg;
   const tiles = [
-    statTile("Body fat vs target", bodyFatValue),
-    statTile("Weight to goal", `${Math.abs(latest.weight_to_shed_kg).toFixed(1)} kg`),
+    statTile("Target body fat", targetBodyFatValue, targetBodyFatDelta),
+    statTile(
+      "Target weight (keep lean)",
+      `${latest.final_weight_kg.toFixed(1)} kg`,
+      formatGoalDelta(latest.final_weight_kg - currentWeightKg, " kg")
+    ),
     statTile("Weeks to goal", metricsWeeksToGoal(latest)),
   ];
   if (profile && profile.direction) {

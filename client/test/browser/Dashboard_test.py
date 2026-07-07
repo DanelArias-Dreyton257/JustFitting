@@ -5,6 +5,7 @@ app.js/views.js/index.html/style.css, not a fixture.
 """
 
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -129,7 +130,11 @@ class DashboardTest(unittest.TestCase):
 
         goal_text = self.page.inner_text("#summary-goal-stats").lower()
         self.assertIn("weeks to goal", goal_text)
-        self.assertIn("weight to goal", goal_text)
+        self.assertIn("target body fat", goal_text)
+        self.assertIn("target weight", goal_text)
+        self.assertIn("keep lean", goal_text)
+        # A goal not yet reached should surface an arrowed "to goal" delta.
+        self.assertIn("to goal", goal_text)
 
     def test_chart_grid_is_collapsed_and_lazy_loaded(self):
         self._log_week("2026-06-01", 90.0)
@@ -213,6 +218,67 @@ class DashboardTest(unittest.TestCase):
             "#chart-goal-trajectory .chart-marker-line title", "els => els.map(e => e.textContent)"
         )
         self.assertEqual(marker_titles, ["Last logged"])
+
+    def _target_weight_kg(self):
+        text = self.page.locator(
+            "#summary-goal-stats .stat-tile", has_text="Target weight"
+        ).locator(".value").inner_text()
+        return float(text.replace(" kg", "").strip())
+
+    def _target_weight_delta_kg(self):
+        text = self.page.locator(
+            "#summary-goal-stats .stat-tile", has_text="Target weight"
+        ).locator(".delta").inner_text()
+        match = re.search(r"(-?\d+\.\d+)\s*kg to goal", text)
+        return float(match.group(1))
+
+    def _wait_for_weight_value(self, expected_prefix):
+        # The Weight tile and the Weight-to-goal tile are rendered together
+        # from the same fetch, so waiting for the former to reflect the new
+        # weight is a reliable signal the latter has refreshed too --
+        # `.stat-tile` already exists in the DOM from the previous render
+        # (only its content changes), so waiting on its mere presence would
+        # race the fetch and read stale content.
+        self.page.wait_for_function(
+            "expected => document.querySelector('#summary-weight-stats .stat-tile .value')"
+            "?.innerText.trim().startsWith(expected)",
+            arg=expected_prefix,
+        )
+
+    def _fetch_metrics_latest(self):
+        return self.page.evaluate(
+            """async () => {
+                const token = localStorage.getItem('justfitting.token');
+                const res = await fetch(
+                    `${window.JUSTFITTING_API_BASE_URL}/api/metrics/latest`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                return res.json();
+            }"""
+        )
+
+    def test_target_weight_tile_shows_goal_weight_and_remaining_distance_delta(self):
+        # Phase 5.5's bug: "Weight to goal" used to read weight_to_shed_kg
+        # (this week's incremental target change), which for a steady weekly
+        # rate is always roughly the same small figure regardless of how
+        # close the goal actually is, rather than the actual remaining
+        # distance to final_weight_kg. Phase 5.9 then flipped the tile to
+        # lead with the target weight itself, with the remaining distance
+        # as an arrowed subtitle -- verify both halves against the API.
+        self._log_week("2026-06-01", 95.0)
+        self._go_to_dashboard()
+        self._wait_for_weight_value("95.0")
+        metrics = self._fetch_metrics_latest()
+        current_weight = metrics["fat_mass_kg"] + metrics["lean_mass_kg"]
+        expected_target_weight = metrics["final_weight_kg"]
+        expected_remaining = expected_target_weight - current_weight
+        # The pre-fix figure (weight_to_shed_kg) would have been ~0.45-0.5kg
+        # here regardless of proximity to goal -- assert the fix isn't that.
+        self.assertNotAlmostEqual(
+            abs(metrics["weight_to_shed_kg"]), abs(expected_remaining), places=1
+        )
+        self.assertAlmostEqual(self._target_weight_kg(), expected_target_weight, places=1)
+        self.assertAlmostEqual(self._target_weight_delta_kg(), expected_remaining, places=1)
 
     def test_calories_summary_has_subtitles_and_logged_intake_tile(self):
         self._log_week("2026-06-01", 90.0)
