@@ -1171,14 +1171,14 @@ the removed standalone view's markup now also asserts
 complete** -- all five `things-to-improve.txt` items from the first round
 of beta-testing are shipped.
 
-### Phase 5 — Beta-testing feedback, round 2 (planned, pending review)
+### Phase 5 — Beta-testing feedback, round 2 (in progress)
 
 Source: `things-to-improve.txt`'s "Things to change (Beta-testing) Phase 5"
 section, Danel's second round of beta-testing notes -- eight items, mostly
 independent of each other (unlike Phase 4's chained items). Sub-phases
 below track them 1:1 in the order the note lists them.
 
-#### Phase 5.1 — Self-versioning service-worker cache
+#### Phase 5.1 — Self-versioning service-worker cache (done)
 
 Problem: every prior phase's Housekeeping note ends with a manually-bumped
 `sw.js` `CACHE_NAME` (`-v9` -> `-v10`, ... -> `-v15` so far) -- easy to
@@ -1212,6 +1212,10 @@ forget, and it's pure busywork a machine can do itself.
   manual verification instead (DevTools Application tab: cache name changes
   after editing a shell file; the old cache is gone after the next reload),
   called out explicitly rather than silently skipped.
+- **Verified**: a Playwright-driven manual check (register, log two weeks,
+  inspect `caches.keys()`) confirmed the installed cache name is a computed
+  hash (e.g. `justfitting-shell-202229d05c7f371f`), not a `-vN` literal, and
+  that the service worker activates normally.
 
 #### Phase 5.2 — Registration no longer asks for a goal; sane per-sex defaults
 
@@ -1294,7 +1298,7 @@ projections and plotting tendencies" the note flags.
   single-goal-history test must stay green untouched (proving the
   no-op case for accounts that never change their goal).
 
-#### Phase 5.4 — Log wizard defaults to the last log's perimeters
+#### Phase 5.4 — Log wizard defaults to the last log's perimeters (done)
 
 Problem: the wizard always opens with blank Waist/Neck fields, even though
 most weeks a person's perimeters barely change -- the note asks it to
@@ -1306,7 +1310,12 @@ start pre-filled from whatever was last logged.
   `prefillWizardFromLastLog()`: finds the most recent `source === "real"`
   log across the whole account (not scoped to the navigated day/week) and
   pre-fills `waist_cm`/`neck_cm` from it; leaves them blank for a
-  brand-new account with no real logs yet.
+  brand-new account with no real logs yet. **Implementation note**: the
+  "fresh wizard" reset is actually three call sites in `app.js`
+  (`refreshLogs()` and both day/week toggle handlers), not one, so
+  `resetWizardGranularityDefault()` and `prefillWizardFromLastLog()` are
+  folded into one shared `resetWizardDefaults()` used at all three,
+  rather than tripling the call.
 - Scoped to perimeters only, per the note's own "at least in perimeters"
   -- weight is deliberately left blank (it's the one number that's
   supposed to change and get re-measured every time; defaulting it risks
@@ -1321,7 +1330,7 @@ start pre-filled from whatever was last logged.
   shows those same values pre-filled; a brand-new account's first-ever
   wizard still opens blank.
 
-#### Phase 5.5 — Fix "Weight to goal" (was showing the weekly delta, not the total remaining)
+#### Phase 5.5 — Fix "Weight to goal" (was showing the weekly delta, not the total remaining) (done)
 
 Problem (confirmed bug, reported as "always showing 0.5kg"): the Goal
 summary's "Weight to goal" tile reads `Math.abs(latest.weight_to_shed_kg)`
@@ -1346,7 +1355,7 @@ remaining distance), not the *flow* (this week's slice of it).
   tile shrinks week over week as logged weight approaches
   `final_weight_kg`, rather than staying flat at ~0.5kg across weeks.
 
-#### Phase 5.6 — Clearer Calories summary: label what each figure means
+#### Phase 5.6 — Clearer Calories summary: label what each figure means (done)
 
 Problem: the note's own framing is the clearest problem statement --
 "you'd expect target calories = how much you should eat, TDEE = how much
@@ -1359,16 +1368,22 @@ bare numbers with no explanation of what they are or how (if at all) they
 relate to each other.
 
 - `renderCaloriesSummary` (`views.js`) gains a subtitle line under each
-  tile (reusing the existing muted `.delta`-style subtitle convention
-  Phase 4.2 established for "target"/"threshold" context): "Target
-  calories" -> "what to eat this week to stay on pace"; "TDEE" ->
-  "estimated calories burned/day (not intake)"; "Adherence" -> "avg.
-  actual vs target, real-intake weeks only".
+  tile (a new, smaller `.delta.tile-subtitle` variant of the existing
+  muted `.delta`-style convention Phase 4.2 established for
+  "target"/"threshold" context -- kept intentionally terse rather than a
+  full sentence): "Target calories" -> "what to eat"; "TDEE" ->
+  "estimated calories burned"; "Adherence" -> "actual vs target/day"
+  (its value itself drops the "/day" suffix, e.g. "-180 kcal", since the
+  subtitle now carries that).
 - Adds a fourth tile, **this week's logged intake** (the latest real
-  log's `intake_kcal`, already fetched, no new endpoint), directly
-  alongside Target/TDEE so the three genuinely comparable numbers (ate /
-  should-eat / burn) sit next to each other instead of requiring the user
-  to remember or look up the raw log table.
+  log's `intake_kcal`, no new endpoint), placed directly before Adherence
+  so the three genuinely comparable numbers (ate / should-eat / burn) sit
+  next to each other, with Adherence (a derived comparison, not a raw
+  figure) last. **Implementation note**: `intake_kcal` isn't actually
+  pre-fetched at Dashboard-summary time (it only arrives via the
+  lazy-loaded `#dashboard-details` charts) -- `refreshDashboardSummary()`
+  gained its own `api.listLogs()` call, in parallel with its existing
+  fetches, rather than reusing an already-fetched value.
 - **Out of scope**: renaming/restructuring the underlying metrics
   themselves -- the note's own "maybe other metrics are best" is left as
   an unscoped future idea, not decided here. This phase is a
@@ -1436,6 +1451,55 @@ consequences first.
   `target_bf_pct`/`weekly_rate_pct` fields, and that editing
   height/sex/birthdate alone still round-trips correctly without
   touching the active goal.
+
+#### Phase 5.9 — Goal section: target-first framing with delta-to-goal tiles (done)
+
+Source: further consideration after Phase 4.2 shipped the Goal summary
+section, not one of `things-to-improve.txt`'s original eight items. Today's
+"Body fat vs target" and "Weight to goal" tiles both lead with the
+*current* number and bury the actual target in a plain-text subtitle (body
+fat) or omit it entirely (weight, which only ever showed the remaining
+distance in kg, per Phase 5.5's fix, with no visible target figure at
+all). The ask: flip both tiles to lead with the **target** figure -- the
+number the user is actually working toward -- and use an arrowed,
+`.delta`-style subtitle (the same visual language the Weight & Body
+Composition section above it already uses for week-over-week change) to
+show the remaining distance to close.
+
+- **"Body fat vs target" becomes "Target body fat"**: the big value is now
+  `profile.target_bf` (was `latest.body_fat`); the subtitle is the signed
+  gap in the direction of travel, `(target_bf - body_fat) * 100`
+  percentage points, e.g. current 19.8% vs target 15.0% renders "▼ -4.8%
+  to goal". Falls back to showing current body fat with no subtitle if a
+  profile/target isn't loaded yet (defensive, matches the prior ternary).
+- **"Weight to goal" becomes "Target weight (keep lean)"**: the
+  big value is now `latest.final_weight_kg` (the goal weight, assuming
+  today's lean mass is preserved and only fat mass changes -- literally
+  what `Trajectory.compute_final_weight` computes) instead of the bare
+  remaining-kg figure; the subtitle is the signed gap,
+  `final_weight_kg - (fat_mass_kg + lean_mass_kg)`, e.g. "▼ -9.0 kg to
+  goal" for a cut still 9kg out, or "▲ +9.0 kg to goal" for a bulk still
+  short of its target. This is the same Phase 5.5 formula, sign-flipped
+  into "remaining distance in the direction of travel" instead of an
+  absolute value.
+- A new shared `formatGoalDelta(remaining, unit)` helper (`views.js`,
+  alongside the existing `formatDelta` used for week-over-week change)
+  renders the arrow (▲/▼/–, reusing `formatDelta`'s convention) plus the
+  signed value with the unit appended directly (no space for `"%"`, a
+  leading space for `" kg"`) and a trailing "to goal" -- distinct from
+  `formatDelta` only in that suffix and the no-space-before-`%` case
+  Phase 5.6's calorie subtitles don't need. Normalizing through
+  `Number(remaining.toFixed(1))` before picking the arrow/sign avoids a
+  stray "-0.0" once a goal is essentially reached.
+- "Weeks to goal" and "Direction" tiles are unchanged.
+- **Testing**: `Dashboard_test.py`'s existing summary-render assertions
+  are updated for the new labels ("target body fat", "target weight"
+  instead of "weight to goal"); the existing Phase 5.5 regression test is
+  adapted to read the new delta subtitle (parsed from its rendered text)
+  against the same `(final_weight_kg - current_weight)` formula fetched
+  independently from `GET /api/metrics/latest`, rather than the tile's
+  big value, since the big value itself is now the target weight, not a
+  distance.
 
 ## Android app
 

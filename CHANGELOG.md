@@ -7,8 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Dashboard's Calories section gained a fourth tile, "This week's
+  intake" (the latest real log's `intake_kcal`, placed before Adherence),
+  and a small subtitle line under each tile clarifying what each figure
+  actually means (README's Phase 5.6, `things-to-improve.txt`'s second
+  beta-testing round, item 6): "Target calories" -> what to eat, "TDEE"
+  -> estimated calories burned, "Adherence" -> actual vs target/day (its
+  value itself now reads e.g. "-180 kcal" instead of "-180 kcal/day",
+  since the subtitle carries that). Purely a labeling/presentation fix
+  over already-correct numbers -- no engine or API change.
+  `client/src/webapp/static/js/app.js`'s `refreshDashboardSummary()` now
+  also fetches `GET /api/logs` to source the new tile's value.
+
 ### Changed
 
+- The Dashboard's Goal section now leads with the **target** figure
+  instead of the current one, with an arrowed (▲/▼/–) "to goal" subtitle
+  showing the remaining distance -- the same `.delta` visual language the
+  Weight & Body Composition section above it already uses for
+  week-over-week change (README's Phase 5.9, a follow-up refinement past
+  `things-to-improve.txt`'s original eight items). "Body fat vs target" ->
+  "Target body fat" (value is now `target_bf`, e.g. "15.0%", subtitle "▼
+  -4.8% to goal"); "Weight to goal" -> "Target weight (keep lean)" (value
+  is now `final_weight_kg`, subtitle "▼ -5.1 kg to goal" --
+  the same Phase 5.5 formula, sign-flipped into a direction-of-travel
+  delta). A new `formatGoalDelta()` helper (`views.js`) renders this
+  alongside the existing `formatDelta()` used for weekly deltas.
+- The service worker's cache name (`client/src/webapp/static/sw.js`) is
+  now computed at runtime from a SHA-256 hash of the app shell files'
+  own bytes instead of a manually-bumped `CACHE_NAME` literal (README's
+  Phase 5.1, `things-to-improve.txt`'s second beta-testing round, item
+  1). `install` fetches, hashes, and populates the freshly-named cache in
+  one pass; `activate` re-derives the current name and purges every other
+  `justfitting-shell-*` cache; the `fetch` handler's write-back looks up
+  the live cache name via `caches.keys()`. Editing any shell file now
+  changes its cache automatically -- this is the last release whose
+  changelog will ever say "`CACHE_NAME` bumped".
+- The log wizard's Steps field now defaults to `0` and is no longer
+  `required`, matching the existing Cardio field's convention, instead of
+  blocking submission until a value is typed.
+- The log wizard now pre-fills Waist/Neck from the account's most recent
+  real log at every "fresh wizard" reset point (entering the Log view,
+  switching day/week view) instead of always opening blank (README's
+  Phase 5.4, `things-to-improve.txt`'s second beta-testing round, item
+  4). Weight and intake/steps/cardio/macros are left blank, since those
+  are meant to be re-measured/re-entered every time, not carried forward.
+  A brand-new account's first-ever wizard still opens blank.
 - Retired the standalone Projection view/nav tab (README's Phase 4.5, the
   fifth and final item from `things-to-improve.txt`'s first round of
   beta-testing feedback, completing Phase 4). The Dashboard's existing
@@ -63,6 +109,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   week view grouping multiple same-ISO-week logs that day view keeps
   separate); `Dashboard_test.py`'s own log-creation helper updated to
   drive the new date-picker instead of the now-hidden date input.
+
+### Fixed
+
+- The Dashboard's "Weight to goal" tile (README's Phase 5.5,
+  `things-to-improve.txt`'s second beta-testing round, item 5) showed
+  `weight_to_shed_kg` -- this week's incremental target change, which for
+  a steady weekly rate is always roughly the same figure (reported as "a
+  flat 0.5kg") regardless of actual proximity to the goal -- instead of
+  the total remaining distance. It now reads `(fat_mass_kg + lean_mass_kg)
+  - final_weight_kg`, the account's current weight minus its goal weight,
+  from fields `MetricsDTO` already returns. Client-only; `weight_to_shed_kg`
+  itself is unchanged and still drives the engine's deficit/target-calorie
+  chain correctly.
 
 ## [1.1.0] - 2026-07-06
 
