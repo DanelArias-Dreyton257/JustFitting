@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A new dismissible alert, `"unconfigured_goal"` (README's Phase 5.10),
+  tells a brand-new account that its first goal (15%/22% body fat by sex,
+  0% weekly rate -- Phase 5.2's registration default) was auto-assigned
+  and points it at the Plan tab -- flows through the existing persisted
+  alerts pipeline unchanged, so it shows on the Dashboard even before any
+  log exists. Inferred with no schema change: it fires only while the
+  active goal is the account's one-and-only-ever goal plan
+  (`goal_history_count == 1`) and its `weekly_rate` is still exactly
+  `0.0` -- any deliberately chosen goal necessarily has a nonzero rate,
+  and committing a goal via the Plan tab always historizes a new goal
+  row, so this can never re-trigger once the user has actually visited
+  the Plan tab.
 - The Dashboard's Calories section gained a fourth tile, "This week's
   intake" (the latest real log's `intake_kcal`, placed before Adherence),
   and a small subtitle line under each tile clarifying what each figure

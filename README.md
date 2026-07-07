@@ -1519,6 +1519,59 @@ show the remaining distance to close.
   big value, since the big value itself is now the target weight, not a
   distance.
 
+#### Phase 5.10 — Alert new accounts about their auto-assigned default goal (done)
+
+Source: further consideration after Phase 5.2 shipped goal-free
+registration, not one of `things-to-improve.txt`'s original eight items.
+Problem: since Phase 5.2, a brand-new account's first goal (15%/22% body
+fat by sex, 0% weekly rate) is silently assigned rather than chosen -- a
+first-time user has no way to know a placeholder goal exists at all,
+let alone that visiting the Plan tab is how they'd set a real one.
+
+- A new detector, `Alerts._unconfigured_goal_alerts(goal,
+  goal_history_count)` (`services/composition/Alerts.py`), fires a new
+  `"unconfigured_goal"` alert type -- unlike every other detector in this
+  module, it needs no logged week at all (no `CompositionResult`
+  dependency), so it can flag a fresh account before any log exists.
+- **No schema change.** Rather than adding an `is_default` flag to
+  `goal_plans` (a migration), the check is purely inferential and
+  self-cleaning: it only fires when `goal_history_count == 1` (this is
+  the account's one-and-only-ever goal plan, via
+  `GoalPlanManager.list_history`) **and** `weekly_rate` is still exactly
+  `0.0` (within a `1e-9` epsilon, mirroring
+  `Trajectory.compute_weeks_to_goal`'s own zero-rate guard) -- the literal
+  "no plan yet" signal, since any deliberately chosen goal necessarily has
+  a nonzero rate. Committing any goal via the Plan tab always historizes
+  a new `goal_plans` row (`GoalPlanManager.create_goal_plan`), so
+  `goal_history_count` becomes `2` and this can never re-trigger, even if
+  the user lands on the same numbers again.
+- `detect_alerts()` gains an optional `goal_history_count` parameter,
+  following the same "omit it, skip that detector" convention every other
+  optional signal (`gain_quality`/`reconciliation`/`logs`/`macro_targets`)
+  already uses. `AlertSyncService.sync_alerts()` computes it via
+  `len(goal_plan_manager.list_history(user_id))` and passes it through.
+- **No client change at all.** `GET /api/alerts` already runs on every
+  Dashboard visit regardless of whether any logs exist
+  (`refreshDashboardSummary()`), and `renderAlerts()` already renders
+  whatever comes back generically -- the new alert flows through the
+  exact same persisted, dismissible pipeline (`alert_log`'s
+  `UNIQUE(user_id, type, date)`, keyed on the goal's `start_date`) every
+  other alert already uses, including its existing dismiss button.
+- Like every other alert here, this one is a persisted historical record,
+  not a live-recomputed state: once dismissed (or left alone), it follows
+  the same acknowledge/history lifecycle as any other alert -- it does
+  not disappear on its own the moment a real goal is set, only stops
+  being freshly re-detected.
+- **Testing**: new `Alerts_test.py` cases (fires with zero
+  `CompositionResult`s; skipped once `goal_history_count` moves past `1`;
+  skipped for a deliberately-chosen nonzero rate; skipped with no goal;
+  skipped when `goal_history_count` is omitted); a new `Api_test.py` case
+  registering through the omission path (`POST /api/users` with no
+  `target_bf`/`weekly_rate`) and confirming `GET /api/alerts` surfaces it
+  immediately; a new `Dashboard_test.py` case confirming the alert renders
+  on a fresh account's Dashboard and dismisses via the existing
+  alert-dismiss button.
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
