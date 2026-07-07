@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retired the standalone Projection view/nav tab (README's Phase 4.5, the
+  fifth and final item from `things-to-improve.txt`'s first round of
+  beta-testing feedback, completing Phase 4). The Dashboard's existing
+  forecast toggle (Phase 4.3) is unchanged; the Log view now shows
+  forecasted future dates as a row injected directly into its log table
+  -- same columns a real log uses, tagged with a "projected" badge and a
+  "weekly" granularity badge (the forecast is always weekly-cadence), no
+  Delete button, weight/waist/neck rounded to 1 decimal, and fields the
+  forecast never observed (intake/steps/cardio/macros) shown as "--" --
+  rather than a separate widget. It's gated by a new "Show projected
+  values on future dates" checkbox in Settings, stored in `localStorage`
+  (`session.js`'s `getShowProjectedLogs()`/`setShowProjectedLogs()`,
+  defaulting on for a first-time user) rather than as a server-persisted
+  account setting, since it's a display preference, not an engine input
+  -- it persists across sessions on the same browser once explicitly
+  toggled, unlike the Dashboard's own toggle which resets every login.
+  `app.js`'s Phase 4.3 forecast-fetch/cache logic is
+  generalized into one `fetchProjectionWeeks(weeks)` helper shared by
+  both the Dashboard toggle and the Log view's row injection. Purely
+  client-only, like every other Phase 4 sub-phase -- no server/DB
+  changes, no `ENGINE_VERSION` bump. `sw.js`'s `CACHE_NAME` bumped
+  `-v14` -> `-v15`. New Playwright coverage in
+  `client/test/browser/Log_test.py` (turning the Settings preference on
+  and navigating past the last logged week injects a tagged, undeletable
+  projected row; turning it off removes it; navigating to a day with a
+  real log shows only that real, deletable row even with the preference
+  on); `Client_test.py`'s markup assertion on the removed standalone
+  view's `#projection-activity` control is replaced with an assertion
+  that no `data-view="projection"` nav link or `#view-projection` section
+  remain, and that `#settings-show-projected-logs` exists.
+
 - Redesigned the Log view's log capture around a day/week navigator
   (README's Phase 4.4, the fourth item from `things-to-improve.txt`'s
   first round of beta-testing feedback): a `‹`/`›` arrow pair, a Day/Week

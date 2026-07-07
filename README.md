@@ -661,13 +661,12 @@ unscheduled from either source document's eight-plus-one capabilities:
   contract) are unchanged; the new sections are additional, read-only,
   recomputed-not-restored data.
 
-### Phase 4 — UX refinement: beta-testing feedback (in progress)
+### Phase 4 — UX refinement: beta-testing feedback (done)
 
 Source: `things-to-improve.txt`, Danel's own notes from the first round of
 beta-testing the shipped v1.0.0 app. Five items, roughly in the order
 they unlock each other (2-5 lean on 1, and on each other); this phase's
-sub-phases track them 1:1. **Phase 4.1-4.4** are done; **4.5** remains a
-one-line backlog note since it depends on 4.4 having shipped.
+sub-phases track them 1:1. **All five, Phase 4.1-4.5, are done.**
 
 #### Phase 4.1 — Consolidated top navigation (hamburger menu) (done)
 
@@ -1050,12 +1049,127 @@ that input is hidden.
 **Housekeeping**: `sw.js`'s `CACHE_NAME` bumped `-v13` -> `-v14`, since
 `index.html`/`app.js`/`style.css` all changed.
 
-#### Phase 4.5 — Retire the standalone Projection view (backlog, unscheduled)
+#### Phase 4.5 — Retire the standalone Projection view (done) — Phase 4 complete
 
-`things-to-improve.txt` item 5: once 4.3 and 4.4 ship, the dedicated
-Projection view can be removed entirely -- projected future data becomes
-a toggle on the Dashboard and the Log view instead of its own tab
-(further shrinking the nav Phase 4.1 already consolidated).
+`things-to-improve.txt` item 5: now that 4.3 (Dashboard forecast toggle)
+and 4.4 (Log view day/week navigator) have both shipped, the dedicated
+Projection view/tab is removed entirely -- forecast data becomes a toggle
+on the Dashboard (already true since 4.3) and appears directly in the Log
+view as a tagged row, rather than its own nav destination. **Client-only**,
+like every other Phase 4 sub-phase: `GET /api/projection` already returns
+everything needed (Phase 4.3 added `estimated_waist`/`estimated_neck`), so
+this is removing UI and reusing an existing fetch, not new server work --
+no migration, no `ENGINE_VERSION` bump.
+
+**Remove**:
+
+- The `data-view="projection"` nav button (`index.html`), the
+  `#view-projection` section (weeks/base/activity controls +
+  `#projection-table`), and `navigate()`'s `if (viewName ===
+  "projection")` branch (`app.js`).
+- `refreshProjection()`/`renderProjectionTable()` (`app.js`/`views.js`)
+  and the `#projection-refresh` click listener.
+- `Client_test.py`'s markup assertion on `id="projection-activity"` (the
+  only test that touches the standalone view; `Dashboard_test.py`'s own
+  projection-toggle tests exercise `#dashboard-projection-toggle`, not the
+  standalone view, and are unaffected).
+
+**Add -- a projected row directly in the Log table**, gated by a
+**Settings-view preference** rather than a per-view toggle:
+
+- **The preference lives in Settings, not the Log view, and persists in
+  `localStorage`, not the server -- defaulting on.** A checkbox
+  (`#settings-show-projected-logs`, "Show projected values on future
+  dates") sits in its own "Log view" section, above and clearly separated
+  from the historized `#settings-form` (its own disclaimer says so
+  explicitly): it's a pure display preference, not an engine input, so
+  historizing it alongside TEF/BMR calibration would be a category error
+  -- `session.js` gained `getShowProjectedLogs()`/`setShowProjectedLogs()`
+  (a `justfitting.showProjectedLogs` key, same pattern as the existing
+  token storage) instead of a new `EngineSettings` field/migration.
+  `getShowProjectedLogs()` treats an unset key as `true`, so a first-time
+  user sees projected rows without having to find the checkbox first;
+  once explicitly turned off it stays off, persisting across sessions on
+  the same browser unlike the Dashboard's own forecast toggle (which
+  always resets to off on login).
+- **When it's on** and the navigator's selected day (day view) or week
+  (week view) has no logged row yet and falls after the last *real*
+  logged date (`state.logs` filtered to `source === "real"`, not a
+  previously-saved projected run), `refreshProjectedRow()` (`app.js`)
+  fetches the forecast and injects one synthetic row straight into
+  `#log-table` via `renderLogTable` (`views.js`) -- the **same columns**
+  a real log uses, not a separate widget. `renderLogTable` now accepts a
+  `log_id: null` row: it renders with no `data-log-id`, no Delete button
+  (nothing persisted to delete), a `log-row-projected` CSS class (italic,
+  muted text -- a visual cue beyond the badge alone), and its `source`
+  badge reads "projected" using the exact same `.badge.projected` style a
+  persisted-but-not-real log already used. Fields the forecast never
+  observed -- intake, steps, cardio, macros -- are `null` and render as
+  "--" (a new `dash()` helper) rather than fabricated; weight, waist, and
+  neck come from the projection row's
+  `estimated_weight`/`estimated_waist`/`estimated_neck`, always shown to
+  exactly 1 decimal (a new `round1()` helper using `toFixed(1)`, not plain
+  rounding, so a whole-number estimate still reads "88.0", not "88").
+- **The forecast stays weekly, never fabricated per-day.** The engine
+  forecasts one row per week (Phase 4.3); day view doesn't invent a daily
+  figure for a day that isn't itself a forecasted row -- it shows the
+  forecasted week *covering* the selected day (the row whose date falls
+  in that day's ISO week, same Monday-Sunday convention
+  `LogResampler`/Phase 4.4's week view already use). Its Granularity
+  column always reads "weekly" (the existing `.badge.weekly` style) for
+  the same reason -- never "daily", regardless of which Log-view mode is
+  active when it's shown.
+- **Weeks-ahead is derived from navigation, not a separate input**: unlike
+  the old standalone view's free-typed "Weeks" field, there's no control
+  of its own -- how far to forecast is just "however far the user has
+  navigated," computed as `ceil(days between last real log and the
+  selected day/week-end / 7)`, clamped to at least 1 and at most 52 (the
+  same upper bound the old view's input enforced). Fixed at the
+  Dashboard toggle's own defaults, `base="real"`, `activity="constant"`
+  -- configuring those was already out of scope as of Phase 4.3 and stays
+  that way; removing the standalone view means that configurability is
+  gone entirely, an accepted trade-off for the simplification the note
+  asks for, not an oversight.
+- **`app.js`'s existing `getProjectionRows()`/`state.projectionCache`
+  (Phase 4.3) is generalized into a plain `fetchProjectionWeeks(weeks)`
+  helper**, cached per weeks value exactly as before, called by both the
+  Dashboard's forecast toggle and the Log view's row injection -- since
+  both request the identical `(weeks, "real", "constant")` series, they
+  share one cache/one fetch instead of hitting the API twice for the same
+  weeks value in the same session.
+- Injecting the row is a small async step (`refreshProjectedRow()`) kept
+  separate from the existing synchronous `renderFilteredLogList()` (which
+  keeps instantly re-filtering `state.logs` on every nav click, same as
+  Phase 4.4; it now optionally takes an extra row to append) -- called
+  after `setLogNav()`/`refreshLogs()`/the Log view's own Day/Week toggle
+  buttons, same "don't block the snappy nav re-render on a network call"
+  precedent Phase 4.3 set for the Dashboard's own toggle. It also guards
+  against a slow response landing after the user has already navigated
+  elsewhere, re-checking `state.logNav` before rendering.
+- **Out of scope**: no "log this now" shortcut that pre-fills the wizard
+  from the projected row (a different note, `things-to-improve.txt`'s
+  Phase 5 beta-testing item 4, covers wizard defaults generally); no
+  change to what dates the wizard itself will accept -- creating a real
+  log against a future date was already possible before this phase and
+  isn't newly restricted or newly encouraged by the projected row.
+
+**Testing**: two new `Log_test.py` cases -- logging two real weeks, then
+turning the Settings preference on and jumping to a day two weeks past
+the last one injects a row tagged "projected" with no Delete button (and
+keeps `#log-table` visible instead of the empty-state placeholder), and
+turning the preference back off removes it in favor of the normal empty
+state; a second case confirms navigating back to a day that already has
+a real log shows only that one row (tagged "real", with its Delete
+button intact), even with the preference on. `Client_test.py`'s check for
+the removed standalone view's markup now also asserts
+`#settings-show-projected-logs` exists.
+
+**Housekeeping**: `sw.js`'s `CACHE_NAME` bumped `-v14` -> `-v15`
+(`index.html`/`app.js`/`views.js`/`style.css`/`session.js` all change).
+
+**With this phase, Phase 4 (UX refinement: beta-testing feedback) is
+complete** -- all five `things-to-improve.txt` items from the first round
+of beta-testing are shipped.
 
 ## Android app
 
