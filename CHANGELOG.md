@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Registration no longer asks for a goal, and the Account view is
+  profile-only (README's Phase 5.2/5.8). `POST /api/users` drops its
+  `target_bf`/`weekly_rate` requirement -- an omitted goal resolves to a
+  sane per-sex default (15% body fat male / 22% female, 0% weekly rate =
+  "no change yet"), still creating an active goal plan under the hood
+  (explicitly passing `target_bf`/`weekly_rate` keeps working exactly as
+  before). The register form and the Account view's profile-form both
+  drop their Target body fat/Weekly rate fields entirely -- Account's
+  heading changes from "Goal & profile" to "Profile" -- so the Plan tab's
+  preview -> commit flow is now the **only** place a goal ever changes,
+  for both a brand-new account and an existing one editing later.
 - The Dashboard's Goal section now leads with the **target** figure
   instead of the current one, with an arrowed (▲/▼/–) "to goal" subtitle
   showing the remaining distance -- the same `.delta` visual language the
@@ -122,6 +133,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from fields `MetricsDTO` already returns. Client-only; `weight_to_shed_kg`
   itself is unchanged and still drives the engine's deficit/target-calorie
   chain correctly.
+- `Trajectory.compute_weeks_to_goal` divided by `ln(1 - weekly_rate)`,
+  which is exactly `0` at `weekly_rate = 0` -- a `ZeroDivisionError` on
+  the very first log computed for an account at that rate. Nothing
+  validates `weekly_rate` today, so this was already a latent,
+  manually-triggerable bug; Phase 5.2's new `weekly_rate = 0` default for
+  brand-new accounts made it the default path. Fixed with the same
+  `abs(weekly_rate) < 1e-9` epsilon guard `IncrementAnalytics.py` already
+  uses for its own zero-rate case, returning the same `0.0` "no
+  meaningful figure" sentinel every consumer already renders as "--".
 
 ## [1.1.0] - 2026-07-06
 

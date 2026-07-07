@@ -1217,7 +1217,7 @@ forget, and it's pure busywork a machine can do itself.
   hash (e.g. `justfitting-shell-202229d05c7f371f`), not a `-vN` literal, and
   that the service worker activates normally.
 
-#### Phase 5.2 — Registration no longer asks for a goal; sane per-sex defaults
+#### Phase 5.2 — Registration no longer asks for a goal; sane per-sex defaults (done)
 
 Problem: `POST /api/users` requires `target_bf`/`weekly_rate` and creates a
 goal plan immediately at registration. The note wants account creation
@@ -1251,6 +1251,17 @@ actually want to set a real goal.
   that explicitly passing them still works (nothing currently needs that,
   but nothing should break it either); browser coverage that the register
   form has no goal fields and registration succeeds without them.
+- **Bug found during implementation**: `Trajectory.compute_weeks_to_goal`
+  divides by `ln(1 - weekly_rate)`, which is exactly `0` at
+  `weekly_rate = 0` -- a `ZeroDivisionError` the instant any log is
+  computed for an account on the new default. Nothing validates
+  `weekly_rate` today (only `target_bf` is range-checked), so this was
+  already a latent, manually-triggerable bug; Phase 5.2 just makes it the
+  default path. Fixed in `Trajectory.compute_weeks_to_goal` with the same
+  `abs(weekly_rate) < 1e-9` epsilon guard `IncrementAnalytics.py` already
+  uses for its own zero-rate case, returning `0.0` -- the same "no
+  meaningful figure" sentinel already produced when `weight_kg ==
+  final_weight_kg`, which every consumer already renders as "--".
 
 #### Phase 5.3 — Scope computed series/charts/projections to the active goal's period
 
@@ -1426,7 +1437,7 @@ the Log view's table today.
   the wizard updates the table row in place (same `log_id`, no new row
   created) and the change round-trips through a page reload.
 
-#### Phase 5.8 — Split Account into Profile-only; Goal lives solely in the Plan tab
+#### Phase 5.8 — Split Account into Profile-only; Goal lives solely in the Plan tab (done)
 
 Problem: the Account view's `#profile-form` still has Target body
 fat/Weekly rate fields that, on save, call the *same* `PUT /api/users/me`
@@ -1447,10 +1458,17 @@ consequences first.
   `weekly_rate` never appear anywhere except inside the Plan tab's own
   preview/commit flow, for both a brand-new account and an existing one
   editing later.
-- **Testing**: browser coverage that `#profile-form` no longer has
-  `target_bf_pct`/`weekly_rate_pct` fields, and that editing
-  height/sex/birthdate alone still round-trips correctly without
-  touching the active goal.
+- The form's heading changes from "Goal &amp; profile" to plain "Profile",
+  and `views.js`'s `fillProfileForm` drops the two lines populating the
+  now-removed fields.
+- **Testing**: a new `client/test/browser/Account_test.py` (no Account-view
+  browser test existed before this phase) -- the register and profile
+  forms both render with no goal fields, and editing height/sex/birthdate
+  round-trips through a page reload without moving the active goal's
+  `target_bf`/`weekly_rate` (read back via the Plan tab's own form,
+  populated from `GET /api/users/me`); `Client_test.py` gained a markup
+  assertion that both forms lack `target_bf_pct`/`weekly_rate_pct` while
+  the Plan tab's own form still has them.
 
 #### Phase 5.9 — Goal section: target-first framing with delta-to-goal tiles (done)
 
