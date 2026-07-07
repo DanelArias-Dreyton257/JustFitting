@@ -214,6 +214,22 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(marker_titles, ["Last logged"])
 
+    def test_calories_summary_has_subtitles_and_logged_intake_tile(self):
+        self._log_week("2026-06-01", 90.0)
+        self._go_to_dashboard()
+        self.page.wait_for_selector("#summary-calories-stats .stat-tile")
+        calories_text = self.page.inner_text("#summary-calories-stats").lower()
+        self.assertIn("what to eat", calories_text)
+        self.assertIn("estimated calories burned", calories_text)
+        self.assertIn("actual vs target/day", calories_text)
+        self.assertIn("this week's intake", calories_text)
+        # This week's intake tile comes before Adherence.
+        self.assertLess(
+            calories_text.index("this week's intake"), calories_text.index("adherence")
+        )
+        # _log_week logs intake_kcal=2000.
+        self.assertIn("2000 kcal", calories_text)
+
     def test_dashboard_with_no_logs_shows_placeholders_not_errors(self):
         # A brand-new account has no logs yet -- summary sections should
         # degrade to a friendly message instead of throwing on null metrics.

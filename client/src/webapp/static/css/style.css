@@ -302,6 +302,10 @@ button[type="submit"]:hover {
   margin-top: 0.15rem;
 }
 
+.stat-tile .delta.tile-subtitle {
+  font-size: 0.7rem;
+}
+
 .summary-section {
   margin-bottom: 1.5rem;
 }

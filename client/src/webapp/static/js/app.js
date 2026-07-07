@@ -196,12 +196,13 @@ function navigate(viewName) {
 }
 
 async function refreshDashboardSummary() {
-  const [latest, series, gainQuality, adherence, alerts] = await Promise.all([
+  const [latest, series, gainQuality, adherence, alerts, logs] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.gainQuality().catch(() => []),
     api.adherence().catch(() => null),
     api.alerts().catch(() => []),
+    api.listLogs().catch(() => []),
   ]);
   state.series = series;
   state.gainQuality = gainQuality;
@@ -209,6 +210,8 @@ async function refreshDashboardSummary() {
 
   const realSeries = series.filter((row) => row.source === "real");
   const previousMetrics = realSeries.length > 1 ? realSeries[realSeries.length - 2] : null;
+  const realLogs = logs.filter((log) => log.source === "real");
+  const latestRealLog = realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
 
   renderWeightSummary(
     document.getElementById("summary-weight-stats"),
@@ -216,7 +219,12 @@ async function refreshDashboardSummary() {
     previousMetrics,
     gainQuality[gainQuality.length - 1]
   );
-  renderCaloriesSummary(document.getElementById("summary-calories-stats"), latest, adherence);
+  renderCaloriesSummary(
+    document.getElementById("summary-calories-stats"),
+    latest,
+    adherence,
+    latestRealLog
+  );
   renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);

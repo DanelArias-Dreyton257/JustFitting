@@ -15,12 +15,12 @@ export function setFormError(formId, message) {
   if (el) el.textContent = message || "";
 }
 
-function formatAdherence(adherence) {
+function formatAdherence(adherence, withPerDay = true) {
   if (!adherence || adherence.mean_intake_diff_kcal == null) {
     return "No real-intake logs yet";
   }
   const value = adherence.mean_intake_diff_kcal;
-  return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal${withPerDay ? "/day" : ""}`;
 }
 
 function formatDelta(value, unit, decimals = 1) {
@@ -68,15 +68,32 @@ export function renderWeightSummary(container, latest, previousMetrics, gainQual
   ].join("");
 }
 
-export function renderCaloriesSummary(container, latest, adherence) {
+export function renderCaloriesSummary(container, latest, adherence, latestRealLog) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
   }
   container.innerHTML = [
-    statTile("Target calories", `${latest.target_calories.toFixed(0)} kcal`),
-    statTile("TDEE", `${latest.tdee.toFixed(0)} kcal`),
-    statTile("Adherence", formatAdherence(adherence)),
+    statTile(
+      "Target calories",
+      `${latest.target_calories.toFixed(0)} kcal`,
+      `<span class="delta tile-subtitle">what to eat</span>`
+    ),
+    statTile(
+      "TDEE",
+      `${latest.tdee.toFixed(0)} kcal`,
+      `<span class="delta tile-subtitle">estimated calories burned</span>`
+    ),
+    statTile(
+      "This week's intake",
+      latestRealLog && latestRealLog.intake_kcal != null ? `${latestRealLog.intake_kcal} kcal` : "—",
+      `<span class="delta tile-subtitle">most recently logged intake</span>`
+    ),
+    statTile(
+      "Adherence",
+      formatAdherence(adherence, false),
+      `<span class="delta tile-subtitle">actual vs target/day</span>`
+    ),
   ].join("");
 }
 
