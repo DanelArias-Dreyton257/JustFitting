@@ -179,7 +179,6 @@ select {
 }
 
 button[type="submit"],
-button#projection-refresh,
 button#export-btn {
   background: var(--accent-strong);
   border: none;
@@ -190,8 +189,7 @@ button#export-btn {
   font-weight: 600;
 }
 
-button[type="submit"]:hover,
-button#projection-refresh:hover {
+button[type="submit"]:hover {
   background: var(--accent);
 }
 
@@ -649,6 +647,11 @@ button#projection-refresh:hover {
 .data-table th {
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.log-row-projected td {
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 .badge {

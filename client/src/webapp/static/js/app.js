@@ -1,6 +1,13 @@
 // Controller: holds all app state, wires DOM events to api.js and views.js.
 import { api } from "./api.js";
-import { getToken, setToken, clearToken, isAuthenticated } from "./session.js";
+import {
+  getToken,
+  setToken,
+  clearToken,
+  isAuthenticated,
+  getShowProjectedLogs,
+  setShowProjectedLogs,
+} from "./session.js";
 import {
   showView,
   setFormError,
@@ -12,7 +19,6 @@ import {
   renderAlertHistory,
   renderGoalHistory,
   renderLogTable,
-  renderProjectionTable,
   fillProfileForm,
   showWizardStep,
   renderLogReview,
@@ -182,7 +188,6 @@ function navigate(viewName) {
   showView(viewName);
   if (viewName === "dashboard") refreshDashboardSummary();
   if (viewName === "log") refreshLogs();
-  if (viewName === "projection") refreshProjection();
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
   if (viewName === "report") refreshReport();
@@ -230,11 +235,10 @@ async function refreshDashboardCharts() {
   await renderDashboardCharts();
 }
 
-// Fetches the forecast rows for the current toggle/weeks selection, cached
-// per weeks value so re-toggling or re-rendering doesn't re-hit the API.
-async function getProjectionRows() {
-  if (!state.showProjection) return [];
-  const weeks = state.projectionWeeks;
+// Fetches a real+constant forecast for a given weeks-ahead count, cached per
+// weeks value so re-toggling, re-rendering, or the Dashboard and Log view's
+// toggles both wanting the same weeks value never re-hits the API twice.
+async function fetchProjectionWeeks(weeks) {
   if (state.projectionCache[weeks]) return state.projectionCache[weeks];
   try {
     const rows = await api.projection(weeks, "real", "constant");
@@ -265,7 +269,7 @@ async function renderDashboardCharts() {
   // Phase 4.3: appending the forecast to a *copy* of the real series --
   // never `state.series` itself -- so the summary section and every other
   // chart below stay on real data only.
-  const forecastRows = await getProjectionRows();
+  const forecastRows = state.showProjection ? await fetchProjectionWeeks(state.projectionWeeks) : [];
   const forecastSeries = forecastRows.length ? series.concat(forecastRows) : series;
   const lastLoggedDate = series.length ? series[series.length - 1].date : null;
   const forecastMarkers =
@@ -444,6 +448,7 @@ async function refreshLogs() {
   resetWizardGranularityDefault();
   renderLogNav();
   renderFilteredLogList();
+  refreshProjectedRow();
   goToLogStep(1);
 }
 
@@ -481,24 +486,93 @@ function renderLogNav() {
   }
 }
 
-function renderFilteredLogList() {
+function filteredLogs() {
   const { selectedDate, viewMode } = state.logNav;
-  let filtered;
   if (viewMode === "week") {
     const { start, end } = isoWeekRange(selectedDate);
-    filtered = state.logs.filter((log) => log.date >= start && log.date <= end);
-  } else {
-    filtered = state.logs.filter((log) => log.date === selectedDate);
+    return state.logs.filter((log) => log.date >= start && log.date <= end);
   }
-  document.getElementById("log-table").hidden = filtered.length === 0;
-  document.getElementById("log-list-empty").hidden = filtered.length !== 0;
-  renderLogTable(document.querySelector("#log-table tbody"), filtered);
+  return state.logs.filter((log) => log.date === selectedDate);
+}
+
+function renderFilteredLogList(extraRow) {
+  const rows = extraRow ? filteredLogs().concat(extraRow) : filteredLogs();
+  document.getElementById("log-table").hidden = rows.length === 0;
+  document.getElementById("log-list-empty").hidden = rows.length !== 0;
+  renderLogTable(document.querySelector("#log-table tbody"), rows);
 }
 
 function setLogNav(patch) {
   Object.assign(state.logNav, patch);
   renderLogNav();
   renderFilteredLogList();
+  refreshProjectedRow();
+}
+
+function lastRealLoggedDate() {
+  const realDates = state.logs.filter((log) => log.source === "real").map((log) => log.date);
+  return realDates.length ? realDates.reduce((a, b) => (b > a ? b : a)) : null;
+}
+
+function weeksBetween(fromIso, toIso) {
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  const days = (new Date(ty, tm - 1, td) - new Date(fy, fm - 1, fd)) / 86400000;
+  return Math.ceil(days / 7);
+}
+
+// toFixed (not Math.round(x*10)/10) so a whole-number estimate still shows
+// one decimal place (e.g. "88.0"), not "88".
+function round1(value) {
+  return value.toFixed(1);
+}
+
+// A row from GET /api/projection has no intake/steps/cardio/macros --
+// those are engine *inputs* the forecast never observed, not outputs it
+// computed -- so they're left null and renderLogTable dashes them, same
+// table/columns as a real log, with log_id null (nothing to delete)
+// marking it as never persisted. Granularity is always "weekly" since the
+// forecast itself is weekly-cadence (Phase 4.3), regardless of the Log
+// view's own day/week toggle.
+function projectedLogRow(row) {
+  return {
+    log_id: null,
+    date: row.date,
+    weight_kg: round1(row.estimated_weight),
+    waist_cm: round1(row.estimated_waist),
+    neck_cm: round1(row.estimated_neck),
+    intake_kcal: null,
+    steps: null,
+    cardio_kcal: null,
+    carbs_g: null,
+    fat_g: null,
+    protein_g: null,
+    source: "projected",
+    granularity: "weekly",
+  };
+}
+
+// Phase 4.5: injects a projected row straight into the Log table (not a
+// separate widget) when the "Show projected" browser preference (Settings
+// view, localStorage) is on and the navigated day/week has no log yet and
+// falls after the last *real* logged date -- the forecast stays weekly
+// (never a fabricated daily figure), so a day-view lookup finds the
+// forecasted week covering that day, same as week view's own ISO-week match.
+async function refreshProjectedRow() {
+  if (!getShowProjectedLogs() || filteredLogs().length > 0) return;
+  const lastReal = lastRealLoggedDate();
+  const { selectedDate, viewMode } = state.logNav;
+  const { start, end } = isoWeekRange(selectedDate);
+  const targetDate = viewMode === "week" ? end : selectedDate;
+  if (!lastReal || targetDate <= lastReal) return;
+  const weeks = Math.min(52, Math.max(1, weeksBetween(lastReal, targetDate)));
+  const rows = await fetchProjectionWeeks(weeks);
+  const row = rows.find((r) => r.date >= start && r.date <= end) || rows[rows.length - 1];
+  if (!row) return;
+  // The user may have navigated elsewhere while this was in flight -- don't
+  // let a stale response render onto the wrong day/week.
+  if (state.logNav.selectedDate !== selectedDate || state.logNav.viewMode !== viewMode) return;
+  renderFilteredLogList(projectedLogRow(row));
 }
 
 function goToLogStep(step) {
@@ -535,19 +609,6 @@ async function refreshPlan() {
   setFormError("plan-commit", "");
 }
 
-async function refreshProjection() {
-  const weeks = Number(document.getElementById("projection-weeks").value) || 4;
-  const base = document.getElementById("projection-base").value;
-  const activity = document.getElementById("projection-activity").value;
-  try {
-    const rows = await api.projection(weeks, base, activity);
-    renderProjectionTable(document.querySelector("#projection-table tbody"), rows);
-  } catch (err) {
-    // Not enough real logs yet to fit a trend.
-    renderProjectionTable(document.querySelector("#projection-table tbody"), []);
-  }
-}
-
 async function refreshAccount() {
   const profile = await api.me();
   state.profile = profile;
@@ -570,6 +631,7 @@ async function refreshSettings() {
   renderSettingsStatus(document.getElementById("settings-status"), settings);
   renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
   setFormError("settings-form", "");
+  document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
 }
 
 function formToJson(form) {
@@ -661,6 +723,7 @@ document.getElementById("log-nav-day").addEventListener("click", () => {
   resetWizardGranularityDefault();
   renderLogNav();
   renderFilteredLogList();
+  refreshProjectedRow();
 });
 
 document.getElementById("log-nav-week").addEventListener("click", () => {
@@ -668,6 +731,7 @@ document.getElementById("log-nav-week").addEventListener("click", () => {
   resetWizardGranularityDefault();
   renderLogNav();
   renderFilteredLogList();
+  refreshProjectedRow();
 });
 
 document.getElementById("log-nav-date").addEventListener("change", (event) => {
@@ -747,8 +811,6 @@ document.getElementById("dashboard-projection-weeks")?.addEventListener("change"
 document.getElementById("report-print-btn").addEventListener("click", () => {
   window.print();
 });
-
-document.getElementById("projection-refresh").addEventListener("click", refreshProjection);
 
 document.getElementById("plan-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -846,6 +908,10 @@ document.getElementById("alert-history-list").addEventListener("click", async (e
   if (!btn) return;
   await api.acknowledgeAlert(btn.dataset.alertId);
   await refreshAlertHistory();
+});
+
+document.getElementById("settings-show-projected-logs").addEventListener("change", (event) => {
+  setShowProjectedLogs(event.target.checked);
 });
 
 document.getElementById("settings-form").addEventListener("submit", async (event) => {

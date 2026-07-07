@@ -2,7 +2,7 @@
 // (stale-while-revalidate) so the PWA installs and opens offline. API
 // calls go to a different origin (JUSTFITTING_API_BASE_URL) and are left
 // untouched -- this worker never caches or intercepts them.
-const CACHE_NAME = "justfitting-shell-v14";
+const CACHE_NAME = "justfitting-shell-v15";
 
 const APP_SHELL = [
   "/",

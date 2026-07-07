@@ -39,7 +39,6 @@
     <nav class="nav-menu" id="nav" role="menu" hidden>
       <button class="nav-link" role="menuitem" data-view="dashboard">Dashboard</button>
       <button class="nav-link" role="menuitem" data-view="log">Log</button>
-      <button class="nav-link" role="menuitem" data-view="projection">Projection</button>
       <button class="nav-link" role="menuitem" data-view="plan">Plan</button>
       <button class="nav-link" role="menuitem" data-view="alert-history">Alerts</button>
       <button class="nav-link" role="menuitem" data-view="report">Report</button>
@@ -278,35 +277,6 @@
       </table>
     </section>
 
-    <section id="view-projection" class="view" hidden>
-      <h1>Projection</h1>
-      <div class="inline-form">
-        <label>Weeks
-          <input id="projection-weeks" type="number" value="8" min="1" max="52" />
-        </label>
-        <label>Regression base
-          <select id="projection-base">
-            <option value="real">Real logs only</option>
-            <option value="real_projected">Real + projected (expanding)</option>
-          </select>
-        </label>
-        <label>Steps assumption
-          <select id="projection-activity">
-            <option value="constant">Hold constant (last logged value)</option>
-            <option value="trend">Follow trend</option>
-          </select>
-        </label>
-        <button id="projection-refresh">Update forecast</button>
-      </div>
-      <p class="disclaimer">Forecast values are estimates extrapolated from your trend, not measurements.</p>
-      <table class="data-table" id="projection-table">
-        <thead>
-          <tr><th>Date</th><th>Weight</th><th>Body fat %</th><th>Target kcal</th><th>Badge</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
     <section id="view-plan" class="view" hidden>
       <h1>Plan adjustment</h1>
       <p class="disclaimer">
@@ -357,6 +327,18 @@
         (like a goal-plan change) rather than overwriting the old one.
       </p>
       <p id="settings-status" class="disclaimer"></p>
+
+      <h2>Log view</h2>
+      <div class="inline-form" id="settings-display-prefs">
+        <label class="checkbox-label">
+          <input type="checkbox" id="settings-show-projected-logs" />
+          Show projected values on future dates
+        </label>
+      </div>
+      <p class="disclaimer">
+        A local browser preference, not part of the account settings below --
+        it isn't saved to your account or synced across devices.
+      </p>
 
       <form id="settings-form" class="stacked-form">
         <h2>Energy model</h2>

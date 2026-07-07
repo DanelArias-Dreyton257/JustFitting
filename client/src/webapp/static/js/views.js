@@ -307,37 +307,31 @@ function formatMacros(log) {
   return `${log.carbs_g}/${log.fat_g}/${log.protein_g}`;
 }
 
+function dash(value) {
+  return value == null ? "—" : value;
+}
+
+// Phase 4.5: a projected row (app.js's projectedLogRow(), log_id always null
+// since it's never persisted) reuses this exact table -- same columns, same
+// "projected" badge style real persisted-projection rows already used --
+// rather than a separate preview widget; it just has no known intake/steps/
+// cardio/macros/granularity to show (dashed) and no Delete button.
 export function renderLogTable(tbody, logs) {
   tbody.innerHTML = logs
     .map(
       (log) => `
-      <tr data-log-id="${log.log_id}">
+      <tr ${log.log_id != null ? `data-log-id="${log.log_id}"` : ""} class="${log.log_id == null ? "log-row-projected" : ""}">
         <td>${log.date}</td>
         <td>${log.weight_kg}</td>
         <td>${log.waist_cm}</td>
         <td>${log.neck_cm}</td>
-        <td>${log.intake_kcal}</td>
-        <td>${log.steps}</td>
-        <td>${log.cardio_kcal}</td>
+        <td>${dash(log.intake_kcal)}</td>
+        <td>${dash(log.steps)}</td>
+        <td>${dash(log.cardio_kcal)}</td>
         <td>${formatMacros(log)}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
-        <td><span class="badge ${log.granularity}">${log.granularity}</span></td>
-        <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
-      </tr>`
-    )
-    .join("");
-}
-
-export function renderProjectionTable(tbody, rows) {
-  tbody.innerHTML = rows
-    .map(
-      (row) => `
-      <tr>
-        <td>${row.date}</td>
-        <td>${(row.fat_mass_kg + row.lean_mass_kg).toFixed(1)}</td>
-        <td>${(row.body_fat * 100).toFixed(1)}%</td>
-        <td>${row.target_calories.toFixed(0)}</td>
-        <td><span class="badge projected">forecast</span></td>
+        <td>${log.granularity ? `<span class="badge ${log.granularity}">${log.granularity}</span>` : "—"}</td>
+        <td>${log.log_id != null ? `<button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button>` : ""}</td>
       </tr>`
     )
     .join("");
