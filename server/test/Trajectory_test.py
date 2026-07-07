@@ -31,6 +31,12 @@ class TrajectoryTest(unittest.TestCase):
         weeks = Trajectory.compute_weeks_to_goal(90.7, final_weight, -0.005)
         self.assertAlmostEqual(weeks, 11.93, delta=0.01)
 
+    def test_weeks_to_goal_handles_a_zero_weekly_rate_without_dividing_by_zero(self):
+        # ln(1 - 0) == 0 would otherwise raise ZeroDivisionError -- reachable
+        # today by manually setting weekly_rate=0 (nothing validates it) and,
+        # since Phase 5.2, the default for every brand-new account.
+        self.assertEqual(Trajectory.compute_weeks_to_goal(90.0, 85.0, 0.0), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
