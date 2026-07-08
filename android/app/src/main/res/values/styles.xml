@@ -18,5 +18,17 @@
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!--
+          Required by androidx.core.splashscreen (Phase 6's cold-start
+          fix, MainActivity's installSplashScreen() call): without this,
+          the activity stays on this non-AppCompat Theme.SplashScreen
+          after the splash-screen library's own setup runs, and
+          Capacitor's BridgeActivity (an AppCompatActivity) crashes in
+          onCreate() with "You need to use a Theme.AppCompat theme (or
+          descendant) with this activity." This tells the library which
+          real theme to switch the activity to right before onCreate()'s
+          own AppCompat checks run.
+        -->
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

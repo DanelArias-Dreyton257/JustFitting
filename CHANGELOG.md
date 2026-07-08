@@ -89,6 +89,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phone" promise this phase exists for), and full functionality in
   Airplane Mode (confirming the app never reaches Render). Phase 6 is
   done.
+- Phase 6 polish, closing out its remaining open items:
+  - **Cold-start UX**: `MainActivity.onCreate()` no longer blocks the
+    main thread on server startup. It now installs the platform splash
+    screen (`androidx.core.splashscreen`, using Capacitor's own
+    `AppTheme.NoActionBarLaunch` theme, scaffolded but previously
+    unused), starts Chaquopy and `local_server.py` on a background
+    thread, and calls `super.onCreate()` immediately so the WebView
+    starts loading the bundled shell right away; the splash stays on
+    screen (`setKeepOnScreenCondition`) until the server signals ready.
+    A second real bug surfaced and was fixed getting here:
+    `installSplashScreen()` without a `postSplashScreenTheme` declared
+    crashed the app with `IllegalStateException: You need to use a
+    Theme.AppCompat theme (or descendant) with this activity`, since
+    Capacitor's `BridgeActivity` (an `AppCompatActivity`) checks the
+    active theme in its own `onCreate()`, and without that attribute the
+    splash-screen library never restores the real AppCompat-descended
+    theme. Fixed by adding `postSplashScreenTheme` to
+    `AppTheme.NoActionBarLaunch` (`res/values/styles.xml`), pointing at
+    the existing `AppTheme.NoActionBar`. `android/app/build.gradle`
+    gained an explicit `compileOptions` (Java 8) for the lambdas this
+    uses.
+  - **Chaquopy licensing**: resolved -- MIT-licensed since v12.0.1 (this
+    project uses 17.0.0), free for commercial/closed-source use, no
+    royalties, published to Maven Central. No longer an open question.
+  - **`android:sync`/`android:apk` now build the embedded target by
+    default**, matching what actually ships: `build:web:android` (and
+    therefore `android:sync`/`android:apk`) now points at
+    `http://127.0.0.1:5000`; the previous emulator/LAN-dev behavior moved
+    to explicitly-named `build:web:android-remote-dev`/
+    `android:sync:remote-dev` scripts rather than being removed, since
+    it's still useful for iterating on client-only changes without
+    rebuilding the whole Chaquopy-bundled APK each time.
+  - `android/app/build.gradle`'s `versionName`/`versionCode` -- never
+    previously bumped past their Phase-2-scaffold defaults through
+    v1.2.0/v1.2.1 -- are now `2.0.0`/`2`, tracking this repo's own
+    `vX.Y.Z` release tags for the intended v2.0.0 release.
+  - Verified on the real device again after all of the above: clean
+    launch (screenshot-confirmed the Log view rendering with data from
+    the earlier test session intact), server still answering
+    `GET /api/health` through a real socket, app version reporting
+    `2.0.0`, still fully functional in Airplane Mode.
 
 ## [1.2.1] - 2026-07-08
 

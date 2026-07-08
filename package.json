@@ -5,11 +5,11 @@
   "description": "Capacitor Android packaging for the JustFitting static web client.",
   "scripts": {
     "build:web": "python scripts/build_static_site.py",
-    "build:web:android": "python scripts/build_static_site.py http://10.0.2.2:5000",
-    "build:web:android-embedded": "python scripts/build_static_site.py http://127.0.0.1:5000",
+    "build:web:android": "python scripts/build_static_site.py http://127.0.0.1:5000",
+    "build:web:android-remote-dev": "python scripts/build_static_site.py http://10.0.2.2:5000",
     "android:add": "npx cap add android",
     "android:sync": "npm run build:web:android && npx cap sync android",
-    "android:sync:embedded": "npm run build:web:android-embedded && npx cap sync android",
+    "android:sync:remote-dev": "npm run build:web:android-remote-dev && npx cap sync android",
     "android:open": "npx cap open android",
     "android:apk": "android\\gradlew.bat -p android assembleDebug && copy android\\app\\build\\outputs\\apk\\debug\\app-debug.apk JustFitting-debug.apk"
   },

@@ -161,7 +161,7 @@ Node.js/Capacitor (`package.json`, `capacitor.config.json`) is a dev-time
 packaging tool for the Android app, not a runtime dependency — it bundles
 the same static `dist/` client the web deployment already builds. Node
 itself is a conda dependency (`environment.yml`), same as Python. See
-**Android app** below. Phase 6 (planned) adds a genuine on-device runtime
+**Android app** below. Phase 6 (done) adds a genuine on-device runtime
 dependency for the Android target specifically — an embedded Python
 interpreter running the server itself — without changing anything above
 for the web deployment; see **Android app → Embedded on-device server**.
@@ -1007,9 +1007,13 @@ becomes Phase 7. Not yet decided.)
 
 JustFitting ships as an installable Android app by bundling the static
 web client **inside** the APK using [Capacitor](https://capacitorjs.com/),
-rather than opening a hosted URL through a browser wrapper. The Flask API
-is called remotely over HTTP(S), exactly like the browser client — no
-on-device Flask, no native UI rewrite.
+rather than opening a hosted URL through a browser wrapper. Since Phase 6
+(below), the Android app also bundles and runs its own copy of the Flask
+API and SQLite persistence on-device, reachable only at `127.0.0.1` — the
+web deployment (GitHub Pages + Render) is the only build target that
+still talks to a remote API. No native UI rewrite either way: both are
+the same web client, just pointed at a different API base URL per build
+target.
 
 ```
 scripts/build_static_site.py <API_URL>   # same build the web deploy uses
@@ -1020,7 +1024,10 @@ capacitor.config.json  (webDir: "dist")
         |
 npx cap sync android    # copies dist/ into the native Android project
         |
-Android app: local UI, HTTP(S) calls to <API_URL>
+Android app: local UI + (since Phase 6) an embedded Flask/SQLite server
+             reachable only at 127.0.0.1 -- see "Embedded on-device
+             server" below. <API_URL> above is 127.0.0.1 by default now;
+             a remote URL is only used for the emulator/LAN dev workflow.
 ```
 
 ### Setup
@@ -1071,16 +1078,26 @@ variable, so it can't conflict with other projects on the same machine:
 
 The API base URL is injected the same way as the web build
 (`scripts/build_static_site.py`, `window.JUSTFITTING_API_BASE_URL` in
-`api.js`) — just a different target URL per case:
+`api.js`) — just a different target URL per case. **Web** and
+**Android** are genuinely different targets now (Phase 6): the web
+deployment still points at a remote API; the Android app's default
+target is its own embedded, on-device server.
 
 | Target | Command |
 | --- | --- |
-| Production | `python scripts/build_static_site.py https://YOUR_PRODUCTION_API_URL` |
-| Android emulator | `python scripts/build_static_site.py http://10.0.2.2:5000` (the emulator's alias for the host's `localhost`) — also `npm run build:web:android` |
-| Real device on the same LAN | `python scripts/build_static_site.py http://LOCAL_MACHINE_LAN_IP:5000` |
+| Web deployment (production, remote API) | `python scripts/build_static_site.py https://YOUR_PRODUCTION_API_URL` — what the release workflow bakes in for GitHub Pages; not used for Android |
+| **Android app (default, since Phase 6)** | `python scripts/build_static_site.py http://127.0.0.1:5000` — also `npm run build:web:android`, what `npm run android:sync`/`android:apk` use by default |
+| Android emulator, debugging the client against a desktop-run server | `python scripts/build_static_site.py http://10.0.2.2:5000` (the emulator's alias for the host's `localhost`) — also `npm run build:web:android-remote-dev` |
+| Real device on the same LAN, same purpose | `python scripts/build_static_site.py http://LOCAL_MACHINE_LAN_IP:5000` |
+
+The last two are a **development-only workflow**: iterating on client UI
+against a desktop-run `python -m server.src.Server` without rebuilding
+the whole Chaquopy-bundled APK on every change. They're never what
+actually ships — the embedded target is.
 
 ```bash
-npm run android:sync        # build:web:android + `npx cap sync android`
+npm run android:sync             # default: build:web:android (embedded) + `npx cap sync android`
+npm run android:sync:remote-dev  # dev-only: build:web:android-remote-dev (emulator/LAN) + sync
 ```
 
 ### Building and running the app
@@ -1105,28 +1122,40 @@ The Android emulator needs hardware-accelerated virtualization
 the two device-based options above don't.
 
 After editing client code, re-run `npm run android:sync` to refresh the
-bundled `dist/` before rebuilding. For a production release, point
-`build_static_site.py` at the production URL, run `npx cap sync android`,
-then build a signed AAB/APK (`gradlew.bat bundleRelease` or Android
-Studio's Build menu, with a real keystore — not covered here).
+bundled `dist/` before rebuilding — the default target is the embedded
+server (`http://127.0.0.1:5000`), which is what a release build should
+ship too; `npx cap sync android` alone (without re-running the `build:web:*`
+step) just re-copies whatever `dist/` was last built for. For an actual
+Play Store release, build a signed AAB/APK (`gradlew.bat bundleRelease`
+or Android Studio's Build menu, with a real keystore — not covered here).
 
 ### Network notes
 
-- **Production must use HTTPS.** `capacitor.config.json` ships with no
-  `cleartext` override, so Android's default cleartext-traffic block
-  applies — this is intentional, not an oversight.
-- **Local HTTP dev (emulator/LAN) needs cleartext enabled explicitly.**
-  Android blocks plain-HTTP network requests by default since API 28. To
-  test against `http://10.0.2.2:5000` or a LAN IP, temporarily add
-  `"server": {"cleartext": true}` to `capacitor.config.json`, re-run
-  `npx cap sync android`, and **revert it before any release build** —
-  never ship `cleartext: true`.
+- **The web deployment must use HTTPS.** `scripts/build_static_site.py`'s
+  production target and `capacitor.config.json`'s lack of a `cleartext`
+  override both assume this — Android's default cleartext-traffic block
+  applies to anything not explicitly allowed.
+- **The Android app's default (embedded) target needs cleartext allowed,
+  but only to itself.** `network_security_config.xml` (Phase 6, below)
+  scopes Android's cleartext exception to `127.0.0.1` specifically, wired
+  into `AndroidManifest.xml` — no `capacitor.config.json` change needed
+  for this, and no other host can ever use cleartext through it.
+- **Local HTTP dev (emulator/LAN, the opt-in `:remote-dev` target above)
+  needs cleartext enabled explicitly, and differently.** To test against
+  `http://10.0.2.2:5000` or a LAN IP with a desktop-run server instead of
+  the embedded one, temporarily add `"server": {"cleartext": true}` to
+  `capacitor.config.json`, re-run `npx cap sync android`, and **revert it
+  before any real build** — never ship `cleartext: true`, and don't
+  confuse this dev-only blanket flag with the embedded target's scoped
+  XML config above.
 - **CORS**: the server reads `JUSTFITTING_CORS_ORIGINS` from the
   environment (`server/src/api/app.py`) instead of hardcoding origins.
   Capacitor's Android WebView serves the bundled UI from the
   `https://localhost` origin by default, so if you lock
   `JUSTFITTING_CORS_ORIGINS` down to an allowlist (rather than the
-  default `*`), include `https://localhost` in it.
+  default `*`), include `https://localhost` in it. The embedded server's
+  own env sets this to `https://localhost` automatically
+  (`local_server.py`).
 
 ### Status
 
@@ -1135,11 +1164,15 @@ native project holds Gradle/signing/manifest customizations `cap sync`
 doesn't regenerate). The full toolchain above — conda-managed Node/JDK,
 the command-line SDK tools, and `npm run android:apk` — has been verified
 to produce a working debug APK, with no admin rights and no global
-environment variables anywhere in the chain. Not done: a release keystore/
+environment variables anywhere in the chain. `android/app/build.gradle`'s
+`versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
+tags (README's Versioning section) — `2.0.0`/`2`, reflecting Phase 6's
+intended v2.0.0 release, having never previously been bumped past their
+Phase-2-scaffold defaults (`1.0`/`1`). Not done: a release keystore/
 signed build, and an emulator system image (needs admin — use a real
 device instead, see above).
 
-### Embedded on-device server (Phase 6, in progress)
+### Embedded on-device server (Phase 6, done)
 
 **Goal**: the Android app becomes self-contained. When it's opened, it
 starts its own copy of `server/src/api/app.py`'s Flask API, listening on
@@ -1182,11 +1215,10 @@ was built, for simplicity's sake at the time (see CHANGELOG's Phase 2
 history). Phase 6 is that same idea, now justified by a real persistence
 requirement instead of just "serve the client locally."
 
-**Before committing further design**: verify Chaquopy's license terms
-against this project's distribution model (open-source repo, sideloaded
-debug APKs today, possibly Play Store later) — the plan below assumes
-that's fine, but it's an unverified external constraint, not a technical
-one.
+**Chaquopy's license, resolved**: [MIT-licensed since v12.0.1](https://chaquo.com/chaquopy/license/)
+(this project uses 17.0.0) — free for commercial and closed-source apps,
+no royalties, no revenue thresholds, published straight to Maven Central.
+No longer a constraint on this project's distribution model.
 
 #### One process, two logical halves (done, verified on a real device)
 
@@ -1195,20 +1227,28 @@ Android app process
 ├── MainActivity.java (Capacitor's native shell -- Java, not Kotlin;
 │   │                   the existing generated project already is Java,
 │   │                   so no new language dependency was added)
-│   ├── onCreate(), before super.onCreate(): starts Chaquopy's Python
-│   │   interpreter, then calls local_server.py's start(db_path, port)
+│   ├── onCreate(): installs the platform SplashScreen (already
+│   │   themed via res/values/styles.xml's AppTheme.NoActionBarLaunch,
+│   │   Capacitor's own scaffold, previously unused), then starts
+│   │   Chaquopy's Python interpreter + local_server.py's
+│   │   start(db_path, port) on a background thread, then immediately
+│   │   calls super.onCreate() -- the WebView starts loading the bundled
+│   │   (fully local) dist/index.html right away instead of waiting
 │   │   -> imports server.src.api.app:create_app()
 │   │   -> runs it via waitress (same as server/wsgi.py, not Flask's
-│   │      dev server) bound to 127.0.0.1:5000, on a background thread
+│   │      dev server) bound to 127.0.0.1:5000
 │   │   -> DB_PATH = <app-private files dir>/justfitting.db
-│   └── start() only returns once its socket is actually bound (verified
-│       by android/app/src/main/python/local_server_test.py, a
-│       desktop-runnable test against a real socket -- passes), so the
-│       client's first fetch never races an unbound socket
+│   └── the splash stays on screen (setKeepOnScreenCondition) until that
+│       background thread signals ready (verified by
+│       android/app/src/main/python/local_server_test.py, a
+│       desktop-runnable test against a real socket -- passes), instead
+│       of blocking onCreate() itself, which would risk an ANR on a slow
+│       device and give the platform's own splash-dismiss timing nothing
+│       to actually wait for
 └── Capacitor WebView
     └── the same dist/ client Phase 2 already bundles, built with
-        JUSTFITTING_API_BASE_URL=http://127.0.0.1:5000 baked in via the
-        new `npm run build:web:android-embedded` target
+        JUSTFITTING_API_BASE_URL=http://127.0.0.1:5000 baked in via
+        `npm run build:web:android` -- the default target since Phase 6
 ```
 
 No separate Android Service, no notification, no background execution
@@ -1237,6 +1277,16 @@ didn't catch this -- a source file being silently filtered isn't a build
 error. Fixed by dropping the `include(...)` allowlist and using
 `exclude(...)`-only patterns instead, which only ever remove matches and
 never act as an allowlist against srcDirs they weren't written for.
+A second bug surfaced while adding the cold-start splash screen below:
+calling `androidx.core.splashscreen`'s `installSplashScreen()` without a
+`postSplashScreenTheme` declared crashed the app with `IllegalStateException:
+You need to use a Theme.AppCompat theme (or descendant) with this
+activity`, since Capacitor's `BridgeActivity` (an `AppCompatActivity`)
+checks the active theme in its own `onCreate()`, and without that
+attribute the splash-screen library never restores the activity to its
+real AppCompat-descended theme. Fixed by adding `postSplashScreenTheme`
+to `AppTheme.NoActionBarLaunch` (`res/values/styles.xml`), pointing at
+the existing `AppTheme.NoActionBar`.
 
 #### Networking & security
 
@@ -1270,11 +1320,13 @@ never act as an allowlist against srcDirs they weren't written for.
 - Uninstalling the app deletes its data (standard Android sandboxing);
   `GET /api/users/me/export` remains the user's manual backup/move path,
   now genuinely useful for Android since there's no server-side copy to
-  fall back on. Enabling Android's own auto-backup (`android:allowBackup`,
-  off by default for a fresh Capacitor project) is worth revisiting so a
-  device restore also restores the DB file — a decision to make
-  explicitly, not inherit by default, since it also means the
-  (locally-hashed but real) password data leaves the device.
+  fall back on. `android:allowBackup` (`AndroidManifest.xml`) is left at
+  Capacitor's own scaffolded default, `true` — a deliberate choice, not
+  an inherited one: Android's Auto Backup then includes `justfitting.db`
+  in the user's Google account backup, so a phone upgrade/reset restores
+  logged data automatically, at the cost of that data (including the
+  password hash) leaving the device via Google's backup, not just
+  JustFitting's own `/export`.
 
 #### Build & distribution changes
 
@@ -1285,12 +1337,12 @@ never act as an allowlist against srcDirs they weren't written for.
   `server/requirements-prod.txt` (a new place that list has to stay in
   sync with — worth a comment pointing each at the other). A
   `chaquopy.sourceSets` entry adds the repo root as a Python source
-  directory (scoped with `include("server/**")` /
-  `exclude("server/test/**", "**/__pycache__/**", "**/*_test.py")`), so
-  the app imports the literal `server.src.*` package from its real
-  location — not a copy — while excluding `client/`, `scripts/`,
-  `node_modules/`, and this same `android/` project from the bundle.
-  Four version-specific gotchas hit and resolved while wiring this up:
+  directory, `exclude`-only (`client/**`, `scripts/**`, `node_modules/**`,
+  `docs/**`, `android/**`, `.git/**`, and a few more, plus
+  `server/test/**`/`**/*_test.py`/`**/__pycache__/**` — no `include(...)`
+  allowlist, see the bug below for why), so the app imports the literal
+  `server.src.*` package from its real location, not a copy. Four
+  version-specific gotchas hit and resolved while wiring this up:
   - Chaquopy 17 requires **minSdk >= 24** — `android/variables.gradle`
     bumped `minSdkVersion` `22 -> 24` (drops Android 5.1/6.0 support).
   - Chaquopy's build-time interpreter (`buildPython`, used to resolve
@@ -1320,22 +1372,25 @@ never act as an allowlist against srcDirs they weren't written for.
   that a second `start()` call is a true no-op.
 - `MainActivity.java` (**done**, plain Java — the existing Capacitor
   project already is Java, not Kotlin, so this needed no new bridge
-  language): starts Chaquopy's interpreter and calls
-  `local_server.start(db_path, port)` in `onCreate()`, before
-  `super.onCreate()`.
+  language): installs the platform splash screen, starts Chaquopy's
+  interpreter and calls `local_server.start(db_path, port)` on a
+  background thread, and calls `super.onCreate()` immediately rather than
+  blocking on server startup — see the diagram above and the cold-start
+  item below. `android/app/build.gradle` gained an explicit
+  `compileOptions` (Java 8) for the lambdas this uses, not relying on
+  AGP's own default.
 - `android/app/src/main/res/xml/network_security_config.xml` (**done**),
   wired into `AndroidManifest.xml`'s `android:networkSecurityConfig`: the
   scoped cleartext exception above.
 - `scripts/build_static_site.py`: no code change needed (it already
-  takes an arbitrary API base URL) — a new `npm run
-  build:web:android-embedded` script target (`python
-  scripts/build_static_site.py http://127.0.0.1:5000`) plus `npm run
-  android:sync:embedded` (**done**, both added to `package.json`).
-  Deliberately **not** wired as the new default: `npm run
-  android:sync`/`android:apk` still point at the emulator/LAN target used
-  for client-only debugging against a desktop-run server, unchanged —
-  switching the default to the embedded target is a separate decision,
-  not bundled into this change.
+  takes an arbitrary API base URL) — `npm run android:sync`/`android:apk`
+  (**done**) now build the embedded target
+  (`http://127.0.0.1:5000`) **by default**, matching what actually ships;
+  the previous emulator/LAN-pointed behavior moved to explicitly-named
+  `npm run android:sync:remote-dev`/`build:web:android-remote-dev`
+  scripts rather than being removed, since it's still useful for
+  iterating on client-only changes without rebuilding the whole
+  Chaquopy-bundled APK each time.
 - `environment.yml`: no new conda dependency for the on-device runtime
   itself — Chaquopy downloads its own Android-ABI Python build via
   Gradle, separate from the desktop `justfitting` conda env. That conda
@@ -1357,29 +1412,35 @@ never act as an allowlist against srcDirs they weren't written for.
 
 #### Open risks to validate before/while building this
 
-- **APK size** — measured, not just estimated: the debug build grew from
-  the pre-Chaquopy baseline's ~4.1 MB (`JustFitting-debug-v1-2.apk`) to
-  ~40.8 MB with both `arm64-v8a` and `x86_64` bundled in one APK (a real
-  device only ever uses one ABI's worth of native libraries at runtime,
-  so this single-APK debug number overstates what an actual install
-  needs). A release build should split per-ABI (Gradle APK splits or an
-  Android App Bundle, which the Play Store already does automatically)
-  so each device downloads roughly half this — still a large jump from
-  today's Capacitor-only APK, an accepted cost of bundling a real
-  interpreter.
-- **Cold-start time**: interpreter boot + Flask app-factory + first
-  SQLite connect, before the WebView can make its first successful
-  fetch. `MainActivity.onCreate()` currently blocks synchronously on this
-  (no splash-screen/readiness-event UI yet) — worked fine on the real
-  device tested (a launch delay, not a hang or crash), but still not
-  measured in milliseconds, and a visible "Starting…" state remains a
-  reasonable follow-up rather than a blocker.
-- **Chaquopy licensing**, noted above — an external, unverified
-  constraint on this whole approach, still unresolved.
+- **APK size**: the debug build grew from the pre-Chaquopy baseline's
+  ~4.1 MB (`JustFitting-debug-v1-2.apk`) to ~40.8 MB with both
+  `arm64-v8a` and `x86_64` bundled in one APK (a real device only ever
+  uses one ABI's worth of native libraries at runtime, so this
+  single-APK debug number overstates what an actual install needs).
+  Release-mode ABI splitting (Gradle APK splits, or an Android App
+  Bundle, which the Play Store already does automatically) would shrink
+  this — explicitly **out of scope**: not a concern for this project
+  right now.
+- **Cold-start time** — **resolved**: `MainActivity.onCreate()` no
+  longer blocks on server startup. It installs the platform splash
+  screen (`androidx.core.splashscreen`, already themed via Capacitor's
+  own `AppTheme.NoActionBarLaunch` scaffold, previously unused), starts
+  Chaquopy + `local_server.py` on a background thread, and calls
+  `super.onCreate()` immediately — the WebView starts loading the
+  bundled (fully local) shell right away, while the splash stays up
+  (`setKeepOnScreenCondition`) until the server signals ready. Verified
+  on the real device: launches cleanly, no ANR risk from a blocked main
+  thread. One bug found and fixed getting here — see above
+  (`postSplashScreenTheme` / `IllegalStateException`).
+- **Chaquopy licensing** — **resolved**: [MIT-licensed since v12.0.1](https://chaquo.com/chaquopy/license/),
+  free for commercial/closed-source use, no royalties. See above.
 - **Dependency wheel availability** for Flask/Werkzeug/Jinja2/click/
   itsdangerous/flask-cors/waitress on Chaquopy's supported Android ABIs —
   **resolved**: confirmed clean (no C-extension/wheel problems) via a
   real `assembleDebug` run, see above.
+- **`npm run android:sync`/`android:apk` building the wrong target by
+  default** — **resolved**: they now build the embedded target, matching
+  what actually ships; see Build & distribution changes above.
 - **End-to-end device verification** — **resolved**: installed
   (`JustFitting-debug.apk`, repo root) on a real phone via `adb install`.
   First attempt crashed on launch (`ModuleNotFoundError: No module named
@@ -1387,18 +1448,19 @@ never act as an allowlist against srcDirs they weren't written for.
   app launches, the embedded server binds and answers `/api/health`
   through a real socket, and a full account round trip (register, log a
   week, view the computed Dashboard, force-close and reopen with data
-  intact, works fully in Airplane Mode) all checked out on the device.
+  intact, works fully in Airplane Mode) all checked out on the device —
+  reconfirmed after the cold-start and default-script changes too.
 
 Status: **done.** Every piece — the Gradle/Chaquopy plumbing, the
 `server/src` sourceSet wiring (including the include/exclude bug found
-and fixed), `local_server.py`, the `MainActivity.java` bridge, the scoped
-network security config, and the embedded-target build scripts — is
-built and verified end-to-end on a real Android device, not just on a
-desktop machine. Remaining polish, none of it blocking: a visible
-cold-start/"Starting…" state, release-mode ABI splitting to shrink the
-APK, resolving the Chaquopy licensing question before any real
-distribution, and deciding on `android:allowBackup`'s behavior for the
-on-device password/DB data (Persistence, above).
+and fixed), `local_server.py`, the `MainActivity.java` bridge and its
+cold-start splash screen, the scoped network security config, and the
+embedded-target build scripts (now the default) — is built and verified
+end-to-end on a real Android device. Chaquopy's license is confirmed
+compatible with this project's distribution. `android/app/build.gradle`'s
+`versionName`/`versionCode` are bumped to `2.0.0`/`2`. The one item left
+on the table is APK size via release-mode ABI splitting, deliberately out
+of scope for now.
 
 ### Alternative considered: client-side local/offline mode (design note, superseded by Phase 6)
 
