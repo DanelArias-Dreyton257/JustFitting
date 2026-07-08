@@ -19,8 +19,8 @@ class MetricsSeriesServiceTest(unittest.TestCase):
         self.log_manager = self.app.extensions["log_manager"]
         self.goal_plan_manager = self.app.extensions["goal_plan_manager"]
         profile = self.user_manager.register(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password="s3cret123",
             height_cm=176,
             sex=1,

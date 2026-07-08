@@ -1,4 +1,4 @@
-"""Named constants for the body-composition engine (the "Danel" model).
+"""Named constants for the body-composition engine (the "Demo_cut" model).
 
 Keep every magic number used by the engine here so routes and services never
 inline them (see docs/composition_spec.md, section on guardrails).
@@ -74,7 +74,7 @@ WEIGHTED_TREND_DECAY = 0.85
 
 #: Wave 2 (Phase 3) calibration constants -- see docs/composition_spec.md's
 #: "Wave 2" section, F8. All default to values that reproduce today's
-#: Danel numbers exactly; every field below is promoted to a per-account
+#: Demo_cut numbers exactly; every field below is promoted to a per-account
 #: overridable `EngineConstants`/`EngineSettings` field (Phase 3), same
 #: "no row = today's behavior" contract as every constant above.
 

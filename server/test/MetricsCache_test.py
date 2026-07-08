@@ -26,8 +26,8 @@ class MetricsCacheTest(unittest.TestCase):
         self.cache = MetricsCache(self.snapshot_dao)
         self.log_manager = LogManager(BodyLogDAO(self.db), metrics_cache=self.cache)
         self.user_id = UserDAO(self.db).create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,

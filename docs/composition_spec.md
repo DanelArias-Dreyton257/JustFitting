@@ -1,4 +1,4 @@
-# JustFitting composition model — the "Danel" spec
+# JustFitting composition model — the "Demo_cut" spec
 
 This is the authoritative maths spec the engine in
 `server/src/services/composition/` is tested against
@@ -159,7 +159,7 @@ base-case row (`dW=pct=Pi=0`, `Wobj_1=W_1`, deficit 0 => `TargetCal==TDEE`),
 the Navy guard (`waist <= neck` raises `ValueError`), and a projection case
 (dates advance by 7, `intake_is_real=false`, metrics recompute).
 
-## Wave 2 — bulk/volume model (the "Sergio" spec)
+## Wave 2 — bulk/volume model (the "Demo_bulk" spec)
 
 Source: `docs/JustFitting_Oleada2_Sergio.pdf` (v1.0, 2026-07-02). This is a
 second worked profile on top of the same core estimators above (RFM, Navy,
@@ -170,10 +170,10 @@ birthdate=2001-04-05, target_bf=0.15, weekly_rate=+0.005` (recommended
 range `[0.0025, 0.005]`, i.e. +0.25%–0.5%/week).
 
 New weekly input: cardio `a_i` (kcal spent on exercise, EAT — assumed 0 in
-the Danel model).
+the Demo_cut model).
 
 **This section documents the source formulas as given, including where
-they genuinely diverge from the implemented Danel chain above (not just
+they genuinely diverge from the implemented Demo_cut chain above (not just
 relabeled) — see "Formula reconciliation" below before implementing.**
 
 A third source document, `docs/JustFitting_TEF_Macronutrientes.pdf` (F9,
@@ -186,17 +186,17 @@ energy model, not a separate feature — read it once F1–F8 make sense.
 ### Fat-formula weights and offset, and FFMI coefficient (generalizes the existing formulas)
 
 ```
-BF_i       = w_rfm*RFM_i + w_navy*Navy_i + w_deur*Deur_i + delta   # weights default 0.50/0.25/0.25, delta default 0.0 -- reproduces Danel exactly
+BF_i       = w_rfm*RFM_i + w_navy*Navy_i + w_deur*Deur_i + delta   # weights default 0.50/0.25/0.25, delta default 0.0 -- reproduces Demo_cut exactly
 FFMI_adj_i = FFMI_i + ffmi_coef * (1.80 - H/100)                    # ffmi_coef default 6.3 (today's hardcoded value)
 ```
 
-The source doc's own Sergio profile actually keeps the **same** weights
-Danel uses (`0.50/0.25/0.25` — confirmed in the Anexo's Excel formula, `P
+The source doc's own Demo_bulk profile actually keeps the **same** weights
+Demo_cut uses (`0.50/0.25/0.25` — confirmed in the Anexo's Excel formula, `P
 =(M*0.5+N*0.25+O*0.25)+0.02`) and only adds the offset `delta`. But
 `BF_WEIGHT_RFM`/`BF_WEIGHT_NAVY`/`BF_WEIGHT_DEURENBERG` today are fixed
 module constants in `constants.py`, shared by every account, not part of
 `EngineConstants`/`EngineSettings` at all — unlike everything else the
-engine tunes per user. Since Sergio's document already demonstrates one
+engine tunes per user. Since Demo_bulk's document already demonstrates one
 account needing a personal correction to this exact formula, promote the
 three weights to per-user-overridable fields alongside `delta`, not just
 add the offset: a future third profile might genuinely need a different
@@ -207,24 +207,24 @@ validate `w_rfm + w_navy + w_deur == 1.0` (within tolerance) when all
 three are overridden together, so `BF_i` stays a proper weighted mean and
 doesn't silently become a differently-scaled quantity.
 
-`delta`, `w_rfm`/`w_navy`/`w_deur`, and `ffmi_coef` (Sergio's value `6.1`,
+`delta`, `w_rfm`/`w_navy`/`w_deur`, and `ffmi_coef` (Demo_bulk's value `6.1`,
 vs. the `6.3` currently hardcoded as a literal in `Anthropometry.py`, not
 even in `constants.py`) are all new per-user-overridable constants.
 **Defaults must stay `delta=0.0`, `w_rfm=0.50`, `w_navy=0.25`,
 `w_deur=0.25`, and `ffmi_coef=6.3`** so an account with no override
-reproduces today's Danel numbers exactly, same contract as every other
-`EngineSettings` field (Phase 1.5) — Sergio's `0.02`/`6.1` are his own
+reproduces today's Demo_cut numbers exactly, same contract as every other
+`EngineSettings` field (Phase 1.5) — Demo_bulk's `0.02`/`6.1` are his own
 calibration, applied only via his account's override, never as the new
 default.
 
 ### F1 — Surplus/bulk mode (done)
 
 ```
-W_i^obj = W_{i-1} * (1 + rho)          # unchanged from Danel's Wobj_i
-Pi_i    = W_{i-1} - W_i^obj = -rho * W_{i-1}   # unchanged from Danel's Pi_i; negative when rho > 0
+W_i^obj = W_{i-1} * (1 + rho)          # unchanged from Demo_cut's Wobj_i
+Pi_i    = W_{i-1} - W_i^obj = -rho * W_{i-1}   # unchanged from Demo_cut's Pi_i; negative when rho > 0
 ```
 
-`rho` is the same signed weekly-rate field as Danel's `r`
+`rho` is the same signed weekly-rate field as Demo_cut's `r`
 (`GoalPlan.weekly_rate`); `rho > 0` is a bulk goal, `rho < 0` a cut goal —
 no new field needed for the rate itself, only a derived `direction =
 "bulk" | "cut"` label from its sign. Validate `rho` against the
@@ -232,7 +232,7 @@ recommended range `[0.25%, 0.5%]` when `direction == "bulk"` and surface a
 (non-blocking) warning outside it, mirroring
 `IMPLAUSIBLE_WEEKLY_CHANGE_PCT`'s flag-not-block pattern.
 
-Danel's existing `Pi_i`/`DailyDeficit_i` chain already generalizes to
+Demo_cut's existing `Pi_i`/`DailyDeficit_i` chain already generalizes to
 `rho > 0` without a new formula: `Pi_i` simply goes negative, so
 `DailyDeficit_i` (`= Pi_i * k_G / 7`) goes negative too — a "negative
 deficit," which is a surplus. **The UI-facing "weekly/daily
@@ -296,7 +296,7 @@ doesn't inherit the "Known limitations" male-only-formula caveat above.
 ### Formula reconciliation — TDEE and target calories generalize with one added term, not a fork
 
 The source document's literal TDEE/target-calorie formulas look
-structurally different from Danel's, but working through *why* each side
+structurally different from Demo_cut's, but working through *why* each side
 computes what it computes shows they should converge to a single
 generalized formula — one new additive term (`EAT_i`), not two parallel
 codepaths. (An earlier draft of this section proposed forking bulk mode
@@ -316,12 +316,12 @@ TDEE_i = (BMR_i + NEAT_i + EAT_i) / (1 - TEF)
 ```
 
 The divisor form is the algebraically correct one for "TEF is 10% of
-TDEE" — Danel's existing formula already has this right; the source
+TDEE" — Demo_cut's existing formula already has this right; the source
 doc's `(BMR + NEAT + EAT) * (1 + TEF)` instead treats TEF as 10% of
 *non-food* expenditure, a different (and physiologically less
 faithful) quantity. **Both directions use the divisor form.**
 
-**Why EAT was 0 in Danel and matters for Sergio.** The two goals tolerate
+**Why EAT was 0 in Demo_cut and matters for Demo_bulk.** The two goals tolerate
 error in opposite directions. A cut is safe to *underestimate* expenditure
 for: assuming `EAT=0` when the user actually exercises only makes the
 prescribed target calories lower than their true adjusted TDEE, which
@@ -331,7 +331,7 @@ assumption would under-prescribe calories relative to what a lifter
 burns, working directly against "eat enough to grow." That's the real
 reason F2 (explicit cardio logging) matters specifically for bulk
 accounts, not a different formula — the formula was always `... + EAT_i`,
-Danel's version just always evaluated it at 0.
+Demo_cut's version just always evaluated it at 0.
 
 **Why BMR model differs by goal, separately from TDEE.** A cut assumes
 weight lost is predominantly fat, so Cunningham (driven by the current
@@ -354,7 +354,7 @@ TDEE_i      = (BMR_i + NEAT_i + EAT_i) / (1 - TEF)
 TargetCal_i = (BMR_i + NEAT_i + EAT_i - DailyDeficit_i) / (1 - TEF)   # DailyDeficit_i negative => surplus, exactly as F1 describes
 ```
 
-With `EAT_i = 0` (every existing Danel log) this is **byte-for-byte
+With `EAT_i = 0` (every existing Demo_cut log) this is **byte-for-byte
 identical** to today's implemented formula — no golden-reference drift,
 no `ENGINE_VERSION` bump, no forked codepath. `direction=bulk` only
 changes which `bmr_model` defaults in and starts collecting `cardio_kcal`;
@@ -372,7 +372,7 @@ to exactly reproduce the PDF's own worked total once this fix is applied,
 and that's by design.
 
 `Wfinal_i = LeanMass_i / (1 - tau)` and `Weeks_i = ln(W_i / Wfinal_i) /
-ln(1 - rho)` are unchanged from the Danel spec and apply as-is to
+ln(1 - rho)` are unchanged from the Demo_cut spec and apply as-is to
 `rho > 0` (the source doc doesn't redefine either).
 
 Everything in this reconciliation is about the best estimate of TEF
@@ -391,7 +391,7 @@ Error_i                = abs(Superavit_i^ingerido - Superavit_i^tejido)
 ```
 
 `k_L` (lean-tissue energy density, default `2100 kcal/kg`, new constant —
-Danel's chain never needed one) is separate from `k_G` (`KCAL_PER_KG_FAT`,
+Demo_cut's chain never needed one) is separate from `k_G` (`KCAL_PER_KG_FAT`,
 already `7700`, unchanged). **The tissue side uses week `i+1`'s deltas**:
 `Error_i` can only be computed once the *following* week's log exists, and
 never for the most recent logged week — an inherent one-week-lagged,
@@ -528,9 +528,9 @@ the whole series, historized goal changes notwithstanding); `Desv_i` is
 ### F8 — Calibration constants (summary) (done)
 
 New or promoted per-user-overridable constants, all defaulting to values
-that reproduce today's Danel behavior exactly:
+that reproduce today's Demo_cut behavior exactly:
 
-| Constant | Symbol | New default | Danel-equivalent today |
+| Constant | Symbol | New default | Demo_cut-equivalent today |
 | --- | --- | --- | --- |
 | RFM weight | `w_rfm` | `0.50` | `BF_WEIGHT_RFM`, currently a module-wide fixed constant, not per-user |
 | Navy weight | `w_navy` | `0.25` | `BF_WEIGHT_NAVY`, ditto |
@@ -544,10 +544,10 @@ that reproduce today's Danel behavior exactly:
 | TEF | `tef` | `0.10` | `TEF`, unchanged value **and** unchanged application (divisor, `/(1-TEF)`) — see "Formula reconciliation" above |
 
 `w_rfm + w_navy + w_deur` must sum to `1.0` (within tolerance) when
-overridden. Sergio's own account would override `delta=0.02`,
+overridden. Demo_bulk's own account would override `delta=0.02`,
 `ffmi_coef=6.1`, keeping the default `0.50/0.25/0.25` weights — his
 document doesn't actually change them, but the mechanism now exists for
-an account that needs to. Every other account (including Danel's) keeps
+an account that needs to. Every other account (including Demo_cut's) keeps
 the table above's defaults untouched.
 
 ### F9 — TEF by macronutrients (done, Phase 3.4)

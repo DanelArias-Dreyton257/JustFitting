@@ -13,7 +13,7 @@ class ApiTestCase(unittest.TestCase):
         self.app.extensions["db"].close()
 
     def _register(
-        self, username="danel", email="danel@example.com", password="hunter22"
+        self, username="demo_cut", email="demo_cut@example.com", password="hunter22"
     ):
         return self.client.post(
             "/api/users",
@@ -43,7 +43,7 @@ class ApiTestCase(unittest.TestCase):
         token = register_response.get_json()["token"]
 
         login_response = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "hunter22"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "hunter22"}
         )
         self.assertEqual(login_response.status_code, 200)
         login_token = login_response.get_json()["token"]
@@ -52,7 +52,7 @@ class ApiTestCase(unittest.TestCase):
             "/api/users/me", headers=self._auth_header(login_token)
         )
         self.assertEqual(me_response.status_code, 200)
-        self.assertEqual(me_response.get_json()["username"], "danel")
+        self.assertEqual(me_response.get_json()["username"], "demo_cut")
 
         logout_response = self.client.post(
             "/api/auth/logout", headers=self._auth_header(login_token)
@@ -129,7 +129,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(password_response.status_code, 204)
 
         relogin = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "new-password-1"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "new-password-1"}
         )
         self.assertEqual(relogin.status_code, 200)
 
@@ -1341,19 +1341,19 @@ class ApiTestCase(unittest.TestCase):
 
         reset_response = self.client.post(
             "/api/auth/reset-password",
-            json={"identifier": "danel", "new_password": "brand-new-password-1"},
+            json={"identifier": "demo_cut", "new_password": "brand-new-password-1"},
         )
         self.assertEqual(reset_response.status_code, 200)
         self.assertIn("message", reset_response.get_json())
 
         relogin = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "brand-new-password-1"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "brand-new-password-1"}
         )
         self.assertEqual(relogin.status_code, 200)
 
     def test_reset_password_requires_both_fields(self):
         response = self.client.post(
-            "/api/auth/reset-password", json={"identifier": "danel"}
+            "/api/auth/reset-password", json={"identifier": "demo_cut"}
         )
         self.assertEqual(response.status_code, 400)
 

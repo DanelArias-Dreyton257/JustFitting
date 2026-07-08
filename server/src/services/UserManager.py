@@ -70,6 +70,7 @@ class UserManager:
         target_bf: Optional[float] = None,
         weekly_rate: Optional[float] = None,
         units: str = "metric",
+        goal_start_date: Optional[date] = None,
     ) -> UserProfile:
         if self.user_dao.get_by_username(username):
             raise UserManagerError(f"username '{username}' is already taken")
@@ -101,8 +102,11 @@ class UserManager:
             birthdate=birthdate,
             units=units,
         )
+        # `goal_start_date` lets a caller backdate the very first goal
+        # (e.g. demo seeding, to match a reference series' actual start)
+        # instead of always stamping it "today" -- see DemoSeeder.py.
         self.goal_plan_manager.create_goal_plan(
-            profile.user_id, target_bf, weekly_rate, start_date=date.today()
+            profile.user_id, target_bf, weekly_rate, start_date=goal_start_date or date.today()
         )
         return profile
 
