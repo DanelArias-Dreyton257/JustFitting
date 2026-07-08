@@ -1403,7 +1403,7 @@ relate to each other.
 - **Testing**: a `Dashboard_test.py` case asserting the new subtitles and
   the logged-intake tile render with the expected text/values.
 
-#### Phase 5.7 — Log editing
+#### Phase 5.7 — Log editing (done)
 
 Problem: `PUT /api/logs/<id>` (`log_routes.py`), `LogManager.update_log`,
 and the client's `api.updateLog()` already exist end-to-end -- there's
@@ -1416,26 +1416,43 @@ the Log view's table today.
   (weight/waist/neck/intake/steps/cardio/macros/granularity). `app.js`
   gains `state.editingLogId` (`null` while creating) and an
   `enterEditMode(log)`/`exitEditMode()` pair.
-- **The log's date is not editable in edit mode** -- the wizard's date
-  label reads "Editing log for `<original date>`" instead of "Logging for
-  `<navigated day>`", sidestepping a real conflict: the wizard's date is
-  otherwise bound to the Log view's day/week navigator (Phase 4.4), which
-  wouldn't necessarily match the edited row's own date (e.g. editing a
-  Monday log while week view also shows a Thursday one). Every other
-  field stays editable.
+- **The log's date and granularity are not editable in edit mode** --
+  the wizard's date label reads "Editing log for `<original date>`"
+  instead of "Logging for `<navigated day>`", sidestepping a real
+  conflict: the wizard's date is otherwise bound to the Log view's
+  day/week navigator (Phase 4.4), which wouldn't necessarily match the
+  edited row's own date (e.g. editing a Monday log while week view also
+  shows a Thursday one). The granularity `<select>` is disabled (its
+  value still shown, just locked). Every other field stays editable.
+  **Implementation note**: `index.html`'s static "Logging for
+  `<strong>`" wrapper text is split into its own `#log-wizard-date-prefix`
+  span so edit mode can swap just the prefix to "Editing log for" --
+  originally the whole "Editing log for `<date>`" string was written into
+  the `<strong>` itself, which rendered as the doubled-up "Logging for
+  Editing log for `<date>`" once nested inside the static wrapper text,
+  caught only by screenshotting the running wizard.
 - The wizard's Save button reads "Save changes" and submits via
-  `api.updateLog(state.editingLogId, payload)` instead of
+  `api.updateLog(state.editingLogId, measurements)` instead of
   `api.createLog(payload)` while in edit mode; a "Cancel" affordance
   returns to create-mode without saving. After a successful edit, the
   view refreshes and re-enters create-mode for the currently navigated
-  day/week (same as after a create).
+  day/week (same as after a create). **Implementation note**: the edit
+  payload omits `date`/`granularity` entirely rather than reading them
+  from the (disabled, `FormData`-excluded) form -- `PUT /api/logs/<id>`
+  already only updates whatever keys are present in the payload
+  (`log_routes.py`'s `update_log`), so omitting them lets the server
+  preserve both untouched, with no need to re-inject the original values
+  from `state.logs` except purely for the review step's display.
 - **Out of scope**: bulk edit, changing a log's date/granularity via edit,
   any new undo/audit-log UI (the server already audits log changes per
   Phase 1.1 -- this phase surfaces no new audit data, just the edit path
   itself).
-- **Testing**: a new `Log_test.py` case -- editing a log's weight through
-  the wizard updates the table row in place (same `log_id`, no new row
-  created) and the change round-trips through a page reload.
+- **Testing**: two new `Log_test.py` cases -- editing a log's weight
+  through the wizard updates the table row in place (same `log_id`, no
+  new row created), the granularity select is disabled during edit, the
+  change round-trips through a page reload, and the wizard/buttons revert
+  to create-mode afterward; and cancelling an in-progress edit discards
+  the change entirely and returns to create-mode.
 
 #### Phase 5.8 — Split Account into Profile-only; Goal lives solely in the Plan tab (done)
 

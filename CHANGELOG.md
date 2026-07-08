@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Log view's table gained an "Edit" button next to Delete (README's
+  Phase 5.7) -- opens the same 4-step wizard already used for creating a
+  log, pre-filled with that row's values, with its Save button reading
+  "Save changes" and a new "Cancel" affordance. The log's date and
+  granularity aren't editable (shown locked); every other field is.
+  `PUT /api/logs/<id>` and `LogManager.update_log` already existed
+  end-to-end -- this phase is purely the missing client UI.
 - A new dismissible alert, `"unconfigured_goal"` (README's Phase 5.10),
   tells a brand-new account that its first goal (15%/22% body fat by sex,
   0% weekly rate -- Phase 5.2's registration default) was auto-assigned
