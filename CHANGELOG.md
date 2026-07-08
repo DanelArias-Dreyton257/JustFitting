@@ -42,6 +42,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Computed series/charts/alerts/adherence/projections/reports now scope to
+  the active goal's own period once an account has actually changed its
+  goal (README's Phase 5.3) -- previously, changing goals (e.g. finishing
+  a cut, starting a bulk) silently recomputed every historical week's
+  target/trajectory/deficit as if the new goal had applied the whole
+  time, and fed pre-change data into the forecast's trend regression. A
+  new `GoalPlanManager.active_period_start(user_id)` returns `None` (no
+  scoping) for an account that's never changed its goal -- not just the
+  active goal's `start_date` unconditionally, since every account's very
+  first goal is created "today" at registration, and a plain filter would
+  otherwise exclude any log dated before signup for every single-goal
+  account. `GET /api/logs`/`/export` (raw history) are unaffected --
+  only the derived series is scoped.
 - Registration no longer asks for a goal, and the Account view is
   profile-only (README's Phase 5.2/5.8). `POST /api/users` drops its
   `target_bf`/`weekly_rate` requirement -- an omitted goal resolves to a

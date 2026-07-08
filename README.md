@@ -1263,7 +1263,7 @@ actually want to set a real goal.
   meaningful figure" sentinel already produced when `weight_kg ==
   final_weight_kg`, which every consumer already renders as "--".
 
-#### Phase 5.3 — Scope computed series/charts/projections to the active goal's period
+#### Phase 5.3 — Scope computed series/charts/projections to the active goal's period (done)
 
 Problem: `MetricsSeriesService.compute_series_for_user` and the projection
 routes always compute/fit over **every** real log the account has ever
@@ -1276,25 +1276,43 @@ deficit as if the new goal had applied the whole time, and feeds
 pre-change data into the forecast's trend regression -- "the issue in
 projections and plotting tendencies" the note flags.
 
-- Fix: `compute_series_for_user` filters logs to `date >=
-  active_goal.start_date` before resampling/computing -- the engine only
-  ever "sees" the current goal's own period. `projection_routes.py`'s
-  `_forecast_inputs` gets the same filter for its regression source.
-- For the common case (an account that's never changed its goal),
-  `start_date` is at-or-before the first log, so this is a no-op -- only
-  accounts that have actually changed goals are affected, and only for
-  data predating the change.
+- Fix: a new `GoalPlanManager.active_period_start(user_id)` returns the
+  active goal's `start_date` **only once the account has actually changed
+  its goal** (`list_history` length > 1), else `None` ("don't scope, use
+  everything"). `compute_series_for_user` filters logs to `date >=
+  period_start` (when not `None`) before resampling/computing, and
+  `projection_routes.py`'s `_forecast_inputs` applies the identical filter
+  to its regression source.
+- **Bug found in the plan itself, before writing any code**: the
+  originally-planned literal `date >= active_goal.start_date` filter,
+  applied unconditionally, breaks the "no-op for the common case"
+  guarantee this phase depends on. Every account's very first goal is
+  created with `start_date=date.today()` at registration
+  (`UserManager.register`) -- so a plain, unconditional filter would
+  exclude *any* log dated before signup, including a same-day backdated
+  entry, for every account that has *never* touched its goal (which is
+  also why nearly the entire existing test suite, which logs fixed
+  historical dates against an account registered "today," would have
+  broken). `active_period_start` sidesteps this by only ever scoping once
+  a second `goal_plans` row genuinely exists -- exactly when the described
+  problem ("changing your goal silently recomputes history under the new
+  one") can actually occur; a single-goal account has no other period to
+  exclude from, regardless of how far back a log is dated.
 - `GET /api/logs` (the raw log list -- Log view's table, `/export`) is
   **unaffected**, intentionally: full raw history stays reachable there,
   the same "not a data-loss concern" precedent Phase 4.4 established for
   the log table. Only the *derived* series (metrics, charts, alerts,
   adherence, projections, report) is scoped to the active period.
-- **Consequence to flag explicitly**: the goal-trajectory chart's
-  goal-change markers (Phase 1.4) become moot for any change before the
-  current period, since that earlier data no longer appears on the chart
-  at all -- at most one marker is ever visible from now on (the current
-  goal's own start). Not a bug, a direct consequence of the fix; worth a
-  one-line disclaimer on that chart if it reads as surprising in practice.
+- **Consequence, confirmed in practice**: the goal-trajectory chart's
+  goal-change markers (Phase 1.4) can render moot or overlapping once
+  older goals fall before the now-scoped series' visible date range --
+  manually verified with a same-day goal change (both the old and new
+  goal's markers technically pass the client's existing `goal.start_date
+  <= lastLoggedDate` filter, but the old one lands at/before the chart's
+  now-earlier left edge). Not a bug, a direct consequence of the fix; left
+  as-is per the original plan -- a one-line disclaimer on that chart is
+  still a reasonable future polish if it reads as surprising in practice,
+  but no client change was made here.
 - **Alternative considered and rejected for now**: recomputing each
   historical row against whichever goal was *actually* active on its own
   date (true historized replay). More thorough, but a much bigger engine
@@ -1302,12 +1320,20 @@ projections and plotting tendencies" the note flags.
   would need to become per-row) for a fix the note's own wording ("only...
   the actual goal plan period") reads as asking for the simpler
   period-filter, not a full historical replay.
-- **Testing**: a new/extended `MetricsSeriesService_test.py` case with a
-  synthetic two-goal history, asserting logs before the goal change are
-  excluded from the computed series; a matching `Projection_test.py`/
-  `Api_test.py` case for the regression source; every existing
-  single-goal-history test must stay green untouched (proving the
-  no-op case for accounts that never change their goal).
+- **Testing**: a new `GoalPlanManager_test.py` case for
+  `active_period_start` itself (`None` with no goal, `None` for a
+  never-changed goal, the active goal's `start_date` once a second goal
+  exists); a new `MetricsSeriesService_test.py` (no test file existed for
+  this module before) with a synthetic two-goal history asserting logs
+  before the change are excluded, a log on the exact `start_date` is
+  included, all-logs-before-the-change returns an empty series, and a
+  never-changed goal includes a log dated years before registration; new
+  `Api_test.py` cases covering the same scoping end-to-end through
+  `PUT /api/users/me` plus `GET /api/metrics/series`/`GET /api/logs`
+  (raw, unaffected) and `GET /api/projection` (400s once its regression
+  source is empty, same as too few real logs); every existing
+  single-goal-history test across the whole suite stayed green untouched,
+  proving the no-op case.
 
 #### Phase 5.4 — Log wizard defaults to the last log's perimeters (done)
 
