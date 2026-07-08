@@ -38,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the full design and remaining steps.
 - Phase 6, continued: the embedded server now actually runs. A new
   `chaquopy.sourceSets` entry (`android/app/build.gradle`) adds the repo
-  root as a Python source directory, scoped to `server/**` (excluding
-  `server/test/**` and any `*_test.py`), so the app imports the literal
-  `server.src.*` package from its real location instead of a copy. A new
+  root as a Python source directory (excluding `server/test/**` and any
+  `*_test.py`), so the app imports the literal `server.src.*` package
+  from its real location instead of a copy. A new
   on-device entry point, `android/app/src/main/python/local_server.py`,
   starts the same Flask app `server/src/api/app.py` builds, served by
   waitress (matching `server/wsgi.py`'s production path) bound to
@@ -66,6 +66,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`JustFitting-debug.apk`) on an actual Android device or emulator --
   no desktop check can confirm the WebView actually loads real data
   through the embedded server.
+- Phase 6 complete: verified end-to-end on a real Android device, and one
+  real bug found and fixed along the way. The initial
+  `chaquopy.sourceSets` config used `include("server/**")` to scope the
+  repo-root source directory to just the `server` package; a Gradle
+  `SourceDirectorySet`'s include/exclude patterns apply globally across
+  *every* srcDir registered on it (matched relative to each srcDir's own
+  root), not just the one they were written for, so that include pattern
+  also silently filtered `local_server.py` out of this module's own
+  default `src/main/python` srcDir -- crashing the app on launch with
+  `com.chaquo.python.PyException: ModuleNotFoundError: No module named
+  'local_server'`, despite `assembleDebug` succeeding (a filtered-out
+  source file isn't a build error). Diagnosed via `adb logcat` against
+  the real device and fixed by dropping the `include(...)` allowlist for
+  `exclude(...)`-only patterns, which only ever remove matches rather
+  than acting as an allowlist against srcDirs they weren't written for.
+  After the fix, verified on a real phone (`adb install` + launch, with
+  `adb logcat` confirming no crash and a real listening socket on
+  `127.0.0.1:5000` answering `GET /api/health`): registering a new
+  account, logging a week's data, viewing the real computed Dashboard,
+  data surviving a force-close and reopen (the actual "persistence on the
+  phone" promise this phase exists for), and full functionality in
+  Airplane Mode (confirming the app never reaches Render). Phase 6 is
+  done.
 
 ## [1.2.1] - 2026-07-08
 

@@ -981,7 +981,7 @@ that the Plan tab is how they'd set a real one.
 - Flows through the existing persisted, dismissible alerts pipeline with
   no client change needed.
 
-### Phase 6 — Embedded on-device server for Android (in progress, v2.0)
+### Phase 6 — Embedded on-device server for Android (done, v2.0)
 
 Today's Android app (Phase 2) is a remote-API client: the WebView UI runs
 on-device, but every request still goes out over HTTP(S) to the Render
@@ -993,10 +993,10 @@ terminals already have today, just packaged into one app instead of two
 dev processes. The web deployment (GitHub Pages + Render) is completely
 unaffected — it keeps talking to a remote API exactly as it does now,
 just a different build target of the same `dist/` client. See **Android
-app → Embedded on-device server** below for the full design and current
-status — everything through a successful `assembleDebug` (Chaquopy
-plumbing, the native bridge, the embedded server itself) is done; only
-running the built APK on a real device remains.
+app → Embedded on-device server** below for the full design — verified
+end-to-end on a real device: registration, logging, a real computed
+Dashboard, data surviving a force-close/reopen, and full functionality in
+Airplane Mode (proving it never touches Render).
 
 (`things-to-improve.txt` separately lists its own unscheduled "Phase 6"
 — four smaller UX items from a further beta-testing round, unrelated to
@@ -1188,7 +1188,7 @@ debug APKs today, possibly Play Store later) — the plan below assumes
 that's fine, but it's an unverified external constraint, not a technical
 one.
 
-#### One process, two logical halves (done, unverified on a real device)
+#### One process, two logical halves (done, verified on a real device)
 
 ```
 Android app process
@@ -1216,12 +1216,27 @@ after the app is swiped away — the server's lifetime is tied to the
 app's process, matching the "two local terminals" mental model exactly:
 closing the app stops the server, same as Ctrl+C; reopening it starts a
 fresh server process against the same persisted DB file, same as
-re-running `python -m server.src.Server`. Built successfully
-(`assembleDebug`, both the Gradle/Chaquopy plumbing and this bridge
-together) and verified at the Python-logic level via
-`local_server_test.py`; **not yet installed and run on an actual Android
-device or emulator** -- that end-to-end check (does the WebView actually
-load real data through the embedded server) is still open.
+re-running `python -m server.src.Server`. Verified end-to-end on a real
+device (`adb install` + launch): the embedded server binds a real
+listening socket on `127.0.0.1:5000`, `GET /api/health` responds
+correctly through it, and the WebView performs a full real-account
+round trip through it -- registration, logging a week, a real computed
+Dashboard, data surviving a force-close/reopen (the actual "persistence
+on the phone" promise), and full functionality in Airplane Mode
+(confirming it never reaches Render). One real bug surfaced and was
+fixed along the way: an initial `chaquopy.sourceSets` configuration used
+`include("server/**")` to scope the repo-root source directory, which
+crashed the app on launch with `ModuleNotFoundError: No module named
+'local_server'` -- a Gradle `SourceDirectorySet`'s include/exclude
+patterns apply globally across *every* srcDir registered on it (matched
+relative to each srcDir's own root), so that include pattern also
+filtered out `local_server.py` from this module's own default
+`src/main/python` srcDir, whose relative path there is just
+`"local_server.py"`, not `"server/..."`. `assembleDebug` succeeding
+didn't catch this -- a source file being silently filtered isn't a build
+error. Fixed by dropping the `include(...)` allowlist and using
+`exclude(...)`-only patterns instead, which only ever remove matches and
+never act as an allowlist against srcDirs they weren't written for.
 
 #### Networking & security
 
@@ -1355,32 +1370,35 @@ load real data through the embedded server) is still open.
 - **Cold-start time**: interpreter boot + Flask app-factory + first
   SQLite connect, before the WebView can make its first successful
   fetch. `MainActivity.onCreate()` currently blocks synchronously on this
-  (no splash-screen/readiness-event UI yet) — acceptable for a first cut
-  since the whole sequence runs before the WebView is even created, but
-  still unmeasured on real hardware, and a visible "Starting…" state is
-  the natural follow-up once real cold-start numbers are in.
+  (no splash-screen/readiness-event UI yet) — worked fine on the real
+  device tested (a launch delay, not a hang or crash), but still not
+  measured in milliseconds, and a visible "Starting…" state remains a
+  reasonable follow-up rather than a blocker.
 - **Chaquopy licensing**, noted above — an external, unverified
   constraint on this whole approach, still unresolved.
 - **Dependency wheel availability** for Flask/Werkzeug/Jinja2/click/
   itsdangerous/flask-cors/waitress on Chaquopy's supported Android ABIs —
   **resolved**: confirmed clean (no C-extension/wheel problems) via a
   real `assembleDebug` run, see above.
-- **End-to-end device verification** — the one piece that can't be
-  checked from a desktop: installing the built debug APK
-  (`JustFitting-debug.apk`, repo root) on a real phone and confirming the
-  app launches, the embedded server actually starts, and the WebView
-  loads real data through it. Not yet done — the next step once a device
-  is available to sideload onto.
+- **End-to-end device verification** — **resolved**: installed
+  (`JustFitting-debug.apk`, repo root) on a real phone via `adb install`.
+  First attempt crashed on launch (`ModuleNotFoundError: No module named
+  'local_server'`, root-caused and fixed — see above); after the fix, the
+  app launches, the embedded server binds and answers `/api/health`
+  through a real socket, and a full account round trip (register, log a
+  week, view the computed Dashboard, force-close and reopen with data
+  intact, works fully in Airplane Mode) all checked out on the device.
 
-Status: **in progress.** Done, and verified as far as a desktop machine
-can verify it: the Gradle/Chaquopy plumbing (plugin applied, on-device
-Python pinned to 3.12, pip dependencies installing correctly for both
-ABIs), the `server/src` sourceSet wiring, `local_server.py` (passes its
-own real-socket test), the `MainActivity.java` bridge, the scoped network
-security config, and the embedded-target build scripts — `assembleDebug`
-succeeds end-to-end and produces an installable APK. Not done: running
-that APK on an actual Android device or emulator, which is the only
-remaining check before this phase can be called complete.
+Status: **done.** Every piece — the Gradle/Chaquopy plumbing, the
+`server/src` sourceSet wiring (including the include/exclude bug found
+and fixed), `local_server.py`, the `MainActivity.java` bridge, the scoped
+network security config, and the embedded-target build scripts — is
+built and verified end-to-end on a real Android device, not just on a
+desktop machine. Remaining polish, none of it blocking: a visible
+cold-start/"Starting…" state, release-mode ABI splitting to shrink the
+APK, resolving the Chaquopy licensing question before any real
+distribution, and deciding on `android:allowBackup`'s behavior for the
+on-device password/DB data (Persistence, above).
 
 ### Alternative considered: client-side local/offline mode (design note, superseded by Phase 6)
 

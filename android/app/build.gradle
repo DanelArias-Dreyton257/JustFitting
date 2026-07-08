@@ -70,20 +70,42 @@ chaquopy {
             // directory keeps being importable as `server.src.api.app`
             // etc. -- matching every desktop entry point (Server.py,
             // wsgi.py) and every server/test import -- instead of losing
-            // its `server.` prefix. The include/exclude below scope this
-            // down to just that package: the repo root also holds
-            // client/, scripts/, node_modules/, docs/, .git, and this
-            // same android/ project, none of which belong in the
-            // on-device Python bundle. Referenced from its real location,
+            // its `server.` prefix. Referenced from its real location,
             // not copied, so the app runs the literal same code
             // server/test already covers (README's "why an embedded
             // Python interpreter, not a JS port" reasoning).
+            //
+            // No include("server/**") here on purpose: a Gradle
+            // SourceDirectorySet's include/exclude patterns apply
+            // globally across *every* srcDir registered on it (matched
+            // relative to each srcDir's own root), not per srcDir added
+            // -- an include("server/**") here previously also filtered
+            // out local_server.py from this module's own default
+            // src/main/python srcDir (whose relative path is just
+            // "local_server.py", not "server/..."), which is why the app
+            // crashed on a real device with "ModuleNotFoundError: No
+            // module named 'local_server'" despite building successfully
+            // (Chaquopy's own build-time checks don't catch a source file
+            // silently being filtered out). exclude-only avoids this,
+            // since it only ever removes matches and never acts as an
+            // allowlist against srcDirs it wasn't written for.
             srcDir("../..")
-            include("server/**")
-            // *_test.py also excludes local_server_test.py, which lives
-            // alongside local_server.py under this module's own default
-            // src/main/python -- both srcDirs share one exclude list.
-            exclude("server/test/**", "**/__pycache__/**", "**/*_test.py")
+            exclude(
+                "client/**",
+                "scripts/**",
+                "node_modules/**",
+                "docs/**",
+                "android/**",
+                ".git/**",
+                ".github/**",
+                ".vscode/**",
+                ".claude/**",
+                ".pytest_cache/**",
+                "dist/**",
+                "server/test/**",
+                "**/__pycache__/**",
+                "**/*_test.py",
+            )
         }
     }
 }
