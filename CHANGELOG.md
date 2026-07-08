@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-08
+
+Phase 4.4-4.5 and Phase 5.1-5.10: the day/week log navigator, retiring the
+standalone Projection view, and the full second round of beta-testing
+feedback (`things-to-improve.txt`) -- goal-free registration, active-goal
+-period scoping, wizard perimeter prefill, the "Weight to goal"/Calories
+summary fixes, log editing, a profile-only Account view, target-first Goal
+tiles, and the unconfigured-goal alert -- plus the self-versioning
+service-worker cache and the flaky Log-view navigation race fix. This
+release completes both Phase 4 and Phase 5 of the beta-testing UX
+refinement work.
+
 ### Added
 
 - The Log view's table gained an "Edit" button next to Delete (README's
