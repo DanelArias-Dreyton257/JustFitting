@@ -72,6 +72,27 @@ class GoalPlanManagerTest(unittest.TestCase):
         goal = self.manager.create_goal_plan(self.user_id, 0.15, 0.0)
         self.assertEqual(goal.direction, "cut")
 
+    def test_active_period_start_is_none_with_no_goal(self):
+        self.assertIsNone(self.manager.active_period_start(self.user_id))
+
+    def test_active_period_start_is_none_for_a_never_changed_goal(self):
+        # A same-day backdated log (or any log dated before the account's
+        # very first goal, always created with start_date=today at
+        # registration) must never be spuriously excluded when the account
+        # has never actually changed its goal.
+        self.manager.create_goal_plan(self.user_id, 0.15, -0.005)
+        self.assertIsNone(self.manager.active_period_start(self.user_id))
+
+    def test_active_period_start_is_the_active_goal_start_date_once_changed(self):
+        self.manager.create_goal_plan(
+            self.user_id, 0.15, -0.005, start_date=date(2026, 1, 1)
+        )
+        second = self.manager.create_goal_plan(
+            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+        )
+        self.assertEqual(self.manager.active_period_start(self.user_id), second.start_date)
+        self.assertEqual(self.manager.active_period_start(self.user_id), date(2026, 3, 1))
+
     def test_metrics_cache_is_invalidated_on_goal_change(self):
         calls = []
 

@@ -29,6 +29,19 @@ def compute_series_for_user(
         return [], []
 
     ordered_logs = sorted(logs, key=lambda log: log.date)
+    # Phase 5.3: once an account has actually changed its goal, only the
+    # active goal's own period feeds the derived series -- otherwise a
+    # goal change silently recomputes every historical week's
+    # target/trajectory/deficit as if the new goal had applied the whole
+    # time. See GoalPlanManager.active_period_start's docstring for why
+    # this is skipped entirely for an account that's never changed its
+    # goal, rather than a blanket `date >= goal.start_date` filter.
+    period_start = goal_plan_manager.active_period_start(user_id)
+    if period_start is not None:
+        ordered_logs = [log for log in ordered_logs if log.date >= period_start]
+    if not ordered_logs:
+        return [], []
+
     # F6 (Phase 3.3): collapse any daily-granularity rows into one
     # representative row per ISO week before they reach the (inherently
     # weekly-cadence) engine; weekly-tagged rows pass through unchanged.

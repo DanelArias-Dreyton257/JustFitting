@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from server.src.api.app import create_app
 
@@ -526,6 +527,76 @@ class ApiTestCase(unittest.TestCase):
         self.assertTrue(goals[0]["active"])
         self.assertFalse(goals[1]["active"])
         self.assertEqual(goals[0]["direction"], "cut")
+
+    def test_metrics_series_excludes_logs_from_before_a_goal_change(self):
+        # Phase 5.3: once an account actually changes its goal, the derived
+        # series only ever sees that goal's own period -- otherwise
+        # changing goals silently recomputes old weeks as if the new goal
+        # had applied the whole time.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        before = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(before), 2)
+
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        after = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(after, [])
+
+        # The raw log list (and by extension /export's "logs" key) is
+        # unaffected -- full history stays reachable there, same
+        # "not a data-loss concern" precedent Phase 4.4 established.
+        raw_logs = self.client.get("/api/logs", headers=headers).get_json()
+        self.assertEqual(len(raw_logs), 2)
+
+    def test_metrics_series_includes_a_log_on_or_after_the_goal_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        today_iso = date.today().isoformat()
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": today_iso,
+                "weight_kg": 95.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2200.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        after = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0]["date"], today_iso)
+
+    def test_metrics_series_unaffected_for_an_account_that_never_changes_its_goal(self):
+        # The no-op guarantee: a never-changed goal (even one whose
+        # start_date is "today", from registration) must never exclude a
+        # log dated before it.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        series = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(series), 2)
+
+    def test_projection_regression_excludes_logs_from_before_a_goal_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        # Both real logs predate the goal change, so the forecast's
+        # regression source is now empty -- same 400 a fresh account with
+        # fewer than two real logs would get.
+        response = self.client.get("/api/projection?weeks=2", headers=headers)
+        self.assertEqual(response.status_code, 400)
 
     def test_goal_direction_is_bulk_for_a_positive_weekly_rate(self):
         token = self._register().get_json()["token"]
