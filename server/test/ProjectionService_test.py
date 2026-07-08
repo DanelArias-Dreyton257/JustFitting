@@ -27,8 +27,8 @@ class ProjectionServiceTest(unittest.TestCase):
         self.db = DB(":memory:")
         self.service = ProjectionService(ProjectionDAO(self.db))
         self.user_id = UserDAO(self.db).create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,

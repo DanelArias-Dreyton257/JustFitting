@@ -15,12 +15,12 @@ export function setFormError(formId, message) {
   if (el) el.textContent = message || "";
 }
 
-function formatAdherence(adherence) {
+function formatAdherence(adherence, withPerDay = true) {
   if (!adherence || adherence.mean_intake_diff_kcal == null) {
     return "No real-intake logs yet";
   }
   const value = adherence.mean_intake_diff_kcal;
-  return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal/day`;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(0)} kcal${withPerDay ? "/day" : ""}`;
 }
 
 function formatDelta(value, unit, decimals = 1) {
@@ -28,6 +28,19 @@ function formatDelta(value, unit, decimals = 1) {
   const arrow = value > 0 ? "▲" : value < 0 ? "▼" : "–";
   const sign = value > 0 ? "+" : "";
   return `<span class="delta">${arrow} ${sign}${value.toFixed(decimals)} ${unit}</span>`;
+}
+
+// Like formatDelta, but for "how far is the current value from a target"
+// rather than "how much did this change since last week" -- appends a
+// trailing "to goal" and lets the caller bake a leading space into `unit`
+// (or not, for "%") instead of always inserting one. Normalizing through
+// toFixed first avoids a stray "-0.0" once a goal is essentially reached.
+function formatGoalDelta(remaining, unit) {
+  if (remaining == null || Number.isNaN(remaining)) return "";
+  const rounded = Number(remaining.toFixed(1));
+  const arrow = rounded > 0 ? "▲" : rounded < 0 ? "▼" : "–";
+  const sign = rounded > 0 ? "+" : "";
+  return `<span class="delta">${arrow} ${sign}${rounded.toFixed(1)}${unit} to goal</span>`;
 }
 
 function statTile(label, value, delta = "") {
@@ -68,15 +81,32 @@ export function renderWeightSummary(container, latest, previousMetrics, gainQual
   ].join("");
 }
 
-export function renderCaloriesSummary(container, latest, adherence) {
+export function renderCaloriesSummary(container, latest, adherence, latestRealLog) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
     return;
   }
   container.innerHTML = [
-    statTile("Target calories", `${latest.target_calories.toFixed(0)} kcal`),
-    statTile("TDEE", `${latest.tdee.toFixed(0)} kcal`),
-    statTile("Adherence", formatAdherence(adherence)),
+    statTile(
+      "Target calories",
+      `${latest.target_calories.toFixed(0)} kcal`,
+      `<span class="delta tile-subtitle">what to eat</span>`
+    ),
+    statTile(
+      "TDEE",
+      `${latest.tdee.toFixed(0)} kcal`,
+      `<span class="delta tile-subtitle">estimated calories burned</span>`
+    ),
+    statTile(
+      "This week's intake",
+      latestRealLog && latestRealLog.intake_kcal != null ? `${latestRealLog.intake_kcal} kcal` : "—",
+      `<span class="delta tile-subtitle">most recently logged intake</span>`
+    ),
+    statTile(
+      "Adherence",
+      formatAdherence(adherence, false),
+      `<span class="delta tile-subtitle">actual vs target/day</span>`
+    ),
   ].join("");
 }
 
@@ -86,15 +116,21 @@ export function renderGoalSummary(container, latest, profile) {
     return;
   }
   const isBulk = profile && profile.direction === "bulk";
-  const bodyFatValue =
-    profile && profile.target_bf != null
-      ? `${(latest.body_fat * 100).toFixed(1)}% <span class="delta">target ${(
-          profile.target_bf * 100
-        ).toFixed(1)}%</span>`
-      : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const hasTarget = profile && profile.target_bf != null;
+  const targetBodyFatValue = hasTarget
+    ? `${(profile.target_bf * 100).toFixed(1)}%`
+    : `${(latest.body_fat * 100).toFixed(1)}%`;
+  const targetBodyFatDelta = hasTarget
+    ? formatGoalDelta((profile.target_bf - latest.body_fat) * 100, "%")
+    : "";
+  const currentWeightKg = latest.fat_mass_kg + latest.lean_mass_kg;
   const tiles = [
-    statTile("Body fat vs target", bodyFatValue),
-    statTile("Weight to goal", `${Math.abs(latest.weight_to_shed_kg).toFixed(1)} kg`),
+    statTile("Target body fat", targetBodyFatValue, targetBodyFatDelta),
+    statTile(
+      "Target weight (keep lean)",
+      `${latest.final_weight_kg.toFixed(1)} kg`,
+      formatGoalDelta(latest.final_weight_kg - currentWeightKg, " kg")
+    ),
     statTile("Weeks to goal", metricsWeeksToGoal(latest)),
   ];
   if (profile && profile.direction) {
@@ -307,37 +343,36 @@ function formatMacros(log) {
   return `${log.carbs_g}/${log.fat_g}/${log.protein_g}`;
 }
 
+function dash(value) {
+  return value == null ? "—" : value;
+}
+
+// Phase 4.5: a projected row (app.js's projectedLogRow(), log_id always null
+// since it's never persisted) reuses this exact table -- same columns, same
+// "projected" badge style real persisted-projection rows already used --
+// rather than a separate preview widget; it just has no known intake/steps/
+// cardio/macros/granularity to show (dashed) and no Delete button.
 export function renderLogTable(tbody, logs) {
   tbody.innerHTML = logs
     .map(
       (log) => `
-      <tr data-log-id="${log.log_id}">
+      <tr ${log.log_id != null ? `data-log-id="${log.log_id}"` : ""} class="${log.log_id == null ? "log-row-projected" : ""}">
         <td>${log.date}</td>
         <td>${log.weight_kg}</td>
         <td>${log.waist_cm}</td>
         <td>${log.neck_cm}</td>
-        <td>${log.intake_kcal}</td>
-        <td>${log.steps}</td>
-        <td>${log.cardio_kcal}</td>
+        <td>${dash(log.intake_kcal)}</td>
+        <td>${dash(log.steps)}</td>
+        <td>${dash(log.cardio_kcal)}</td>
         <td>${formatMacros(log)}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
-        <td><span class="badge ${log.granularity}">${log.granularity}</span></td>
-        <td><button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button></td>
-      </tr>`
-    )
-    .join("");
-}
-
-export function renderProjectionTable(tbody, rows) {
-  tbody.innerHTML = rows
-    .map(
-      (row) => `
-      <tr>
-        <td>${row.date}</td>
-        <td>${(row.fat_mass_kg + row.lean_mass_kg).toFixed(1)}</td>
-        <td>${(row.body_fat * 100).toFixed(1)}%</td>
-        <td>${row.target_calories.toFixed(0)}</td>
-        <td><span class="badge projected">forecast</span></td>
+        <td>${log.granularity ? `<span class="badge ${log.granularity}">${log.granularity}</span>` : "—"}</td>
+        <td>${
+          log.log_id != null
+            ? `<button class="edit-log-btn" data-log-id="${log.log_id}">Edit</button> `
+              + `<button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button>`
+            : ""
+        }</td>
       </tr>`
     )
     .join("");
@@ -347,8 +382,6 @@ export function fillProfileForm(form, profile) {
   form.height_cm.value = profile.height_cm;
   form.sex.value = String(profile.sex);
   form.birthdate.value = profile.birthdate;
-  form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
-  form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
 }
 
 export function showWizardStep(form, step, totalSteps) {

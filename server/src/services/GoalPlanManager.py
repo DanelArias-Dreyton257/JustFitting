@@ -89,6 +89,26 @@ class GoalPlanManager:
     def list_history(self, user_id: int) -> List[GoalPlan]:
         return self.goal_plan_dao.list_for_user(user_id)
 
+    def active_period_start(self, user_id: int) -> Optional[date]:
+        """The date derived series/projections should be scoped from
+        (Phase 5.3), or `None` to mean "don't scope, use everything."
+
+        Returns `None` whenever there's nothing to exclude: no active goal,
+        or the account has never changed its goal (`list_history` length
+        <= 1). Every account's very first goal is created with
+        `start_date=date.today()` at registration (`UserManager.register`),
+        so naively filtering to `date >= active_goal.start_date`
+        unconditionally would drop any log dated before signup -- including
+        a same-day backdated entry -- even for an account that has never
+        touched its goal. Only once a goal change has actually happened
+        (a second `goal_plans` row exists) is there a genuinely different
+        prior period to exclude.
+        """
+        goal = self.get_active(user_id)
+        if goal is None or len(self.list_history(user_id)) <= 1:
+            return None
+        return goal.start_date
+
     @staticmethod
     def build_profile_params(profile: UserProfile, goal: GoalPlan) -> ProfileParams:
         return ProfileParams(

@@ -38,6 +38,13 @@ def _forecast_inputs(user_id: int):
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
     real_logs = [log for log in log_manager.list_logs(user_id) if log.source == "real"]
+    # Phase 5.3: same active-goal-period scoping as
+    # MetricsSeriesService.compute_series_for_user, so a forecast's trend
+    # regression isn't fit over data from before the account's last goal
+    # change.
+    period_start = goal_plan_manager.active_period_start(user_id)
+    if period_start is not None:
+        real_logs = [log for log in real_logs if log.date >= period_start]
     engine_inputs = log_manager.to_engine_inputs(real_logs)
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)

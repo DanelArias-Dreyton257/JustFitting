@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Register admin_cut/admin_bulk (both adminadmin) and seed their Danel
-# (cut) and Sergio (bulk) reference profiles and logs, for manual testing.
+# Register admin_cut/admin_bulk (both adminadmin) and seed their Demo_cut
+# (cut) and Demo_bulk (bulk) reference profiles and logs, for manual testing.
 # No-op per-account if already seeded.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

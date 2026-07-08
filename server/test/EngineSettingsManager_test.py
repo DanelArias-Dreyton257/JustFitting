@@ -19,8 +19,8 @@ class EngineSettingsManagerTest(unittest.TestCase):
         self.audit_log_dao = AuditLogDAO(self.db)
         self.manager = EngineSettingsManager(self.dao, audit_log_dao=self.audit_log_dao)
         self.user_id = UserDAO(self.db).create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,

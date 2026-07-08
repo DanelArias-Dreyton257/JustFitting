@@ -12,7 +12,7 @@ class AuthServiceTest(unittest.TestCase):
         self.db = DB(":memory:")
         self.auth = AuthService(SessionDAO(self.db))
         self.user_dao = UserDAO(self.db)
-        self.user_id = self._create_user("danel").user_id
+        self.user_id = self._create_user("demo_cut").user_id
         self.other_user_id = self._create_user("other").user_id
 
     def tearDown(self):

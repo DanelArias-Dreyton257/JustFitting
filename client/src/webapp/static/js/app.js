@@ -1,6 +1,13 @@
 // Controller: holds all app state, wires DOM events to api.js and views.js.
 import { api } from "./api.js";
-import { getToken, setToken, clearToken, isAuthenticated } from "./session.js";
+import {
+  getToken,
+  setToken,
+  clearToken,
+  isAuthenticated,
+  getShowProjectedLogs,
+  setShowProjectedLogs,
+} from "./session.js";
 import {
   showView,
   setFormError,
@@ -12,7 +19,6 @@ import {
   renderAlertHistory,
   renderGoalHistory,
   renderLogTable,
-  renderProjectionTable,
   fillProfileForm,
   showWizardStep,
   renderLogReview,
@@ -33,6 +39,59 @@ import {
 
 const MACRO_COLORS = { protein: "#5eb3ff", fat: "#f0b94d", carbs: "#7ee787" };
 
+// Phase 4.4: local-date (not UTC) helpers for the Log view's day/week
+// navigator -- ISO week bounds mirror LogResampler.resample_to_weekly's
+// own Monday-Sunday grouping convention server-side.
+function toIsoDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function todayIso() {
+  return toIsoDate(new Date());
+}
+
+function addDays(isoDate, days) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  return toIsoDate(date);
+}
+
+function isoWeekRange(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayOfWeek = date.getDay(); // 0 = Sun .. 6 = Sat
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: toIsoDate(monday), end: toIsoDate(sunday) };
+}
+
+function formatShortDate(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatDayLabel(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const weekday = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  return isoDate === todayIso() ? `Today — ${weekday}` : weekday;
+}
+
+function formatWeekLabel(isoDate) {
+  const { start, end } = isoWeekRange(isoDate);
+  return `Week of ${formatShortDate(start)} – ${formatShortDate(end)}`;
+}
+
 const state = {
   profile: null,
   logs: [],
@@ -45,6 +104,8 @@ const state = {
   showProjection: false,
   projectionWeeks: 4,
   projectionCache: {},
+  logNav: { selectedDate: todayIso(), viewMode: "day" },
+  editingLogId: null,
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -113,6 +174,8 @@ async function enterApp() {
   state.showProjection = false;
   state.projectionWeeks = 4;
   state.projectionCache = {};
+  state.logNav = { selectedDate: todayIso(), viewMode: "day" };
+  state.editingLogId = null;
   const dashboardDetails = document.getElementById("dashboard-details");
   if (dashboardDetails) dashboardDetails.open = false;
   const projectionToggle = document.getElementById("dashboard-projection-toggle");
@@ -126,8 +189,16 @@ function navigate(viewName) {
   closeNavMenu();
   showView(viewName);
   if (viewName === "dashboard") refreshDashboardSummary();
-  if (viewName === "log") refreshLogs();
-  if (viewName === "projection") refreshProjection();
+  if (viewName === "log") {
+    // Render the nav label/heading and the (possibly still-empty) filtered
+    // list synchronously from already-known state -- state.logNav always
+    // defaults to today/day-view and state.logs starts as [] -- so the view
+    // never shows a raw-HTML-default flash while the async refreshLogs()
+    // fetch is in flight.
+    renderLogNav();
+    renderFilteredLogList();
+    refreshLogs();
+  }
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
   if (viewName === "report") refreshReport();
@@ -136,12 +207,13 @@ function navigate(viewName) {
 }
 
 async function refreshDashboardSummary() {
-  const [latest, series, gainQuality, adherence, alerts] = await Promise.all([
+  const [latest, series, gainQuality, adherence, alerts, logs] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.gainQuality().catch(() => []),
     api.adherence().catch(() => null),
     api.alerts().catch(() => []),
+    api.listLogs().catch(() => []),
   ]);
   state.series = series;
   state.gainQuality = gainQuality;
@@ -149,6 +221,8 @@ async function refreshDashboardSummary() {
 
   const realSeries = series.filter((row) => row.source === "real");
   const previousMetrics = realSeries.length > 1 ? realSeries[realSeries.length - 2] : null;
+  const realLogs = logs.filter((log) => log.source === "real");
+  const latestRealLog = realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
 
   renderWeightSummary(
     document.getElementById("summary-weight-stats"),
@@ -156,7 +230,12 @@ async function refreshDashboardSummary() {
     previousMetrics,
     gainQuality[gainQuality.length - 1]
   );
-  renderCaloriesSummary(document.getElementById("summary-calories-stats"), latest, adherence);
+  renderCaloriesSummary(
+    document.getElementById("summary-calories-stats"),
+    latest,
+    adherence,
+    latestRealLog
+  );
   renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
@@ -175,11 +254,10 @@ async function refreshDashboardCharts() {
   await renderDashboardCharts();
 }
 
-// Fetches the forecast rows for the current toggle/weeks selection, cached
-// per weeks value so re-toggling or re-rendering doesn't re-hit the API.
-async function getProjectionRows() {
-  if (!state.showProjection) return [];
-  const weeks = state.projectionWeeks;
+// Fetches a real+constant forecast for a given weeks-ahead count, cached per
+// weeks value so re-toggling, re-rendering, or the Dashboard and Log view's
+// toggles both wanting the same weeks value never re-hits the API twice.
+async function fetchProjectionWeeks(weeks) {
   if (state.projectionCache[weeks]) return state.projectionCache[weeks];
   try {
     const rows = await api.projection(weeks, "real", "constant");
@@ -210,7 +288,7 @@ async function renderDashboardCharts() {
   // Phase 4.3: appending the forecast to a *copy* of the real series --
   // never `state.series` itself -- so the summary section and every other
   // chart below stay on real data only.
-  const forecastRows = await getProjectionRows();
+  const forecastRows = state.showProjection ? await fetchProjectionWeeks(state.projectionWeeks) : [];
   const forecastSeries = forecastRows.length ? series.concat(forecastRows) : series;
   const lastLoggedDate = series.length ? series[series.length - 1].date : null;
   const forecastMarkers =
@@ -386,8 +464,216 @@ async function renderDashboardCharts() {
 
 async function refreshLogs() {
   state.logs = await api.listLogs();
-  renderLogTable(document.querySelector("#log-table tbody"), state.logs);
+  resetWizardDefaults();
+  renderLogNav();
+  renderFilteredLogList();
+  refreshProjectedRow();
   goToLogStep(1);
+}
+
+// Sets the wizard's granularity default from the active view mode (day ->
+// daily, week -> weekly) -- only called at "fresh wizard" points (entering
+// the Log view, switching day/week, and after a successful save) so it
+// never clobbers a manual choice mid-entry.
+function resetWizardGranularityDefault() {
+  document.getElementById("log-wizard-granularity").value =
+    state.logNav.viewMode === "week" ? "weekly" : "daily";
+}
+
+function mostRecentRealLog() {
+  const realLogs = state.logs.filter((log) => log.source === "real");
+  return realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
+}
+
+// Most weeks a person's waist/neck barely change, so the wizard opens
+// pre-filled from the account's last real log -- weight stays blank since
+// it's the one number that's supposed to change and get re-measured every
+// time, and intake/steps/cardio/macros stay blank too (today's actual
+// entry, not a carry-forward).
+function prefillWizardFromLastLog() {
+  const lastLog = mostRecentRealLog();
+  const form = document.getElementById("log-form");
+  form.waist_cm.value = lastLog ? lastLog.waist_cm : "";
+  form.neck_cm.value = lastLog ? lastLog.neck_cm : "";
+}
+
+// Every "fresh wizard" reset point (entering the Log view, switching
+// day/week) resets both the granularity default and the perimeter prefill
+// together.
+function resetWizardDefaults() {
+  resetWizardGranularityDefault();
+  prefillWizardFromLastLog();
+}
+
+function fillWizardFromLog(log) {
+  const form = document.getElementById("log-form");
+  form.weight_kg.value = log.weight_kg;
+  form.waist_cm.value = log.waist_cm;
+  form.neck_cm.value = log.neck_cm;
+  form.intake_kcal.value = log.intake_kcal;
+  form.steps.value = log.steps;
+  form.cardio_kcal.value = log.cardio_kcal;
+  form.carbs_g.value = log.carbs_g == null ? "" : log.carbs_g;
+  form.fat_g.value = log.fat_g == null ? "" : log.fat_g;
+  form.protein_g.value = log.protein_g == null ? "" : log.protein_g;
+  form.granularity.value = log.granularity;
+}
+
+// Phase 5.7: a log's date and granularity are not editable -- the wizard's
+// date label/hidden input are pinned to the log's own date (instead of the
+// navigator's selected day/week) and the granularity select is disabled,
+// both restored by exitEditMode(). Every other field stays editable.
+function enterEditMode(log) {
+  state.editingLogId = log.log_id;
+  fillWizardFromLog(log);
+  document.getElementById("log-wizard-granularity").disabled = true;
+  document.getElementById("log-wizard-date-input").value = log.date;
+  document.getElementById("log-wizard-date-prefix").textContent = "Editing log for";
+  document.getElementById("log-wizard-date-label").textContent = formatDayLabel(log.date);
+  document.getElementById("log-save").textContent = "Save changes";
+  document.getElementById("log-cancel-edit").hidden = false;
+  goToLogStep(1);
+}
+
+// Only clears edit-mode's own UI flags -- callers (Cancel, or a successful
+// edit save via refreshLogs()) are responsible for restoring the form and
+// wizard nav themselves, same as the create-mode reset they already do.
+function exitEditMode() {
+  state.editingLogId = null;
+  document.getElementById("log-wizard-granularity").disabled = false;
+  document.getElementById("log-save").textContent = "Save log";
+  document.getElementById("log-cancel-edit").hidden = true;
+}
+
+function renderLogNav() {
+  const { selectedDate, viewMode } = state.logNav;
+  const isWeek = viewMode === "week";
+
+  document.getElementById("log-nav-label").textContent = isWeek
+    ? formatWeekLabel(selectedDate)
+    : formatDayLabel(selectedDate);
+  document.getElementById("log-nav-date").value = selectedDate;
+  document.getElementById("log-nav-day").classList.toggle("active", !isWeek);
+  document.getElementById("log-nav-week").classList.toggle("active", isWeek);
+
+  // While editing an existing log, the wizard's date is bound to that log's
+  // own date (set by enterEditMode), not the navigator's selected day/week.
+  if (state.editingLogId == null) {
+    document.getElementById("log-wizard-date-prefix").textContent = "Logging for";
+    document.getElementById("log-wizard-date-input").value = selectedDate;
+    document.getElementById("log-wizard-date-label").textContent = isWeek
+      ? formatWeekLabel(selectedDate)
+      : formatDayLabel(selectedDate);
+  }
+
+  const heading = document.getElementById("log-list-heading");
+  if (isWeek) {
+    const thisWeek = isoWeekRange(todayIso()).start === isoWeekRange(selectedDate).start;
+    heading.textContent = thisWeek ? "This week's logs" : `Logs for ${formatWeekLabel(selectedDate)}`;
+  } else {
+    heading.textContent = selectedDate === todayIso() ? "Today's logs" : `Logs for ${formatDayLabel(selectedDate)}`;
+  }
+}
+
+function filteredLogs() {
+  const { selectedDate, viewMode } = state.logNav;
+  if (viewMode === "week") {
+    const { start, end } = isoWeekRange(selectedDate);
+    return state.logs.filter((log) => log.date >= start && log.date <= end);
+  }
+  // A "weekly" log represents its whole ISO week (Mon-Sun), the same
+  // grouping LogResampler.resample_to_weekly uses server-side -- so it
+  // should appear on every day of that week in day view, not just its
+  // own literal logged date (which is often the day it happened to be
+  // entered, e.g. a Sunday). A "daily" log still only matches its own
+  // exact date, since it genuinely represents just that one day.
+  return state.logs.filter((log) => {
+    if (log.granularity === "weekly") {
+      const { start, end } = isoWeekRange(log.date);
+      return selectedDate >= start && selectedDate <= end;
+    }
+    return log.date === selectedDate;
+  });
+}
+
+function renderFilteredLogList(extraRow) {
+  const rows = extraRow ? filteredLogs().concat(extraRow) : filteredLogs();
+  document.getElementById("log-table").hidden = rows.length === 0;
+  document.getElementById("log-list-empty").hidden = rows.length !== 0;
+  renderLogTable(document.querySelector("#log-table tbody"), rows);
+}
+
+function setLogNav(patch) {
+  Object.assign(state.logNav, patch);
+  renderLogNav();
+  renderFilteredLogList();
+  refreshProjectedRow();
+}
+
+function lastRealLoggedDate() {
+  const realDates = state.logs.filter((log) => log.source === "real").map((log) => log.date);
+  return realDates.length ? realDates.reduce((a, b) => (b > a ? b : a)) : null;
+}
+
+function weeksBetween(fromIso, toIso) {
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  const days = (new Date(ty, tm - 1, td) - new Date(fy, fm - 1, fd)) / 86400000;
+  return Math.ceil(days / 7);
+}
+
+// toFixed (not Math.round(x*10)/10) so a whole-number estimate still shows
+// one decimal place (e.g. "88.0"), not "88".
+function round1(value) {
+  return value.toFixed(1);
+}
+
+// A row from GET /api/projection has no intake/steps/cardio/macros --
+// those are engine *inputs* the forecast never observed, not outputs it
+// computed -- so they're left null and renderLogTable dashes them, same
+// table/columns as a real log, with log_id null (nothing to delete)
+// marking it as never persisted. Granularity is always "weekly" since the
+// forecast itself is weekly-cadence (Phase 4.3), regardless of the Log
+// view's own day/week toggle.
+function projectedLogRow(row) {
+  return {
+    log_id: null,
+    date: row.date,
+    weight_kg: round1(row.estimated_weight),
+    waist_cm: round1(row.estimated_waist),
+    neck_cm: round1(row.estimated_neck),
+    intake_kcal: null,
+    steps: null,
+    cardio_kcal: null,
+    carbs_g: null,
+    fat_g: null,
+    protein_g: null,
+    source: "projected",
+    granularity: "weekly",
+  };
+}
+
+// Phase 4.5: injects a projected row straight into the Log table (not a
+// separate widget) when the "Show projected" browser preference (Settings
+// view, localStorage) is on and the navigated day/week has no log yet and
+// falls after the last *real* logged date -- the forecast stays weekly
+// (never a fabricated daily figure), so a day-view lookup finds the
+// forecasted week covering that day, same as week view's own ISO-week match.
+async function refreshProjectedRow() {
+  if (!getShowProjectedLogs() || filteredLogs().length > 0) return;
+  const lastReal = lastRealLoggedDate();
+  const { selectedDate, viewMode } = state.logNav;
+  const { start, end } = isoWeekRange(selectedDate);
+  const targetDate = viewMode === "week" ? end : selectedDate;
+  if (!lastReal || targetDate <= lastReal) return;
+  const weeks = Math.min(52, Math.max(1, weeksBetween(lastReal, targetDate)));
+  const rows = await fetchProjectionWeeks(weeks);
+  const row = rows.find((r) => r.date >= start && r.date <= end) || rows[rows.length - 1];
+  if (!row) return;
+  // The user may have navigated elsewhere while this was in flight -- don't
+  // let a stale response render onto the wrong day/week.
+  if (state.logNav.selectedDate !== selectedDate || state.logNav.viewMode !== viewMode) return;
+  renderFilteredLogList(projectedLogRow(row));
 }
 
 function goToLogStep(step) {
@@ -395,7 +681,14 @@ function goToLogStep(step) {
   const form = document.getElementById("log-form");
   showWizardStep(form, step, LOG_WIZARD_STEPS);
   if (step === LOG_WIZARD_STEPS) {
-    renderLogReview(document.getElementById("log-review"), formToJson(form));
+    const values = formToJson(form);
+    // The granularity <select> is disabled while editing, so FormData
+    // excludes it -- pull it back in from the log being edited for display.
+    if (state.editingLogId != null) {
+      const editing = state.logs.find((log) => log.log_id === state.editingLogId);
+      if (editing) values.granularity = editing.granularity;
+    }
+    renderLogReview(document.getElementById("log-review"), values);
   }
 }
 
@@ -424,19 +717,6 @@ async function refreshPlan() {
   setFormError("plan-commit", "");
 }
 
-async function refreshProjection() {
-  const weeks = Number(document.getElementById("projection-weeks").value) || 4;
-  const base = document.getElementById("projection-base").value;
-  const activity = document.getElementById("projection-activity").value;
-  try {
-    const rows = await api.projection(weeks, base, activity);
-    renderProjectionTable(document.querySelector("#projection-table tbody"), rows);
-  } catch (err) {
-    // Not enough real logs yet to fit a trend.
-    renderProjectionTable(document.querySelector("#projection-table tbody"), []);
-  }
-}
-
 async function refreshAccount() {
   const profile = await api.me();
   state.profile = profile;
@@ -459,6 +739,7 @@ async function refreshSettings() {
   renderSettingsStatus(document.getElementById("settings-status"), settings);
   renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
   setFormError("settings-form", "");
+  document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
 }
 
 function formToJson(form) {
@@ -522,8 +803,6 @@ document.getElementById("register-form").addEventListener("submit", async (event
     height_cm: Number(raw.height_cm),
     sex: Number(raw.sex),
     birthdate: raw.birthdate,
-    target_bf: Number(raw.target_bf_pct) / 100,
-    weekly_rate: Number(raw.weekly_rate_pct) / 100,
   };
   try {
     const { token, profile } = await api.register(payload);
@@ -533,6 +812,36 @@ document.getElementById("register-form").addEventListener("submit", async (event
   } catch (err) {
     setFormError("register-form", err.message);
   }
+});
+
+document.getElementById("log-nav-prev").addEventListener("click", () => {
+  const step = state.logNav.viewMode === "week" ? 7 : 1;
+  setLogNav({ selectedDate: addDays(state.logNav.selectedDate, -step) });
+});
+
+document.getElementById("log-nav-next").addEventListener("click", () => {
+  const step = state.logNav.viewMode === "week" ? 7 : 1;
+  setLogNav({ selectedDate: addDays(state.logNav.selectedDate, step) });
+});
+
+document.getElementById("log-nav-day").addEventListener("click", () => {
+  state.logNav.viewMode = "day";
+  resetWizardDefaults();
+  renderLogNav();
+  renderFilteredLogList();
+  refreshProjectedRow();
+});
+
+document.getElementById("log-nav-week").addEventListener("click", () => {
+  state.logNav.viewMode = "week";
+  resetWizardDefaults();
+  renderLogNav();
+  renderFilteredLogList();
+  refreshProjectedRow();
+});
+
+document.getElementById("log-nav-date").addEventListener("change", (event) => {
+  if (event.target.value) setLogNav({ selectedDate: event.target.value });
 });
 
 document.getElementById("log-next").addEventListener("click", () => {
@@ -552,21 +861,32 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   event.preventDefault();
   setFormError("log-form", "");
   const raw = formToJson(event.target);
-  const payload = {
-    date: raw.date,
+  // Shared by create and edit; date/granularity are only ever sent when
+  // creating -- edit mode omits them so the server's partial-update
+  // semantics (log_routes.py's update_log) leave them untouched, since
+  // neither is editable here.
+  const measurements = {
     weight_kg: Number(raw.weight_kg),
     waist_cm: Number(raw.waist_cm),
     neck_cm: Number(raw.neck_cm),
     intake_kcal: Number(raw.intake_kcal),
-    steps: Number(raw.steps),
+    steps: Number(raw.steps) || 0,
     cardio_kcal: Number(raw.cardio_kcal) || 0,
-    granularity: raw.granularity || "weekly",
     carbs_g: optionalNumber(raw.carbs_g),
     fat_g: optionalNumber(raw.fat_g),
     protein_g: optionalNumber(raw.protein_g),
   };
   try {
-    await api.createLog(payload);
+    if (state.editingLogId != null) {
+      await api.updateLog(state.editingLogId, measurements);
+      exitEditMode();
+    } else {
+      await api.createLog({
+        ...measurements,
+        date: raw.date,
+        granularity: raw.granularity || "weekly",
+      });
+    }
     event.target.reset();
     await refreshLogs();
   } catch (err) {
@@ -574,11 +894,26 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   }
 });
 
+document.getElementById("log-cancel-edit").addEventListener("click", () => {
+  exitEditMode();
+  document.getElementById("log-form").reset();
+  resetWizardDefaults();
+  renderLogNav();
+  goToLogStep(1);
+});
+
 document.querySelector("#log-table tbody").addEventListener("click", async (event) => {
-  const btn = event.target.closest(".delete-log-btn");
-  if (!btn) return;
-  await api.deleteLog(btn.dataset.logId);
-  await refreshLogs();
+  const deleteBtn = event.target.closest(".delete-log-btn");
+  if (deleteBtn) {
+    await api.deleteLog(deleteBtn.dataset.logId);
+    await refreshLogs();
+    return;
+  }
+  const editBtn = event.target.closest(".edit-log-btn");
+  if (editBtn) {
+    const log = state.logs.find((l) => l.log_id === Number(editBtn.dataset.logId));
+    if (log) enterEditMode(log);
+  }
 });
 
 document.getElementById("dashboard-alerts").addEventListener("click", async (event) => {
@@ -608,8 +943,6 @@ document.getElementById("dashboard-projection-weeks")?.addEventListener("change"
 document.getElementById("report-print-btn").addEventListener("click", () => {
   window.print();
 });
-
-document.getElementById("projection-refresh").addEventListener("click", refreshProjection);
 
 document.getElementById("plan-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -652,8 +985,6 @@ document.getElementById("profile-form").addEventListener("submit", async (event)
     height_cm: Number(raw.height_cm),
     sex: Number(raw.sex),
     birthdate: raw.birthdate,
-    target_bf: Number(raw.target_bf_pct) / 100,
-    weekly_rate: Number(raw.weekly_rate_pct) / 100,
   };
   try {
     state.profile = await api.updateProfile(payload);
@@ -707,6 +1038,10 @@ document.getElementById("alert-history-list").addEventListener("click", async (e
   if (!btn) return;
   await api.acknowledgeAlert(btn.dataset.alertId);
   await refreshAlertHistory();
+});
+
+document.getElementById("settings-show-projected-logs").addEventListener("change", (event) => {
+  setShowProjectedLogs(event.target.checked);
 });
 
 document.getElementById("settings-form").addEventListener("submit", async (event) => {

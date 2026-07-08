@@ -86,7 +86,7 @@ class LogInput:
     intake_kcal: float
     steps: float
     intake_is_real: bool = True
-    cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Danel exactly
+    cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Demo_cut exactly
 
     # Phase 3.4 (Wave 2, F9) -- daily/weekly macro grams; all three are
     # present together or not at all (see CompositionEngine.validate_log_input).

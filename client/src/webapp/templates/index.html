@@ -39,7 +39,6 @@
     <nav class="nav-menu" id="nav" role="menu" hidden>
       <button class="nav-link" role="menuitem" data-view="dashboard">Dashboard</button>
       <button class="nav-link" role="menuitem" data-view="log">Log</button>
-      <button class="nav-link" role="menuitem" data-view="projection">Projection</button>
       <button class="nav-link" role="menuitem" data-view="plan">Plan</button>
       <button class="nav-link" role="menuitem" data-view="alert-history">Alerts</button>
       <button class="nav-link" role="menuitem" data-view="report">Report</button>
@@ -93,10 +92,6 @@
             </select>
           </label>
           <label>Birthdate <input name="birthdate" type="date" required /></label>
-          <label>Target body fat (%) <input name="target_bf_pct" type="number" step="0.1" required /></label>
-          <label>Weekly rate (% of body weight, negative = loss)
-            <input name="weekly_rate_pct" type="number" step="0.01" value="-0.5" required />
-          </label>
           <button type="submit">Register</button>
           <p class="form-error" data-for="register-form"></p>
         </form>
@@ -204,6 +199,18 @@
 
     <section id="view-log" class="view" hidden>
       <h1>Weekly log</h1>
+
+      <div class="log-nav" id="log-nav">
+        <button type="button" class="log-nav-arrow" id="log-nav-prev" aria-label="Previous">&lsaquo;</button>
+        <span class="log-nav-label" id="log-nav-label"></span>
+        <button type="button" class="log-nav-arrow" id="log-nav-next" aria-label="Next">&rsaquo;</button>
+        <div class="log-nav-toggle" id="log-nav-toggle">
+          <button type="button" class="log-nav-toggle-btn" id="log-nav-day">Day</button>
+          <button type="button" class="log-nav-toggle-btn" id="log-nav-week">Week</button>
+        </div>
+        <input type="date" id="log-nav-date" aria-label="Jump to date" />
+      </div>
+
       <form id="log-form" class="wizard-form">
         <div class="wizard-progress" id="log-wizard-progress">
           <span class="wizard-step-label" data-step="1">1. Date &amp; weight</span>
@@ -213,10 +220,11 @@
         </div>
 
         <fieldset class="wizard-step" data-step="1">
-          <label>Date <input name="date" type="date" required /></label>
+          <p class="wizard-selected-date"><span id="log-wizard-date-prefix">Logging for</span> <strong id="log-wizard-date-label"></strong></p>
+          <input type="hidden" name="date" id="log-wizard-date-input" />
           <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
           <label>Granularity
-            <select name="granularity">
+            <select name="granularity" id="log-wizard-granularity">
               <option value="weekly" selected>Weekly — one entry for the week</option>
               <option value="daily">Daily — log every day this week</option>
             </select>
@@ -230,7 +238,7 @@
 
         <fieldset class="wizard-step" data-step="3" hidden>
           <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
-          <label>Steps <input name="steps" type="number" step="1" required /></label>
+          <label>Steps <input name="steps" type="number" step="1" value="0" /></label>
           <label>Cardio / exercise (kcal) <input name="cardio_kcal" type="number" step="1" value="0" /></label>
           <p class="disclaimer" id="log-macros-hint">
             Optional -- log carbs/fat/protein (mainly useful on daily logs) for
@@ -251,41 +259,16 @@
           <button type="button" id="log-back" hidden>Back</button>
           <button type="button" id="log-next">Next</button>
           <button type="submit" id="log-save" hidden>Save log</button>
+          <button type="button" id="log-cancel-edit" hidden>Cancel</button>
         </div>
         <p class="form-error" data-for="log-form"></p>
       </form>
+
+      <h2 id="log-list-heading"></h2>
+      <p class="disclaimer" id="log-list-empty" hidden>No logs for this day/week yet.</p>
       <table class="data-table" id="log-table">
         <thead>
           <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Macros (C/F/P)</th><th>Source</th><th>Granularity</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section id="view-projection" class="view" hidden>
-      <h1>Projection</h1>
-      <div class="inline-form">
-        <label>Weeks
-          <input id="projection-weeks" type="number" value="8" min="1" max="52" />
-        </label>
-        <label>Regression base
-          <select id="projection-base">
-            <option value="real">Real logs only</option>
-            <option value="real_projected">Real + projected (expanding)</option>
-          </select>
-        </label>
-        <label>Steps assumption
-          <select id="projection-activity">
-            <option value="constant">Hold constant (last logged value)</option>
-            <option value="trend">Follow trend</option>
-          </select>
-        </label>
-        <button id="projection-refresh">Update forecast</button>
-      </div>
-      <p class="disclaimer">Forecast values are estimates extrapolated from your trend, not measurements.</p>
-      <table class="data-table" id="projection-table">
-        <thead>
-          <tr><th>Date</th><th>Weight</th><th>Body fat %</th><th>Target kcal</th><th>Badge</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -341,6 +324,18 @@
         (like a goal-plan change) rather than overwriting the old one.
       </p>
       <p id="settings-status" class="disclaimer"></p>
+
+      <h2>Log view</h2>
+      <div class="inline-form" id="settings-display-prefs">
+        <label class="checkbox-label">
+          <input type="checkbox" id="settings-show-projected-logs" />
+          Show projected values on future dates
+        </label>
+      </div>
+      <p class="disclaimer">
+        A local browser preference, not part of the account settings below --
+        it isn't saved to your account or synced across devices.
+      </p>
 
       <form id="settings-form" class="stacked-form">
         <h2>Energy model</h2>
@@ -430,7 +425,7 @@
     <section id="view-account" class="view" hidden>
       <h1>Account</h1>
       <form id="profile-form" class="stacked-form">
-        <h2>Goal &amp; profile</h2>
+        <h2>Profile</h2>
         <label>Height (cm) <input name="height_cm" type="number" step="0.1" /></label>
         <label>Sex
           <select name="sex">
@@ -439,8 +434,6 @@
           </select>
         </label>
         <label>Birthdate <input name="birthdate" type="date" /></label>
-        <label>Target body fat (%) <input name="target_bf_pct" type="number" step="0.1" /></label>
-        <label>Weekly rate (%) <input name="weekly_rate_pct" type="number" step="0.01" /></label>
         <button type="submit">Save profile</button>
         <p class="form-error" data-for="profile-form"></p>
       </form>

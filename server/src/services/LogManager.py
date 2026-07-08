@@ -1,4 +1,4 @@
-"""Weekly body-log CRUD, plus the verified "Danel" (cut) and "Sergio"
+"""Weekly body-log CRUD, plus the verified "Demo_cut" (cut) and "Demo_bulk"
 (bulk) reference series used by scripts/seed_demo_data.sh and the
 JUSTFITTING_SEED_DEMO boot seeder (see services/DemoSeeder.py).
 """
@@ -50,12 +50,16 @@ class DemoProfile:
 
 #: The verified reference profile and its two documented boundary logs
 #: (docs/composition_spec.md). Weeks in between are linearly interpolated
-#: so the demo dataset is a plausible, continuous weekly series.
+#: so the demo dataset is a plausible, continuous weekly series. This is
+#: Demo_cut's *first* goal (Phase 5.3 demo history, below) -- registration
+#: uses these values, and DEMO_SECOND_GOAL takes over
+#: DEMO_GOAL_CHANGE_WEEKS_BEFORE_END weeks before the last log, so the
+#: account exercises Phase 5.3's goal-period scoping out of the box.
 DEMO_PROFILE = DemoProfile(
     height_cm=176,
     sex=1,
     birthdate=date(2001, 8, 22),
-    target_bf=0.15,
+    target_bf=0.17,
     weekly_rate=-0.005,
 )
 DEMO_FIRST_LOG = {
@@ -74,48 +78,63 @@ DEMO_STEPS_START = 6000
 DEMO_STEPS_END = 5000
 DEMO_INTAKE_START = 2400.0
 DEMO_INTAKE_END = 2014.30
+#: Demo_cut's *second* (active) goal -- a demo goal change partway through
+#: the reference series, purely for exercising Phase 5.3's scoping and
+#: the log wizard/dashboard against real two-goal history. Not part of
+#: the documented "Demo_cut worked example" derivation itself (see README).
+#: A steeper -1%/week (not +1%): pairing this 15% target with a positive
+#: rate would ask the engine to "get leaner" and "gain weight" at once,
+#: producing a nonsensical target-calories/weeks-to-goal figure.
+DEMO_SECOND_GOAL = (0.15, -0.01)
+DEMO_GOAL_CHANGE_WEEKS_BEFORE_END = 8
+DEMO_GOAL_CHANGE_DATE = DEMO_LAST_LOG["date"] - timedelta(weeks=DEMO_GOAL_CHANGE_WEEKS_BEFORE_END)
 
-#: Sergio's bulk/volume reference profile (docs/composition_spec.md's
-#: "Wave 2" section) -- a second worked profile alongside Danel's above,
+#: Demo_bulk's bulk/volume reference profile (docs/composition_spec.md's
+#: "Wave 2" section) -- a second worked profile alongside Demo_cut's above,
 #: a lean bulk instead of a cut. The source doc only gives a single-week
 #: snapshot, not a full series, so the boundary logs and trajectory below
 #: are this implementation's own plausible demo data, not a documented
-#: golden reference (unlike Danel's, don't pin new tests to these numbers).
-SERGIO_PROFILE = DemoProfile(
+#: golden reference (unlike Demo_cut's, don't pin new tests to these numbers).
+DEMO_BULK_PROFILE = DemoProfile(
     height_cm=194,
     sex=1,
     birthdate=date(2001, 4, 5),
-    target_bf=0.15,
-    weekly_rate=0.005,
+    target_bf=0.20,
+    weekly_rate=0.02,
 )
-SERGIO_FIRST_LOG = {
+DEMO_BULK_FIRST_LOG = {
     "date": date(2026, 1, 4),
     "weight_kg": 88.0,
     "waist_cm": 84.0,
     "neck_cm": 39.0,
 }
-SERGIO_LAST_LOG = {
+DEMO_BULK_LAST_LOG = {
     "date": date(2026, 6, 28),
     "weight_kg": 95.5,
     "waist_cm": 84.5,
     "neck_cm": 39.0,
 }
-SERGIO_STEPS_START = 9000
-SERGIO_STEPS_END = 7500
-SERGIO_INTAKE_START = 3000.0
-SERGIO_INTAKE_END = 3450.0
+DEMO_BULK_STEPS_START = 9000
+DEMO_BULK_STEPS_END = 7500
+DEMO_BULK_INTAKE_START = 3000.0
+DEMO_BULK_INTAKE_END = 3450.0
+#: Demo_bulk's *second* (active) goal -- same Phase 5.3 demo-history purpose
+#: as Demo_cut's DEMO_SECOND_GOAL above.
+DEMO_BULK_SECOND_GOAL = (0.18, 0.0005)
+DEMO_BULK_GOAL_CHANGE_WEEKS_BEFORE_END = 8
+DEMO_BULK_GOAL_CHANGE_DATE = DEMO_BULK_LAST_LOG["date"] - timedelta(weeks=DEMO_BULK_GOAL_CHANGE_WEEKS_BEFORE_END)
 #: Cardio/exercise activity thermogenesis (Phase 3.1, F2) -- tapered down
 #: as the bulk progresses, a plausible "less cardio, more lifting" pattern.
-SERGIO_CARDIO_START = 300.0
-SERGIO_CARDIO_END = 150.0
+DEMO_BULK_CARDIO_START = 300.0
+DEMO_BULK_CARDIO_END = 150.0
 #: The most recent N weeks are logged at daily granularity with macros
-#: (Phase 3.3/3.4, F6/F9), instead of Danel's all-weekly series, so the
+#: (Phase 3.3/3.4, F6/F9), instead of Demo_cut's all-weekly series, so the
 #: seeded data also exercises mixed-granularity accounts and macro-based TEF.
-SERGIO_DAILY_WEEKS = 4
+DEMO_BULK_DAILY_WEEKS = 4
 #: A simple, illustrative protein/fat/carb split of each day's intake
 #: (converted to grams via the standard Atwater factors) -- not tuned to
 #: any account's own macro-target settings.
-SERGIO_MACRO_SPLIT = {"protein": 0.30, "fat": 0.25, "carbs": 0.45}
+DEMO_BULK_MACRO_SPLIT = {"protein": 0.30, "fat": 0.25, "carbs": 0.45}
 #: Small deterministic day-to-day wiggle (Mon..Sun) so a daily-logged week
 #: isn't perfectly flat; reused as a fraction of each field's own scale.
 _DAILY_WIGGLE = (-0.2, 0.4, -0.4, 0.2, 0.0, -0.3, 0.3)
@@ -273,7 +292,7 @@ class LogManager:
         return sum(real_diffs) / len(real_diffs)
 
     def seed_reference_series(self, user_id: int) -> List[BodyLog]:
-        """Seed the weekly Danel reference series between the two documented
+        """Seed the weekly Demo_cut reference series between the two documented
         boundary logs (idempotent: no-op if the user already has logs)."""
         if self.log_dao.list_for_user(user_id):
             return []
@@ -328,48 +347,48 @@ class LogManager:
         return created
 
     def seed_bulk_reference_series(self, user_id: int) -> List[BodyLog]:
-        """Seed Sergio's bulk reference series (idempotent: no-op if the
-        user already has logs). The most recent SERGIO_DAILY_WEEKS weeks
-        are logged at daily granularity with macros, unlike Danel's
+        """Seed Demo_bulk's bulk reference series (idempotent: no-op if the
+        user already has logs). The most recent DEMO_BULK_DAILY_WEEKS weeks
+        are logged at daily granularity with macros, unlike Demo_cut's
         all-weekly series above, so the seeded data also exercises F6/F9."""
         if self.log_dao.list_for_user(user_id):
             return []
 
-        start = SERGIO_FIRST_LOG["date"]
-        end = SERGIO_LAST_LOG["date"]
+        start = DEMO_BULK_FIRST_LOG["date"]
+        end = DEMO_BULK_LAST_LOG["date"]
         total_weeks = (end - start).days // 7
-        daily_from_week = total_weeks - SERGIO_DAILY_WEEKS + 1
+        daily_from_week = total_weeks - DEMO_BULK_DAILY_WEEKS + 1
 
         created: List[BodyLog] = []
         for week in range(total_weeks + 1):
             log_date = start + timedelta(days=7 * week)
             fraction = week / total_weeks
             weight_kg = _interpolate(
-                SERGIO_FIRST_LOG["weight_kg"], SERGIO_LAST_LOG["weight_kg"], fraction
+                DEMO_BULK_FIRST_LOG["weight_kg"], DEMO_BULK_LAST_LOG["weight_kg"], fraction
             )
             waist_cm = _interpolate(
-                SERGIO_FIRST_LOG["waist_cm"], SERGIO_LAST_LOG["waist_cm"], fraction
+                DEMO_BULK_FIRST_LOG["waist_cm"], DEMO_BULK_LAST_LOG["waist_cm"], fraction
             )
             neck_cm = _interpolate(
-                SERGIO_FIRST_LOG["neck_cm"], SERGIO_LAST_LOG["neck_cm"], fraction
+                DEMO_BULK_FIRST_LOG["neck_cm"], DEMO_BULK_LAST_LOG["neck_cm"], fraction
             )
-            steps = _interpolate(SERGIO_STEPS_START, SERGIO_STEPS_END, fraction)
-            intake_kcal = _interpolate(SERGIO_INTAKE_START, SERGIO_INTAKE_END, fraction)
-            cardio_kcal = _interpolate(SERGIO_CARDIO_START, SERGIO_CARDIO_END, fraction)
+            steps = _interpolate(DEMO_BULK_STEPS_START, DEMO_BULK_STEPS_END, fraction)
+            intake_kcal = _interpolate(DEMO_BULK_INTAKE_START, DEMO_BULK_INTAKE_END, fraction)
+            cardio_kcal = _interpolate(DEMO_BULK_CARDIO_START, DEMO_BULK_CARDIO_END, fraction)
 
             # The two boundary rows are reproduced exactly, same convention
-            # as Danel's series above.
+            # as Demo_cut's series above.
             if week == 0:
                 weight_kg, waist_cm, neck_cm = (
-                    SERGIO_FIRST_LOG["weight_kg"],
-                    SERGIO_FIRST_LOG["waist_cm"],
-                    SERGIO_FIRST_LOG["neck_cm"],
+                    DEMO_BULK_FIRST_LOG["weight_kg"],
+                    DEMO_BULK_FIRST_LOG["waist_cm"],
+                    DEMO_BULK_FIRST_LOG["neck_cm"],
                 )
             elif week == total_weeks:
                 weight_kg, waist_cm, neck_cm = (
-                    SERGIO_LAST_LOG["weight_kg"],
-                    SERGIO_LAST_LOG["waist_cm"],
-                    SERGIO_LAST_LOG["neck_cm"],
+                    DEMO_BULK_LAST_LOG["weight_kg"],
+                    DEMO_BULK_LAST_LOG["waist_cm"],
+                    DEMO_BULK_LAST_LOG["neck_cm"],
                 )
 
             if week >= daily_from_week:
@@ -414,14 +433,14 @@ class LogManager:
         cardio_kcal: float,
     ) -> List[BodyLog]:
         """The 7 days ending on ``week_date``, wiggled around that week's
-        interpolated values, with macros split per SERGIO_MACRO_SPLIT."""
+        interpolated values, with macros split per DEMO_BULK_MACRO_SPLIT."""
         created: List[BodyLog] = []
         for day_offset, wiggle in enumerate(_DAILY_WIGGLE):
             day = week_date - timedelta(days=6 - day_offset)
             day_intake = max(0.0, intake_kcal + wiggle * 40)
-            protein_g = (day_intake * SERGIO_MACRO_SPLIT["protein"]) / 4.0
-            fat_g = (day_intake * SERGIO_MACRO_SPLIT["fat"]) / 9.0
-            carbs_g = (day_intake * SERGIO_MACRO_SPLIT["carbs"]) / 4.0
+            protein_g = (day_intake * DEMO_BULK_MACRO_SPLIT["protein"]) / 4.0
+            fat_g = (day_intake * DEMO_BULK_MACRO_SPLIT["fat"]) / 9.0
+            carbs_g = (day_intake * DEMO_BULK_MACRO_SPLIT["carbs"]) / 4.0
             created.append(
                 self.create_log(
                     user_id=user_id,
@@ -455,9 +474,9 @@ def demo_profile_params() -> ProfileParams:
 
 def bulk_demo_profile_params() -> ProfileParams:
     return ProfileParams(
-        height_cm=SERGIO_PROFILE.height_cm,
-        sex=SERGIO_PROFILE.sex,
-        birthdate=SERGIO_PROFILE.birthdate,
-        target_bf=SERGIO_PROFILE.target_bf,
-        weekly_rate=SERGIO_PROFILE.weekly_rate,
+        height_cm=DEMO_BULK_PROFILE.height_cm,
+        sex=DEMO_BULK_PROFILE.sex,
+        birthdate=DEMO_BULK_PROFILE.birthdate,
+        target_bf=DEMO_BULK_PROFILE.target_bf,
+        weekly_rate=DEMO_BULK_PROFILE.weekly_rate,
     )

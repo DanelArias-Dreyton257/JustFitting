@@ -11,6 +11,12 @@ from typing import Optional
 from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.data.domain.UserProfile import UserProfile
+from server.src.services.composition.constants import (
+    DEFAULT_TARGET_BF_FEMALE,
+    DEFAULT_TARGET_BF_MALE,
+    DEFAULT_WEEKLY_RATE,
+    SEX_MALE,
+)
 
 GOAL_FIELDS = ("target_bf", "weekly_rate")
 
@@ -61,9 +67,10 @@ class UserManager:
         height_cm: float,
         sex: int,
         birthdate: date,
-        target_bf: float,
-        weekly_rate: float,
+        target_bf: Optional[float] = None,
+        weekly_rate: Optional[float] = None,
         units: str = "metric",
+        goal_start_date: Optional[date] = None,
     ) -> UserProfile:
         if self.user_dao.get_by_username(username):
             raise UserManagerError(f"username '{username}' is already taken")
@@ -73,6 +80,16 @@ class UserManager:
             raise UserManagerError("height_cm must be positive")
         if sex not in (0, 1):
             raise UserManagerError("sex must be 0 (female) or 1 (male)")
+
+        # Phase 5.2: account creation no longer requires choosing a goal --
+        # an omitted target_bf/weekly_rate resolves to a harmless per-sex
+        # default ("no change yet"), and the user sets a real goal later via
+        # the Plan tab's own preview/commit flow.
+        if target_bf is None:
+            target_bf = DEFAULT_TARGET_BF_MALE if sex == SEX_MALE else DEFAULT_TARGET_BF_FEMALE
+        if weekly_rate is None:
+            weekly_rate = DEFAULT_WEEKLY_RATE
+
         if not (0 < target_bf < 1):
             raise UserManagerError("target_bf must be a fraction between 0 and 1")
 
@@ -85,8 +102,11 @@ class UserManager:
             birthdate=birthdate,
             units=units,
         )
+        # `goal_start_date` lets a caller backdate the very first goal
+        # (e.g. demo seeding, to match a reference series' actual start)
+        # instead of always stamping it "today" -- see DemoSeeder.py.
         self.goal_plan_manager.create_goal_plan(
-            profile.user_id, target_bf, weekly_rate, start_date=date.today()
+            profile.user_id, target_bf, weekly_rate, start_date=goal_start_date or date.today()
         )
         return profile
 

@@ -7,6 +7,229 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Log view's table gained an "Edit" button next to Delete (README's
+  Phase 5.7) -- opens the same 4-step wizard already used for creating a
+  log, pre-filled with that row's values, with its Save button reading
+  "Save changes" and a new "Cancel" affordance. The log's date and
+  granularity aren't editable (shown locked); every other field is.
+  `PUT /api/logs/<id>` and `LogManager.update_log` already existed
+  end-to-end -- this phase is purely the missing client UI.
+- A new dismissible alert, `"unconfigured_goal"` (README's Phase 5.10),
+  tells a brand-new account that its first goal (15%/22% body fat by sex,
+  0% weekly rate -- Phase 5.2's registration default) was auto-assigned
+  and points it at the Plan tab -- flows through the existing persisted
+  alerts pipeline unchanged, so it shows on the Dashboard even before any
+  log exists. Inferred with no schema change: it fires only while the
+  active goal is the account's one-and-only-ever goal plan
+  (`goal_history_count == 1`) and its `weekly_rate` is still exactly
+  `0.0` -- any deliberately chosen goal necessarily has a nonzero rate,
+  and committing a goal via the Plan tab always historizes a new goal
+  row, so this can never re-trigger once the user has actually visited
+  the Plan tab.
+- The Dashboard's Calories section gained a fourth tile, "This week's
+  intake" (the latest real log's `intake_kcal`, placed before Adherence),
+  and a small subtitle line under each tile clarifying what each figure
+  actually means (README's Phase 5.6, `things-to-improve.txt`'s second
+  beta-testing round, item 6): "Target calories" -> what to eat, "TDEE"
+  -> estimated calories burned, "Adherence" -> actual vs target/day (its
+  value itself now reads e.g. "-180 kcal" instead of "-180 kcal/day",
+  since the subtitle carries that). Purely a labeling/presentation fix
+  over already-correct numbers -- no engine or API change.
+  `client/src/webapp/static/js/app.js`'s `refreshDashboardSummary()` now
+  also fetches `GET /api/logs` to source the new tile's value.
+
+### Changed
+
+- Computed series/charts/alerts/adherence/projections/reports now scope to
+  the active goal's own period once an account has actually changed its
+  goal (README's Phase 5.3) -- previously, changing goals (e.g. finishing
+  a cut, starting a bulk) silently recomputed every historical week's
+  target/trajectory/deficit as if the new goal had applied the whole
+  time, and fed pre-change data into the forecast's trend regression. A
+  new `GoalPlanManager.active_period_start(user_id)` returns `None` (no
+  scoping) for an account that's never changed its goal -- not just the
+  active goal's `start_date` unconditionally, since every account's very
+  first goal is created "today" at registration, and a plain filter would
+  otherwise exclude any log dated before signup for every single-goal
+  account. `GET /api/logs`/`/export` (raw history) are unaffected --
+  only the derived series is scoped.
+- Both demo accounts (`admin_cut`/`admin_bulk`, `services/DemoSeeder.py`)
+  now seed with a two-goal history instead of one, so they exercise the
+  Phase 5.3 scoping above out of the box: `admin_cut` registers at 17%
+  body fat/-0.5% weekly, then switches to 15%/-1% 8 weeks before its last
+  reference log; `admin_bulk` registers at 20%/+2%, then switches to
+  18%/+0.05%. The "Demo_cut worked example" in this README is updated to
+  match `admin_cut`'s actual active goal (`Wobj`/`DailyDeficit`/
+  `TargetCal`/`Weeks` all depend on `weekly_rate`, unlike the rest of the
+  figures there).
+- Registration no longer asks for a goal, and the Account view is
+  profile-only (README's Phase 5.2/5.8). `POST /api/users` drops its
+  `target_bf`/`weekly_rate` requirement -- an omitted goal resolves to a
+  sane per-sex default (15% body fat male / 22% female, 0% weekly rate =
+  "no change yet"), still creating an active goal plan under the hood
+  (explicitly passing `target_bf`/`weekly_rate` keeps working exactly as
+  before). The register form and the Account view's profile-form both
+  drop their Target body fat/Weekly rate fields entirely -- Account's
+  heading changes from "Goal & profile" to "Profile" -- so the Plan tab's
+  preview -> commit flow is now the **only** place a goal ever changes,
+  for both a brand-new account and an existing one editing later.
+- The Dashboard's Goal section now leads with the **target** figure
+  instead of the current one, with an arrowed (▲/▼/–) "to goal" subtitle
+  showing the remaining distance -- the same `.delta` visual language the
+  Weight & Body Composition section above it already uses for
+  week-over-week change (README's Phase 5.9, a follow-up refinement past
+  `things-to-improve.txt`'s original eight items). "Body fat vs target" ->
+  "Target body fat" (value is now `target_bf`, e.g. "15.0%", subtitle "▼
+  -4.8% to goal"); "Weight to goal" -> "Target weight (keep lean)" (value
+  is now `final_weight_kg`, subtitle "▼ -5.1 kg to goal" --
+  the same Phase 5.5 formula, sign-flipped into a direction-of-travel
+  delta). A new `formatGoalDelta()` helper (`views.js`) renders this
+  alongside the existing `formatDelta()` used for weekly deltas.
+- The service worker's cache name (`client/src/webapp/static/sw.js`) is
+  now computed at runtime from a SHA-256 hash of the app shell files'
+  own bytes instead of a manually-bumped `CACHE_NAME` literal (README's
+  Phase 5.1, `things-to-improve.txt`'s second beta-testing round, item
+  1). `install` fetches, hashes, and populates the freshly-named cache in
+  one pass; `activate` re-derives the current name and purges every other
+  `justfitting-shell-*` cache; the `fetch` handler's write-back looks up
+  the live cache name via `caches.keys()`. Editing any shell file now
+  changes its cache automatically -- this is the last release whose
+  changelog will ever say "`CACHE_NAME` bumped".
+- The log wizard's Steps field now defaults to `0` and is no longer
+  `required`, matching the existing Cardio field's convention, instead of
+  blocking submission until a value is typed.
+- The log wizard now pre-fills Waist/Neck from the account's most recent
+  real log at every "fresh wizard" reset point (entering the Log view,
+  switching day/week view) instead of always opening blank (README's
+  Phase 5.4, `things-to-improve.txt`'s second beta-testing round, item
+  4). Weight and intake/steps/cardio/macros are left blank, since those
+  are meant to be re-measured/re-entered every time, not carried forward.
+  A brand-new account's first-ever wizard still opens blank.
+- Retired the standalone Projection view/nav tab (README's Phase 4.5, the
+  fifth and final item from `things-to-improve.txt`'s first round of
+  beta-testing feedback, completing Phase 4). The Dashboard's existing
+  forecast toggle (Phase 4.3) is unchanged; the Log view now shows
+  forecasted future dates as a row injected directly into its log table
+  -- same columns a real log uses, tagged with a "projected" badge and a
+  "weekly" granularity badge (the forecast is always weekly-cadence), no
+  Delete button, weight/waist/neck rounded to 1 decimal, and fields the
+  forecast never observed (intake/steps/cardio/macros) shown as "--" --
+  rather than a separate widget. It's gated by a new "Show projected
+  values on future dates" checkbox in Settings, stored in `localStorage`
+  (`session.js`'s `getShowProjectedLogs()`/`setShowProjectedLogs()`,
+  defaulting on for a first-time user) rather than as a server-persisted
+  account setting, since it's a display preference, not an engine input
+  -- it persists across sessions on the same browser once explicitly
+  toggled, unlike the Dashboard's own toggle which resets every login.
+  `app.js`'s Phase 4.3 forecast-fetch/cache logic is
+  generalized into one `fetchProjectionWeeks(weeks)` helper shared by
+  both the Dashboard toggle and the Log view's row injection. Purely
+  client-only, like every other Phase 4 sub-phase -- no server/DB
+  changes, no `ENGINE_VERSION` bump. `sw.js`'s `CACHE_NAME` bumped
+  `-v14` -> `-v15`. New Playwright coverage in
+  `client/test/browser/Log_test.py` (turning the Settings preference on
+  and navigating past the last logged week injects a tagged, undeletable
+  projected row; turning it off removes it; navigating to a day with a
+  real log shows only that real, deletable row even with the preference
+  on); `Client_test.py`'s markup assertion on the removed standalone
+  view's `#projection-activity` control is replaced with an assertion
+  that no `data-view="projection"` nav link or `#view-projection` section
+  remain, and that `#settings-show-projected-logs` exists.
+
+- Redesigned the Log view's log capture around a day/week navigator
+  (README's Phase 4.4, the fourth item from `things-to-improve.txt`'s
+  first round of beta-testing feedback): a `‹`/`›` arrow pair, a Day/Week
+  toggle, and a date-picker sit above the existing wizard, defaulting to
+  today's day view. The wizard's date is now derived from the
+  navigator's selected day (a "Logging for **`<day>`**" label plus a
+  hidden field) instead of a freely-editable date input, and the table
+  underneath only ever shows that day's (or that ISO Monday-Sunday
+  week's) logs, with a "No logs for this day/week yet." placeholder when
+  empty -- replacing the previous unbounded "every log ever" table.
+  Purely client-only: `GET /api/logs` already returns every log for the
+  account in one call, so the navigator is a client-side filter over
+  data already fetched, not a new endpoint -- no migration, no
+  `ENGINE_VERSION` bump. The granularity selector's default follows the
+  active view mode (daily in day view, weekly in week view) at each
+  fresh-wizard point (opening the Log view, switching day/week, and
+  after a save), without overriding a manual mid-entry choice.
+  `sw.js`'s `CACHE_NAME` bumped `-v13` -> `-v14`. New Playwright coverage
+  in `client/test/browser/Log_test.py` (default today/day-view empty
+  state, a saved log landing in the selected day, arrow navigation, and
+  week view grouping multiple same-ISO-week logs that day view keeps
+  separate); `Dashboard_test.py`'s own log-creation helper updated to
+  drive the new date-picker instead of the now-hidden date input.
+
+### Fixed
+
+- The Dashboard's "Weight to goal" tile (README's Phase 5.5,
+  `things-to-improve.txt`'s second beta-testing round, item 5) showed
+  `weight_to_shed_kg` -- this week's incremental target change, which for
+  a steady weekly rate is always roughly the same figure (reported as "a
+  flat 0.5kg") regardless of actual proximity to the goal -- instead of
+  the total remaining distance. It now reads `(fat_mass_kg + lean_mass_kg)
+  - final_weight_kg`, the account's current weight minus its goal weight,
+  from fields `MetricsDTO` already returns. Client-only; `weight_to_shed_kg`
+  itself is unchanged and still drives the engine's deficit/target-calorie
+  chain correctly.
+- `Trajectory.compute_weeks_to_goal` divided by `ln(1 - weekly_rate)`,
+  which is exactly `0` at `weekly_rate = 0` -- a `ZeroDivisionError` on
+  the very first log computed for an account at that rate. Nothing
+  validates `weekly_rate` today, so this was already a latent,
+  manually-triggerable bug; Phase 5.2's new `weekly_rate = 0` default for
+  brand-new accounts made it the default path. Fixed with the same
+  `abs(weekly_rate) < 1e-9` epsilon guard `IncrementAnalytics.py` already
+  uses for its own zero-rate case, returning the same `0.0` "no
+  meaningful figure" sentinel every consumer already renders as "--".
+- The Log view's day view only ever matched a `"weekly"` log against its
+  own literal logged date instead of its whole ISO week (README's Phase
+  5.3 follow-up) -- browsing day-by-day through an already-logged week
+  showed the real log on only the one day it happened to be entered, an
+  empty placeholder on every other day of that week, and (since
+  `refreshProjectedRow()` already bails out whenever a day has a real
+  log) a stale-looking "projected" row injected on those other six days
+  even though the week was already logged. `app.js`'s `filteredLogs()`
+  now matches a `"weekly"` log against its whole Mon-Sun week in day
+  view too (the same range check week view already used), fixing both
+  symptoms at once; a `"daily"` log still only matches its own exact
+  date.
+- The Weight vs Goal Trajectory chart showed a fake vertical-line spike
+  at every goal change (README's Phase 5.3 follow-up) -- Phase 5.3's
+  period scoping correctly excludes pre-goal-change logs from the
+  engine's input, but that left the new period's first row with no
+  predecessor, so `weight_objective_kg` snapped to that week's actual
+  weight exactly before jumping to a real weekly step the week after.
+  `CompositionEngine.compute_series` gained an optional
+  `initial_prev_weight_kg` context param (threaded through
+  `MetricsCache.get_or_compute_series`); `MetricsSeriesService.
+  compute_series_for_user` now passes in the last real log's weight from
+  *before* the scoped period as trajectory context only, never
+  re-included in the output, so the series stays continuous across a
+  goal change.
+- `admin_cut`/`admin_bulk`'s goal history showed dates backwards (README's
+  Phase 5.3 follow-up) -- their first goal was always stamped
+  `start_date=date.today()` at seed time (`UserManager.register`), while
+  their second, backdated goal used an earlier explicit date, so goal 1
+  appeared to start *after* goal 2. `UserManager.register` gained an
+  optional `goal_start_date` override (defaults to today, unchanged for
+  real signups); `DemoSeeder.py` now passes each account's actual
+  reference-series start date for goal 1.
+- The Log view could briefly render an inconsistent default state (wrong
+  heading, table/placeholder visibility) right after navigating to it,
+  since `navigate()` showed the view synchronously but left
+  `refreshLogs()` -- which sets the nav label, heading, and table/
+  placeholder visibility -- to resolve asynchronously and unawaited,
+  racing against anything that inspected the view immediately (caught by
+  a flaky CI failure in `Log_test.LogNavTest.
+  test_default_is_todays_day_view_with_empty_placeholder`, not
+  reproducible locally). `navigate()` now calls `renderLogNav()`/
+  `renderFilteredLogList()` synchronously from already-known state
+  (`state.logNav` always defaults to today/day-view, `state.logs` starts
+  `[]`) before kicking off the fetch, so the view is always consistent
+  the instant it's shown, regardless of network timing.
+
 ## [1.1.0] - 2026-07-06
 
 Phase 4.1-4.3 of the beta-testing UX refinement round
@@ -141,7 +364,7 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
   (F5), `increment_analytics` (F7), `tef` (F9) and `macro_targets` (F9+)
   -- closing the README's former "Future work" gap where a bulk account's
   trainer/nutritionist export/report only ever showed the original
-  Danel-era metrics. A new shared `_wave2_metrics` helper in
+  Demo_cut-era metrics. A new shared `_wave2_metrics` helper in
   `user_routes.py` computes all five from the same `services/
   composition/*` functions and reuses the exact DTOs `GET /api/metrics/*`
   already exposes -- no new computation, no `ENGINE_VERSION` implications.
@@ -173,16 +396,16 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
   database doesn't error or lose data; every other DAO-level test is
   unaffected.
 - `services/DemoSeeder.py` now seeds **two** demo accounts instead of one:
-  `admin_cut` (Danel's cut reference series, unchanged) and `admin_bulk`
-  (a new Sergio-resembling bulk reference series), both password
+  `admin_cut` (Demo_cut's cut reference series, unchanged) and `admin_bulk`
+  (a new Demo_bulk-resembling bulk reference series), both password
   `adminadmin`. `admin_bulk` is also given customized `EngineSettings`
   (`bmr_model="mifflin"`, `tef_mode="macros"`) and its most recent 4 weeks
   are logged at daily granularity with carb/fat/protein grams, so the
   seeded database actually exercises Phase 3/3.1/3.2/3.3/3.4's bulk-mode,
   cardio, gain-quality, energy-reconciliation, daily-granularity and
   macro-TEF/macro-target code paths end to end, not just the original
-  Danel cut. `LogManager.py` gained the parallel `SERGIO_PROFILE`/
-  `seed_bulk_reference_series` (Danel's `seed_reference_series` and its
+  Demo_cut cut. `LogManager.py` gained the parallel `DEMO_BULK_PROFILE`/
+  `seed_bulk_reference_series` (Demo_cut's `seed_reference_series` and its
   constants are untouched -- composition_spec.md's golden reference stays
   exactly as documented). `seed_if_empty` seeds each account
   independently (idempotent per-account) and takes an optional
@@ -324,7 +547,7 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
     are overridden together in the same call), `lean_tissue_kcal_per_kg`
     (default `2100`, unused until Phase 3.2's energy reconciliation) and
     `fat_ratio_ideal` (default `0.25`, unused until Phase 3.1's
-    gain-quality panel) -- all reproducing today's Danel numbers exactly
+    gain-quality panel) -- all reproducing today's Demo_cut numbers exactly
     by default. `BodyFat.compute_body_fat` and
     `Anthropometry.compute_ffmi_adjusted` gained trailing, defaulted
     parameters for the new weights/offset/coefficient; migration 12 adds
@@ -863,14 +1086,14 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
     mark Phase 1.1's §14/§15/§16 items done.
 - Phase 1: server-client web app.
   - Composition engine (`server/src/services/composition/`) implementing
-    the verified "Danel" spec — anthropometry, body-fat estimators
+    the verified "Demo_cut" spec — anthropometry, body-fat estimators
     (RFM/Navy/Deurenberg), energy model (BMR/NEAT/TDEE/target calories),
     goal trajectory, and OLS-based weekly projection.
   - SQLite-backed data layer with a linear migration runner, DAOs for
     users/sessions/body logs, and domain/DTO models.
   - Services layer: `UserManager` (profile CRUD, PBKDF2 password hashing),
     `AuthService` (bearer sessions with sliding expiry), `LogManager`
-    (weekly log CRUD, real-vs-assumed intake, Danel reference demo seed).
+    (weekly log CRUD, real-vs-assumed intake, Demo_cut reference demo seed).
   - Flask REST API: auth, profile, logs, derived metrics, and projection
     routes, plus `GET /api/health`.
   - Static, dependency-free web client (vanilla JS ES modules) with

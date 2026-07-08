@@ -31,6 +31,7 @@ class MetricsCache:
         logs: Sequence[BodyLog],
         engine_inputs: Sequence[LogInput],
         engine_constants: Optional[EngineConstants] = None,
+        initial_prev_weight_kg: Optional[float] = None,
     ) -> List[CompositionResult]:
         ordered_logs = sorted(logs, key=lambda log: log.date)
         log_ids = [log.log_id for log in ordered_logs]
@@ -41,7 +42,9 @@ class MetricsCache:
         if len(cached) == len(log_ids):
             return [cached[log_id] for log_id in log_ids]
 
-        results = CompositionEngine.compute_series(profile, engine_inputs, engine_constants)
+        results = CompositionEngine.compute_series(
+            profile, engine_inputs, engine_constants, initial_prev_weight_kg
+        )
         for log, result in zip(ordered_logs, results):
             self.snapshot_dao.upsert(log.log_id, CompositionEngine.ENGINE_VERSION, result)
         return results

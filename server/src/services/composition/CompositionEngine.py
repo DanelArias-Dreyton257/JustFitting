@@ -208,11 +208,21 @@ def compute_series(
     profile: ProfileParams,
     logs: Sequence[LogInput],
     engine_constants: Optional[EngineConstants] = None,
+    initial_prev_weight_kg: Optional[float] = None,
 ) -> List[CompositionResult]:
-    """Compute derived metrics for a chronological series of weekly logs."""
+    """Compute derived metrics for a chronological series of weekly logs.
+
+    ``initial_prev_weight_kg`` seeds the predecessor for the *first* row
+    instead of leaving it ``None`` -- used when ``logs`` has been scoped to
+    a goal-plan's active period (Phase 5.3) but a real prior weigh-in still
+    exists just outside that window. Without it, the first row of every new
+    goal period would be treated as having no predecessor, resetting
+    ``weight_objective_kg`` to match actual weight exactly and producing a
+    fake trajectory reset/spike at each goal change.
+    """
     ordered = sorted(logs, key=lambda log: log.date)
     results: List[CompositionResult] = []
-    prev_weight_kg: Optional[float] = None
+    prev_weight_kg: Optional[float] = initial_prev_weight_kg
     for log in ordered:
         results.append(compute_row(profile, log, prev_weight_kg, engine_constants))
         prev_weight_kg = log.weight_kg

@@ -29,6 +29,27 @@ def compute_series_for_user(
         return [], []
 
     ordered_logs = sorted(logs, key=lambda log: log.date)
+    # Phase 5.3: once an account has actually changed its goal, only the
+    # active goal's own period feeds the derived series -- otherwise a
+    # goal change silently recomputes every historical week's
+    # target/trajectory/deficit as if the new goal had applied the whole
+    # time. See GoalPlanManager.active_period_start's docstring for why
+    # this is skipped entirely for an account that's never changed its
+    # goal, rather than a blanket `date >= goal.start_date` filter.
+    period_start = goal_plan_manager.active_period_start(user_id)
+    # The last real weigh-in before the active period, if any -- used only
+    # as trajectory context (below), never re-included in the output, so
+    # the first displayed row of a new goal period still has a genuine
+    # predecessor instead of being treated as the start of history.
+    context_prev_weight_kg = None
+    if period_start is not None:
+        preceding = [log for log in ordered_logs if log.date < period_start]
+        if preceding:
+            context_prev_weight_kg = preceding[-1].weight_kg
+        ordered_logs = [log for log in ordered_logs if log.date >= period_start]
+    if not ordered_logs:
+        return [], []
+
     # F6 (Phase 3.3): collapse any daily-granularity rows into one
     # representative row per ISO week before they reach the (inherently
     # weekly-cadence) engine; weekly-tagged rows pass through unchanged.
@@ -40,6 +61,10 @@ def compute_series_for_user(
         engine_settings_manager.get_active(user_id)
     )
     results = metrics_cache.get_or_compute_series(
-        profile_params, resampled_logs, engine_inputs, engine_constants
+        profile_params,
+        resampled_logs,
+        engine_inputs,
+        engine_constants,
+        context_prev_weight_kg,
     )
     return resampled_logs, results

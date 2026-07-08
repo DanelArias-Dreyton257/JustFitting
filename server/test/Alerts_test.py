@@ -236,6 +236,38 @@ class BulkRateAlertTest(unittest.TestCase):
         self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
 
 
+class UnconfiguredGoalAlertTest(unittest.TestCase):
+    """Phase 5.2 follow-up: a brand-new account's still-untouched,
+    auto-assigned default goal (0% weekly rate) is flagged once, even with
+    zero logged weeks -- unlike every other detector, this one needs no
+    `CompositionResult` at all."""
+
+    def test_flags_a_fresh_zero_rate_goal_with_no_logs_at_all(self):
+        alerts = Alerts.detect_alerts([], goal=make_goal(0.0), goal_history_count=1)
+        flagged = [a for a in alerts if a.type == "unconfigured_goal"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+        self.assertEqual(flagged[0].date, BASE_DATE)
+
+    def test_does_not_flag_once_the_goal_has_been_changed(self):
+        # Any commit through the Plan tab historizes a new goal row, even
+        # if the user lands on the same numbers again.
+        alerts = Alerts.detect_alerts([], goal=make_goal(0.0), goal_history_count=2)
+        self.assertFalse(any(a.type == "unconfigured_goal" for a in alerts))
+
+    def test_does_not_flag_a_deliberately_chosen_nonzero_rate(self):
+        alerts = Alerts.detect_alerts([], goal=make_goal(-0.005), goal_history_count=1)
+        self.assertFalse(any(a.type == "unconfigured_goal" for a in alerts))
+
+    def test_no_goal_is_never_flagged(self):
+        alerts = Alerts.detect_alerts([], goal=None, goal_history_count=1)
+        self.assertFalse(any(a.type == "unconfigured_goal" for a in alerts))
+
+    def test_omitting_goal_history_count_skips_the_detector(self):
+        alerts = Alerts.detect_alerts([], goal=make_goal(0.0))
+        self.assertFalse(any(a.type == "unconfigured_goal" for a in alerts))
+
+
 class DirtyBulkAlertTest(unittest.TestCase):
     """Phase 3.2, F5/F8: a bulk week whose gain is fatter than the ideal
     ceiling is flagged (not blocked)."""

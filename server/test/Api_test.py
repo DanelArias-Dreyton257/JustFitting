@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from server.src.api.app import create_app
 
@@ -12,7 +13,7 @@ class ApiTestCase(unittest.TestCase):
         self.app.extensions["db"].close()
 
     def _register(
-        self, username="danel", email="danel@example.com", password="hunter22"
+        self, username="demo_cut", email="demo_cut@example.com", password="hunter22"
     ):
         return self.client.post(
             "/api/users",
@@ -42,7 +43,7 @@ class ApiTestCase(unittest.TestCase):
         token = register_response.get_json()["token"]
 
         login_response = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "hunter22"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "hunter22"}
         )
         self.assertEqual(login_response.status_code, 200)
         login_token = login_response.get_json()["token"]
@@ -51,7 +52,7 @@ class ApiTestCase(unittest.TestCase):
             "/api/users/me", headers=self._auth_header(login_token)
         )
         self.assertEqual(me_response.status_code, 200)
-        self.assertEqual(me_response.get_json()["username"], "danel")
+        self.assertEqual(me_response.get_json()["username"], "demo_cut")
 
         logout_response = self.client.post(
             "/api/auth/logout", headers=self._auth_header(login_token)
@@ -66,6 +67,40 @@ class ApiTestCase(unittest.TestCase):
         # First token issued at registration is a separate session and still valid.
         still_valid = self.client.get("/api/users/me", headers=self._auth_header(token))
         self.assertEqual(still_valid.status_code, 200)
+
+    def test_register_without_goal_fields_resolves_sane_per_sex_defaults(self):
+        # Phase 5.2: registration no longer requires target_bf/weekly_rate.
+        male_response = self.client.post(
+            "/api/users",
+            json={
+                "username": "male_default",
+                "email": "male_default@example.com",
+                "password": "hunter22",
+                "height_cm": 176,
+                "sex": 1,
+                "birthdate": "2001-08-22",
+            },
+        )
+        self.assertEqual(male_response.status_code, 201)
+        male_profile = male_response.get_json()["profile"]
+        self.assertAlmostEqual(male_profile["target_bf"], 0.15)
+        self.assertAlmostEqual(male_profile["weekly_rate"], 0.0)
+
+        female_response = self.client.post(
+            "/api/users",
+            json={
+                "username": "female_default",
+                "email": "female_default@example.com",
+                "password": "hunter22",
+                "height_cm": 165,
+                "sex": 0,
+                "birthdate": "2001-08-22",
+            },
+        )
+        self.assertEqual(female_response.status_code, 201)
+        female_profile = female_response.get_json()["profile"]
+        self.assertAlmostEqual(female_profile["target_bf"], 0.22)
+        self.assertAlmostEqual(female_profile["weekly_rate"], 0.0)
 
     def test_register_rejects_duplicate_username(self):
         self._register()
@@ -94,7 +129,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(password_response.status_code, 204)
 
         relogin = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "new-password-1"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "new-password-1"}
         )
         self.assertEqual(relogin.status_code, 200)
 
@@ -493,6 +528,76 @@ class ApiTestCase(unittest.TestCase):
         self.assertFalse(goals[1]["active"])
         self.assertEqual(goals[0]["direction"], "cut")
 
+    def test_metrics_series_excludes_logs_from_before_a_goal_change(self):
+        # Phase 5.3: once an account actually changes its goal, the derived
+        # series only ever sees that goal's own period -- otherwise
+        # changing goals silently recomputes old weeks as if the new goal
+        # had applied the whole time.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        before = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(before), 2)
+
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        after = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(after, [])
+
+        # The raw log list (and by extension /export's "logs" key) is
+        # unaffected -- full history stays reachable there, same
+        # "not a data-loss concern" precedent Phase 4.4 established.
+        raw_logs = self.client.get("/api/logs", headers=headers).get_json()
+        self.assertEqual(len(raw_logs), 2)
+
+    def test_metrics_series_includes_a_log_on_or_after_the_goal_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        today_iso = date.today().isoformat()
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": today_iso,
+                "weight_kg": 95.0,
+                "waist_cm": 90.0,
+                "neck_cm": 38.0,
+                "intake_kcal": 2200.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        after = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0]["date"], today_iso)
+
+    def test_metrics_series_unaffected_for_an_account_that_never_changes_its_goal(self):
+        # The no-op guarantee: a never-changed goal (even one whose
+        # start_date is "today", from registration) must never exclude a
+        # log dated before it.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        series = self.client.get("/api/metrics/series", headers=headers).get_json()
+        self.assertEqual(len(series), 2)
+
+    def test_projection_regression_excludes_logs_from_before_a_goal_change(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        # Both real logs predate the goal change, so the forecast's
+        # regression source is now empty -- same 400 a fresh account with
+        # fewer than two real logs would get.
+        response = self.client.get("/api/projection?weeks=2", headers=headers)
+        self.assertEqual(response.status_code, 400)
+
     def test_goal_direction_is_bulk_for_a_positive_weekly_rate(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -642,6 +747,30 @@ class ApiTestCase(unittest.TestCase):
         response = self.client.get("/api/alerts", headers=self._auth_header(token))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), [])
+
+    def test_alerts_flags_an_unconfigured_default_goal_with_zero_logs(self):
+        # Phase 5.2 follow-up: registering without target_bf/weekly_rate
+        # (the real register form's path since Phase 5.2) resolves to a 0%
+        # weekly rate, which should surface a dismissible reminder to visit
+        # the Plan tab -- even before any log exists.
+        response = self.client.post(
+            "/api/users",
+            json={
+                "username": "noplan",
+                "email": "noplan@example.com",
+                "password": "hunter22",
+                "height_cm": 176,
+                "sex": 1,
+                "birthdate": "2001-08-22",
+            },
+        )
+        token = response.get_json()["token"]
+        alerts = self.client.get(
+            "/api/alerts", headers=self._auth_header(token)
+        ).get_json()
+        flagged = [a for a in alerts if a["type"] == "unconfigured_goal"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0]["severity"], "info")
 
     def test_alerts_flags_an_implausible_weekly_change(self):
         token = self._register().get_json()["token"]
@@ -1212,19 +1341,19 @@ class ApiTestCase(unittest.TestCase):
 
         reset_response = self.client.post(
             "/api/auth/reset-password",
-            json={"identifier": "danel", "new_password": "brand-new-password-1"},
+            json={"identifier": "demo_cut", "new_password": "brand-new-password-1"},
         )
         self.assertEqual(reset_response.status_code, 200)
         self.assertIn("message", reset_response.get_json())
 
         relogin = self.client.post(
-            "/api/auth/login", json={"username": "danel", "password": "brand-new-password-1"}
+            "/api/auth/login", json={"username": "demo_cut", "password": "brand-new-password-1"}
         )
         self.assertEqual(relogin.status_code, 200)
 
     def test_reset_password_requires_both_fields(self):
         response = self.client.post(
-            "/api/auth/reset-password", json={"identifier": "danel"}
+            "/api/auth/reset-password", json={"identifier": "demo_cut"}
         )
         self.assertEqual(response.status_code, 400)
 

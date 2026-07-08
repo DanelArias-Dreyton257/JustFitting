@@ -121,8 +121,8 @@ def register():
             height_cm=float(payload["height_cm"]),
             sex=int(payload["sex"]),
             birthdate=date.fromisoformat(payload["birthdate"]),
-            target_bf=float(payload["target_bf"]),
-            weekly_rate=float(payload["weekly_rate"]),
+            target_bf=float(payload["target_bf"]) if "target_bf" in payload else None,
+            weekly_rate=float(payload["weekly_rate"]) if "weekly_rate" in payload else None,
             units=payload.get("units", "metric"),
         )
     except (UserManagerError, GoalPlanManagerError) as exc:

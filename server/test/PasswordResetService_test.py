@@ -19,8 +19,8 @@ class PasswordResetServiceTest(unittest.TestCase):
             self.user_dao, self.session_dao, audit_log_dao=self.audit_log_dao
         )
         self.user = self.user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="old-hash",
             height_cm=176,
             sex=1,
@@ -34,24 +34,24 @@ class PasswordResetServiceTest(unittest.TestCase):
         self.assertFalse(self.service.reset_password("nobody-here", "whatever12"))
 
     def test_reset_password_by_username_updates_the_password(self):
-        ok = self.service.reset_password("danel", "brand-new-password")
+        ok = self.service.reset_password("demo_cut", "brand-new-password")
         self.assertTrue(ok)
         updated = self.user_dao.get_by_id(self.user.user_id)
         self.assertTrue(verify_password("brand-new-password", updated.password_hash))
 
     def test_reset_password_by_email_also_works(self):
-        ok = self.service.reset_password("danel@example.com", "brand-new-password")
+        ok = self.service.reset_password("demo_cut@example.com", "brand-new-password")
         self.assertTrue(ok)
 
     def test_reset_password_revokes_existing_sessions(self):
         self.session_dao.create(
             "some-token", self.user.user_id, datetime.now(timezone.utc) + timedelta(days=1)
         )
-        self.service.reset_password("danel", "brand-new-password")
+        self.service.reset_password("demo_cut", "brand-new-password")
         self.assertIsNone(self.session_dao.get("some-token"))
 
     def test_reset_password_is_audited_without_leaking_the_password(self):
-        self.service.reset_password("danel", "brand-new-password")
+        self.service.reset_password("demo_cut", "brand-new-password")
         entries = self.audit_log_dao.list_for_user(self.user.user_id)
         password_entries = [e for e in entries if e.field == "password"]
         self.assertEqual(len(password_entries), 1)

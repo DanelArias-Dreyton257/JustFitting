@@ -1,5 +1,10 @@
-"""Seeding the demo accounts (Danel/cut, Sergio/bulk) -- see
-docs/composition_spec.md's worked examples and services/DemoSeeder.py."""
+"""Seeding the demo accounts (Demo_cut/cut, Demo_bulk/bulk) -- see
+docs/composition_spec.md's worked examples and services/DemoSeeder.py.
+
+Phase 5.3: both accounts are seeded with a two-goal history (an initial
+goal at registration, then a second/active one partway through the
+reference series) so they exercise goal-period scoping out of the box.
+"""
 
 import unittest
 from datetime import date
@@ -12,7 +17,13 @@ from server.src.data.db.UserDAO import UserDAO
 from server.src.services import DemoSeeder
 from server.src.services.EngineSettingsManager import EngineSettingsManager
 from server.src.services.GoalPlanManager import GoalPlanManager
-from server.src.services.LogManager import LogManager
+from server.src.services.LogManager import (
+    DEMO_GOAL_CHANGE_DATE,
+    DEMO_SECOND_GOAL,
+    DEMO_BULK_GOAL_CHANGE_DATE,
+    DEMO_BULK_SECOND_GOAL,
+    LogManager,
+)
 from server.src.services.UserManager import UserManager
 
 
@@ -29,7 +40,10 @@ class DemoSeederTest(unittest.TestCase):
 
     def test_seeds_both_accounts(self):
         seeded = DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         self.assertTrue(seeded)
         self.assertIsNotNone(self.user_manager.user_dao.get_by_username("admin_cut"))
@@ -37,16 +51,25 @@ class DemoSeederTest(unittest.TestCase):
 
     def test_is_idempotent(self):
         DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         seeded_again = DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         self.assertFalse(seeded_again)
 
-    def test_cut_account_matches_the_danel_profile_and_has_default_settings(self):
+    def test_cut_account_matches_the_demo_cut_profile_and_has_default_settings(self):
         DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         cut = self.user_manager.user_dao.get_by_username("admin_cut")
         self.assertEqual(cut.height_cm, 176)
@@ -54,9 +77,16 @@ class DemoSeederTest(unittest.TestCase):
         self.assertEqual(cut.birthdate, date(2001, 8, 22))
 
         goal = self.goal_plan_manager.get_active(cut.user_id)
-        self.assertAlmostEqual(goal.target_bf, 0.15)
-        self.assertAlmostEqual(goal.weekly_rate, -0.005)
-        self.assertEqual(goal.direction, "cut")
+        self.assertAlmostEqual(goal.target_bf, DEMO_SECOND_GOAL[0])
+        self.assertAlmostEqual(goal.weekly_rate, DEMO_SECOND_GOAL[1])
+        self.assertEqual(goal.start_date, DEMO_GOAL_CHANGE_DATE)
+
+        history = self.goal_plan_manager.list_history(cut.user_id)
+        self.assertEqual(len(history), 2)
+        first_goal = next(g for g in history if g.goal_id != goal.goal_id)
+        self.assertAlmostEqual(first_goal.target_bf, 0.17)
+        self.assertAlmostEqual(first_goal.weekly_rate, -0.005)
+        self.assertEqual(first_goal.direction, "cut")
 
         logs = self.log_manager.list_logs(cut.user_id)
         self.assertGreater(len(logs), 0)
@@ -64,9 +94,12 @@ class DemoSeederTest(unittest.TestCase):
 
         self.assertIsNone(self.engine_settings_manager.get_active(cut.user_id))
 
-    def test_bulk_account_matches_the_sergio_profile_and_gets_customized_settings(self):
+    def test_bulk_account_matches_the_demo_bulk_profile_and_gets_customized_settings(self):
         DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         bulk = self.user_manager.user_dao.get_by_username("admin_bulk")
         self.assertEqual(bulk.height_cm, 194)
@@ -74,9 +107,16 @@ class DemoSeederTest(unittest.TestCase):
         self.assertEqual(bulk.birthdate, date(2001, 4, 5))
 
         goal = self.goal_plan_manager.get_active(bulk.user_id)
-        self.assertAlmostEqual(goal.target_bf, 0.15)
-        self.assertAlmostEqual(goal.weekly_rate, 0.005)
+        self.assertAlmostEqual(goal.target_bf, DEMO_BULK_SECOND_GOAL[0])
+        self.assertAlmostEqual(goal.weekly_rate, DEMO_BULK_SECOND_GOAL[1])
+        self.assertEqual(goal.start_date, DEMO_BULK_GOAL_CHANGE_DATE)
         self.assertEqual(goal.direction, "bulk")
+
+        history = self.goal_plan_manager.list_history(bulk.user_id)
+        self.assertEqual(len(history), 2)
+        first_goal = next(g for g in history if g.goal_id != goal.goal_id)
+        self.assertAlmostEqual(first_goal.target_bf, 0.20)
+        self.assertAlmostEqual(first_goal.weekly_rate, 0.02)
 
         settings = self.engine_settings_manager.get_active(bulk.user_id)
         self.assertIsNotNone(settings)
@@ -85,7 +125,10 @@ class DemoSeederTest(unittest.TestCase):
 
     def test_bulk_account_series_mixes_granularity_and_logs_macros(self):
         DemoSeeder.seed_if_empty(
-            self.user_manager, self.log_manager, self.engine_settings_manager
+            self.user_manager,
+            self.log_manager,
+            self.goal_plan_manager,
+            self.engine_settings_manager,
         )
         bulk = self.user_manager.user_dao.get_by_username("admin_bulk")
         logs = self.log_manager.list_logs(bulk.user_id)
@@ -104,7 +147,9 @@ class DemoSeederTest(unittest.TestCase):
     def test_seed_if_empty_works_without_an_engine_settings_manager(self):
         """Backward-compatible: omitting engine_settings_manager still
         seeds both accounts, just without the bulk account's customization."""
-        seeded = DemoSeeder.seed_if_empty(self.user_manager, self.log_manager)
+        seeded = DemoSeeder.seed_if_empty(
+            self.user_manager, self.log_manager, self.goal_plan_manager
+        )
         self.assertTrue(seeded)
         self.assertIsNotNone(self.user_manager.user_dao.get_by_username("admin_bulk"))
 

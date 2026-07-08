@@ -21,8 +21,8 @@ class DBTestCase(unittest.TestCase):
         """Re-running SCHEMA against an already-initialized database (the
         normal case on every boot) must not error or lose data."""
         UserDAO(self.db).create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -35,8 +35,8 @@ class DBTestCase(unittest.TestCase):
     def test_user_dao_crud(self):
         dao = UserDAO(self.db)
         profile = dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -44,10 +44,10 @@ class DBTestCase(unittest.TestCase):
         )
         self.assertIsNotNone(profile.user_id)
 
-        by_username = dao.get_by_username("danel")
+        by_username = dao.get_by_username("demo_cut")
         self.assertEqual(by_username.user_id, profile.user_id)
 
-        by_email = dao.get_by_email("danel@example.com")
+        by_email = dao.get_by_email("demo_cut@example.com")
         self.assertEqual(by_email.user_id, profile.user_id)
 
         updated = dao.update(profile.user_id, height_cm=177)
@@ -59,8 +59,8 @@ class DBTestCase(unittest.TestCase):
     def test_user_unique_constraints(self):
         dao = UserDAO(self.db)
         dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -68,7 +68,7 @@ class DBTestCase(unittest.TestCase):
         )
         with self.assertRaises(Exception):
             dao.create(
-                username="danel",
+                username="demo_cut",
                 email="other@example.com",
                 password_hash="hash",
                 height_cm=176,
@@ -80,8 +80,8 @@ class DBTestCase(unittest.TestCase):
         user_dao = UserDAO(self.db)
         session_dao = SessionDAO(self.db)
         profile = user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -100,8 +100,8 @@ class DBTestCase(unittest.TestCase):
         user_dao = UserDAO(self.db)
         session_dao = SessionDAO(self.db)
         profile = user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -123,8 +123,8 @@ class DBTestCase(unittest.TestCase):
         user_dao = UserDAO(self.db)
         log_dao = BodyLogDAO(self.db)
         profile = user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -170,8 +170,8 @@ class DBTestCase(unittest.TestCase):
         user_dao = UserDAO(self.db)
         log_dao = BodyLogDAO(self.db)
         profile = user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,
@@ -194,8 +194,8 @@ class DBTestCase(unittest.TestCase):
         user_dao = UserDAO(self.db)
         goal_dao = GoalPlanDAO(self.db)
         profile = user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,

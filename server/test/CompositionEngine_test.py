@@ -1,7 +1,7 @@
 """Golden acceptance test for the composition engine (see docs/composition_spec.md).
 
 Reference profile: H=176, sex=1 (male), birthdate=2001-08-22, target_bf=0.15,
-weekly_rate=-0.005. Values are checked against the verified "Danel" reference
+weekly_rate=-0.005. Values are checked against the verified "Demo_cut" reference
 with a tolerance of +/-0.01 (+/-0.5 kcal for calorie figures).
 """
 

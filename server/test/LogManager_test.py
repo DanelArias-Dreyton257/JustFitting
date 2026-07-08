@@ -15,8 +15,8 @@ class LogManagerTest(unittest.TestCase):
         self.user_dao = UserDAO(self.db)
         self.manager = LogManager(BodyLogDAO(self.db))
         self.user_id = self.user_dao.create(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password_hash="hash",
             height_cm=176,
             sex=1,

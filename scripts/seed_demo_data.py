@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Register admin_cut/admin_bulk (both adminadmin) and seed their Danel
-(cut) and Sergio (bulk) reference series.
+"""Register admin_cut/admin_bulk (both adminadmin) and seed their Demo_cut
+(cut) and Demo_bulk (bulk) reference series.
 
 No-op per-account if already seeded. Usage: ``seed_demo_data.py [db_path]``.
 """
@@ -36,10 +36,10 @@ def main() -> None:
         EngineSettingsDAO(db), audit_log_dao=audit_log_dao
     )
 
-    if DemoSeeder.seed_if_empty(user_manager, log_manager, engine_settings_manager):
+    if DemoSeeder.seed_if_empty(user_manager, log_manager, goal_plan_manager, engine_settings_manager):
         print(
             "Created admin_cut/admin_bulk (password adminadmin) and seeded "
-            "their Danel (cut) and Sergio (bulk) reference series."
+            "their Demo_cut (cut) and Demo_bulk (bulk) reference series."
         )
     else:
         print("admin_cut and admin_bulk already exist, skipping.")

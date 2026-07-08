@@ -179,7 +179,6 @@ select {
 }
 
 button[type="submit"],
-button#projection-refresh,
 button#export-btn {
   background: var(--accent-strong);
   border: none;
@@ -190,8 +189,7 @@ button#export-btn {
   font-weight: 600;
 }
 
-button[type="submit"]:hover,
-button#projection-refresh:hover {
+button[type="submit"]:hover {
   background: var(--accent);
 }
 
@@ -302,6 +300,10 @@ button#projection-refresh:hover {
   font-weight: 400;
   color: var(--text-muted);
   margin-top: 0.15rem;
+}
+
+.stat-tile .delta.tile-subtitle {
+  font-size: 0.7rem;
 }
 
 .summary-section {
@@ -440,6 +442,73 @@ button#projection-refresh:hover {
 .badge.inactive {
   background: rgba(154, 162, 175, 0.15);
   color: var(--text-muted);
+}
+
+.log-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1.25rem;
+}
+
+.log-nav-arrow {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  width: 2rem;
+  height: 2rem;
+  line-height: 1;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.log-nav-arrow:hover {
+  background: var(--surface-alt);
+}
+
+.log-nav-label {
+  font-weight: 600;
+  flex: 1;
+}
+
+.log-nav-toggle {
+  display: flex;
+  gap: 0.15rem;
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  padding: 0.2rem;
+}
+
+.log-nav-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.35rem 0.7rem;
+  border-radius: calc(var(--radius) - 4px);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.log-nav-toggle-btn.active {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.wizard-selected-date {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.wizard-selected-date strong {
+  color: var(--text);
 }
 
 .wizard-form {
@@ -582,6 +651,11 @@ button#projection-refresh:hover {
 .data-table th {
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.log-row-projected td {
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 .badge {

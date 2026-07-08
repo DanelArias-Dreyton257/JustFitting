@@ -24,8 +24,8 @@ class UserManagerTest(unittest.TestCase):
 
     def _register(self, **overrides):
         defaults = dict(
-            username="danel",
-            email="danel@example.com",
+            username="demo_cut",
+            email="demo_cut@example.com",
             password="correct horse battery staple",
             height_cm=176,
             sex=1,
@@ -46,19 +46,19 @@ class UserManagerTest(unittest.TestCase):
 
     def test_register_and_authenticate(self):
         profile = self._register()
-        self.assertEqual(profile.username, "danel")
+        self.assertEqual(profile.username, "demo_cut")
 
         authenticated = self.manager.authenticate(
-            "danel", "correct horse battery staple"
+            "demo_cut", "correct horse battery staple"
         )
         self.assertEqual(authenticated.user_id, profile.user_id)
 
         by_email = self.manager.authenticate(
-            "danel@example.com", "correct horse battery staple"
+            "demo_cut@example.com", "correct horse battery staple"
         )
         self.assertEqual(by_email.user_id, profile.user_id)
 
-        self.assertIsNone(self.manager.authenticate("danel", "wrong password"))
+        self.assertIsNone(self.manager.authenticate("demo_cut", "wrong password"))
 
     def test_register_rejects_duplicate_username_or_email(self):
         self._register()
@@ -81,7 +81,7 @@ class UserManagerTest(unittest.TestCase):
             profile.user_id, height_cm=180, username="hacker", password_hash="bypass"
         )
         self.assertEqual(updated.height_cm, 180)
-        self.assertEqual(updated.username, "danel")
+        self.assertEqual(updated.username, "demo_cut")
         self.assertTrue(
             verify_password("correct horse battery staple", updated.password_hash)
         )
@@ -91,9 +91,9 @@ class UserManagerTest(unittest.TestCase):
         self.manager.change_password(
             profile.user_id, "correct horse battery staple", "new password"
         )
-        self.assertIsNotNone(self.manager.authenticate("danel", "new password"))
+        self.assertIsNotNone(self.manager.authenticate("demo_cut", "new password"))
         self.assertIsNone(
-            self.manager.authenticate("danel", "correct horse battery staple")
+            self.manager.authenticate("demo_cut", "correct horse battery staple")
         )
 
     def test_change_password_rejects_wrong_current_password(self):
@@ -112,6 +112,41 @@ class UserManagerTest(unittest.TestCase):
         self.assertIsNotNone(active)
         self.assertAlmostEqual(active.target_bf, 0.15)
         self.assertAlmostEqual(active.weekly_rate, -0.005)
+
+    def test_register_omitting_goal_fields_resolves_sane_per_sex_defaults(self):
+        # Phase 5.2: account creation no longer requires choosing a goal --
+        # an omitted target_bf/weekly_rate resolves to a harmless default.
+        male_profile = self.manager.register(
+            username="male_default",
+            email="male_default@example.com",
+            password="correct horse battery staple",
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+        )
+        male_goal = self.goal_plan_manager.get_active(male_profile.user_id)
+        self.assertAlmostEqual(male_goal.target_bf, 0.15)
+        self.assertAlmostEqual(male_goal.weekly_rate, 0.0)
+
+        female_profile = self.manager.register(
+            username="female_default",
+            email="female_default@example.com",
+            password="correct horse battery staple",
+            height_cm=165,
+            sex=0,
+            birthdate=date(2001, 8, 22),
+        )
+        female_goal = self.goal_plan_manager.get_active(female_profile.user_id)
+        self.assertAlmostEqual(female_goal.target_bf, 0.22)
+        self.assertAlmostEqual(female_goal.weekly_rate, 0.0)
+
+    def test_register_still_accepts_explicit_goal_fields(self):
+        # Explicitly passing target_bf/weekly_rate (e.g. a future signup flow
+        # that still wants to set one) must keep working exactly as before.
+        profile = self._register(target_bf=0.18, weekly_rate=0.003)
+        active = self.goal_plan_manager.get_active(profile.user_id)
+        self.assertAlmostEqual(active.target_bf, 0.18)
+        self.assertAlmostEqual(active.weekly_rate, 0.003)
 
     def test_update_profile_with_goal_fields_historizes_the_goal(self):
         profile = self._register()

@@ -9,8 +9,8 @@ model (BMR / NEAT / TDEE / target calories), a goal trajectory (target
 weight, weekly deficit, weeks-to-goal), and a forecast of future weeks.
 
 Try it out! https://danelarias-dreyton257.github.io/JustFitting/ — log in
-with `admin_cut` / `adminadmin` (a cut, resembling Danel) or `admin_bulk` /
-`adminadmin` (a bulk, resembling Sergio) to see a populated dashboard. The
+with `admin_cut` / `adminadmin` (a cut, resembling Demo_cut) or `admin_bulk` /
+`adminadmin` (a bulk, resembling Demo_bulk) to see a populated dashboard. The
 API is on Render's free tier, so the first request after idling may take
 up to a minute to wake it up.
 
@@ -59,7 +59,7 @@ All scripts live in `scripts/` and `cd` to the repo root themselves.
 | `run.sh` | Start server + client together; Ctrl+C stops both. |
 | `update.sh` | `conda env update --prune`; re-apply the (idempotent) DB schema. |
 | `reset_db.sh [path]` | Delete the SQLite file (confirms unless `FORCE=1`). |
-| `seed_demo_data.sh` | Register `admin_cut`/`admin_bulk` (both `adminadmin`) and seed their Danel (cut) and Sergio (bulk) reference series. No-op per-account if already seeded. |
+| `seed_demo_data.sh` | Register `admin_cut`/`admin_bulk` (both `adminadmin`) and seed their Demo_cut (cut) and Demo_bulk (bulk) reference series. No-op per-account if already seeded. |
 | `uninstall.sh [path]` | Remove the conda env and optionally the DB. |
 | `build_static_site.py [api_base_url]` | Build the client into `dist/` for a static host or the Android app (see **Android app** below). |
 
@@ -225,15 +225,24 @@ Wfinal_i   = LeanMass_i / (1 - tau)
 Weeks_i    = ln(W_i / Wfinal_i) / ln(1 - r)
 ```
 
-Danel worked example (`H=176, sex=1, birthdate=2001-08-22, target_bf=0.15,
-weekly_rate=-0.005`), last real record 2026-06-26 (`W=90.7, waist=80.0,
-neck=35.0, steps=5000`):
+Demo_cut worked example (`H=176, sex=1, birthdate=2001-08-22`) -- registered
+targeting 17% body fat at -0.5%/week, then switched on 2026-05-01 to a
+steeper 15% target at -1%/week (the demo seed's Phase 5.3 two-goal
+history, below). Last real record 2026-06-26 (`W=90.7, waist=80.0,
+neck=35.0, steps=5000`), computed under the active (second) goal
+(`target_bf=0.15, weekly_rate=-0.01`):
 
 ```
 BMI 29.28 | BF 19.91% | FatMass 18.06 kg | LeanMass 72.64 kg
-BMR 2098.08 | TDEE 2583.14 | TargetCal 2027.03
-Wobj 90.545 | DailyDeficit 500.5 | Wfinal 85.459 | Weeks 11.93
+BMR 2098.08 | TDEE 2583.14 | TargetCal 1470.92
+Wobj 90.09 | DailyDeficit 1001.0 | Wfinal 85.459 | Weeks 5.98
 ```
+
+BMI/BF/FatMass/LeanMass/BMR/TDEE/Wfinal only ever depend on the logged
+anthropometric data and `target_bf` (unchanged at 0.15 across both
+goals here), never `weekly_rate` -- only Wobj/DailyDeficit/TargetCal/Weeks
+shift with the goal change, since those are the only formulas above that
+read `r`.
 
 Future weeks are forecast with a linear trend fit — plain or
 recency-weighted OLS, selectable via `trend_model` — for weight/waist/neck;
@@ -443,7 +452,7 @@ builds on, without touching any existing (cut-mode) computed values:
   3.2/3.1 respectively, shipped now so `engine_settings` doesn't need a
   second migration later) — historized like every other per-account
   constant (migration 12), defaulting to values that reproduce today's
-  numbers exactly, never Sergio's own calibration. `GET`/`PUT
+  numbers exactly, never Demo_bulk's own calibration. `GET`/`PUT
   /api/users/me/settings` pick up all seven fields automatically (the
   route is driven off `EngineSettingsManager.FIELDS`); the Settings view
   gained a "Body-fat & BMR calibration" section.
@@ -661,14 +670,12 @@ unscheduled from either source document's eight-plus-one capabilities:
   contract) are unchanged; the new sections are additional, read-only,
   recomputed-not-restored data.
 
-### Phase 4 — UX refinement: beta-testing feedback (in progress)
+### Phase 4 — UX refinement: beta-testing feedback (done)
 
-Source: `things-to-improve.txt`, Danel's own notes from the first round of
+Source: `things-to-improve.txt`, Demo_cut's own notes from the first round of
 beta-testing the shipped v1.0.0 app. Five items, roughly in the order
 they unlock each other (2-5 lean on 1, and on each other); this phase's
-sub-phases track them 1:1. **Phase 4.1-4.3** are done; **4.4-4.5** remain
-an ordered backlog so the dependency chain isn't lost, not yet planned
-in detail.
+sub-phases track them 1:1. **All five, Phase 4.1-4.5, are done.**
 
 #### Phase 4.1 — Consolidated top navigation (hamburger menu) (done)
 
@@ -678,49 +685,15 @@ non-wrapping flex row, which crowded/overflowed on narrow viewports --
 the primary width for the Android app -- and was already visually busy
 on desktop. No responsive/mobile nav pattern existed before this phase.
 
-- The always-visible `.nav-link` row is replaced by a single hamburger
-  icon button (`#nav-toggle`, inline SVG, no icon-font/library
-  dependency) that toggles a `.nav-menu` panel (`index.html`) listing the
+- The always-visible nav row is replaced by a single hamburger icon
+  button (`#nav-toggle`) that toggles a `.nav-menu` panel listing the
   same eight destinations plus Logout, at every viewport width (not just
-  behind a mobile breakpoint -- the "too many tabs" complaint called out
-  the always-visible row itself). The eight destinations stay a flat
-  list, no sub-grouping.
-- The panel's items are the exact same `button.nav-link
-  data-view="..."` elements `views.js`'s `showView()` already
-  selects/highlights, so `showView`'s dual view-toggle/highlight
-  responsibility needed no changes at all.
-- `app.js` gained open/close state (`openNavMenu`/`closeNavMenu`), wired
-  to the toggle's click, close-on-item-click (alongside the existing
-  `navigate(view)` call), close-on-outside-click, and close-on-`Escape`
-  (returning focus to the toggle); `showAuthOnly`/`enterApp`'s existing
-  mass show/hide of nav elements on login/logout now covers the toggle
-  button too.
-- Accessibility: `aria-expanded`/`aria-controls` on the toggle,
-  `role="menu"`/`"menuitem"` on the panel/items, `aria-label="Menu"`,
-  Enter/Space/Escape all work, focus returns to the toggle on close.
-- **A real bug caught only by manually screenshotting the running app**
-  (not by the automated tests, initially): `.nav-menu { display: flex }`
-  (an author-stylesheet rule) silently overrode the browser's default
-  `[hidden] { display: none }` (a user-agent-stylesheet rule) regardless
-  of specificity, since author rules beat user-agent rules in the
-  cascade for any tie -- so the menu rendered open even while its
-  `hidden` attribute was set. Fixed with an explicit `.nav-menu[hidden]
-  { display: none }` rule. The Playwright test suite's own `_hidden()`
-  helper had the same blind spot (it checked the `.hidden` IDL property,
-  which only reflects the attribute, not actual rendering) and was
-  rewritten to check `page.is_visible()` instead, so this class of bug
-  fails the suite next time.
-- `sw.js`'s `CACHE_NAME` bumped `-v10` -> `-v11` per this project's
-  established convention, since `index.html`/`style.css`/`app.js` all
-  changed.
-- New Playwright coverage: `client/test/browser/Nav_test.py`, driving the
-  real `client.src.Client.create_client_app` against a real API server
-  (unlike `Views_test.py`'s minimal fixture harness, which doesn't
-  include the topbar at all) -- open/close via the toggle, item-click
-  navigation + active-highlighting + auto-close, Escape, outside-click,
-  and logout all covered.
+  behind a mobile breakpoint).
+- Full keyboard/accessibility support: `aria-expanded`/`aria-controls`,
+  `role="menu"`/`"menuitem"`, close-on-outside-click, Enter/Space/Escape,
+  focus returns to the toggle on close.
 - Purely client-side: no server/API/DB changes, no `ENGINE_VERSION`
-  implications, no `manifest.json` changes.
+  implications.
 
 #### Phase 4.2 — Simplified dashboard-as-home summary (done)
 
@@ -729,71 +702,22 @@ first -- a last-logged weight/body-fat/lean-mass-and-change section, a
 calories section, and a goal section (achieved vs. target, projected
 weeks-to-complete) -- rather than today's full chart grid as the
 landing view. A client-only change: every figure the new summary needs
-was already computed and exposed by existing endpoints (`GET
-/api/metrics/latest`'s `MetricsDTO` -- `body_fat`, `fat_mass_kg`,
-`lean_mass_kg`, `weight_delta_kg`, `tdee`, `target_calories`,
-`weight_to_shed_kg`, `weeks_to_goal`; `GET /api/metrics/gain-quality`'s
-`delta_lean_kg`; `GET /api/users/me`'s `target_bf`/`direction`), so no
-engine work, migration, or `ENGINE_VERSION` bump was needed.
+was already computed and exposed by existing endpoints, so no engine
+work, migration, or `ENGINE_VERSION` bump was needed.
 
-- `#view-dashboard` (`index.html`) splits into an always-visible
-  summary -- three `.stat-row` card sections (Weight & Body
-  Composition, Calories, Goal) fed by a small, cheap fetch set -- and a
-  `<details id="dashboard-details">`-collapsed "Full charts & advanced
-  stats" section holding the existing 12-chart grid, collapsed by
-  default and lazy-loaded only on first expand rather than fetched on
-  every dashboard load. A custom `▸`/`▾` marker and a top border
-  (`style.css`) replace the bare browser-default disclosure triangle so
-  the section reads as clickable rather than a plain heading.
-- `client/src/webapp/static/js/app.js`'s `refreshDashboard()` split
-  into `refreshDashboardSummary()` (the new default on
-  `navigate("dashboard")`: `metricsLatest`, `metricsSeries`,
-  `gainQuality`, `adherence`, `alerts`) and `refreshDashboardCharts()`
-  (`listLogs`, `goals`, `energyBalance`, `incrementAnalytics`, `tef`,
-  `macroTargets`, reusing the series/gain-quality already fetched by
-  the summary via `state`), the latter wired to the `<details>`
-  element's `toggle` event and guarded (`state.dashboardChartsLoaded`)
-  so it runs at most once per login session; `enterApp()` resets that
-  flag and re-collapses the section on every fresh login so a second
-  account's charts are never shown stale.
-- `views.js` gains `renderWeightSummary`, `renderCaloriesSummary`,
-  `renderGoalSummary`, and shared `formatDelta`/`statTile` helpers
-  (▲/▼/– plus the signed value, in a neutral/muted color rather than
-  red/green -- "good" direction depends on the account's cut/bulk
-  `direction` and differs per metric, so that judgment is deliberately
-  left for later rather than guessed at now). `renderDashboardStats`
-  (the collapsed section's tile row) now only surfaces the genuinely
-  *advanced* figures -- TEF, cumulative fat ratio, energy-balance
-  error, average weekly increment, deviation from goal rate -- since
+- `#view-dashboard` splits into an always-visible summary -- three
+  `.stat-row` card sections (Weight & Body Composition, Calories, Goal)
+  -- and a collapsed "Full charts & advanced stats" section holding the
+  existing 12-chart grid, lazy-loaded only on first expand rather than
+  fetched on every dashboard load.
+- The collapsed section's tile row now only surfaces the genuinely
+  *advanced* figures (TEF, cumulative fat ratio, energy-balance error,
+  average weekly increment, deviation from goal rate), since
   Weight/Body fat/Lean mass/To-target/Weeks-to-goal/Adherence are all
-  covered by the new summary sections and would otherwise be shown
-  twice. Its badge-bearing tiles (TEF, cumulative fat ratio,
-  energy-balance error, avg weekly increment) originally wrapped their
-  entire value in a small `.badge` pill or crammed a goal figure onto
-  the same line, which read inconsistently against every plain
-  `statTile`; every tile's number now stays in the same big/bold
-  `.value` style, with ideal/threshold/goal context moved into a small
-  subtitle underneath (the same neutral `.delta` line style the
-  summary sections' "target"/"goal" subtitles already use). Only TEF's
-  mode tag ("flat"/"macros", a label rather than a good/bad judgment)
-  keeps a colored `badgeDelta()` pill; cumulative fat ratio's "ideal"
-  and energy-balance error's "threshold" subtitles are now plain,
-  uncolored text like every other subtitle.
-- New browser test coverage, `client/test/browser/Dashboard_test.py`
-  (no dashboard-specific browser test existed before this phase --
-  `Nav_test.py` only checks the view is shown): the three summary
-  sections render expected values (including a change indicator once a
-  second week is logged), a brand-new account with no logs gets a
-  friendly placeholder instead of an error, `#dashboard-details` starts
-  closed with chart SVGs empty until expanded, and expanding it draws
-  the charts.
-- `sw.js`'s `CACHE_NAME` bumped (`-v11` -> `-v12`) per this project's
-  established convention.
-- Manually verified against both seeded demo accounts
-  (`scripts/seed_demo_data.sh`): `admin_cut`'s summary reproduces the
-  README's own Danel worked example almost exactly (BF 19.9%, TDEE 2583
-  kcal, target 2027 kcal, ~11.9 weeks to goal); `admin_bulk` renders the
-  same layout correctly with upward weight/lean-mass deltas and a
+  covered by the new summary sections.
+- Manually verified against both seeded demo accounts: `admin_cut`'s
+  summary reproduces the README's own Demo_cut worked example; `admin_bulk`
+  renders the same layout with upward weight/lean-mass deltas and a
   "Bulk" direction badge.
 - No server/API/DB changes.
 
@@ -805,130 +729,254 @@ marking the last logged day, so the user sees "the next N weeks"
 directly on the chart they're already looking at instead of switching to
 the separate Projection view.
 
-**Scope**: the toggle affects the five line/multi-line charts inside
-`#dashboard-details` that have a real "future" to extrapolate — Weight,
-Body fat %, Target calories, Waist/Neck (perimeters), and Goal
-trajectory. It does **not** touch Steps (a flat continuation under the
-default constant-activity forecast has little visual value) or the two
-bar charts (Fat/lean mass stack, Gain-quality diverging bars), since bar
-marks don't have as clean an "append future bars past a marker line"
-convention as a continuous line does — left for a later pass if it turns
-out to be wanted.
+- Applies to the five line/multi-line charts with a real "future" to
+  extrapolate — Weight, Body fat %, Target calories, Waist/Neck, and Goal
+  trajectory — not Steps or the two bar charts.
+- `GET /api/projection` gained `estimated_weight`/`estimated_waist`/
+  `estimated_neck` fields (purely additive, no `ENGINE_VERSION` bump) so
+  the Dashboard can chart forecasted perimeters, not just weight/BF/
+  calories.
+- A checkbox ("Show next N weeks") plus a weeks selector (4/8/12, default
+  4) toggles the overlay; forecast points render as hollow markers with a
+  "(forecast)" tooltip to distinguish them from real data, and a "Last
+  logged" dashed marker line stays fixed regardless of how many weeks are
+  shown.
+- Turning the toggle off redraws every chart from the unmodified base
+  series — the forecast is never persisted, matching the read-only
+  nature of `GET /api/projection`.
 
-- **Server** (`server/src/api/projection_routes.py`): `GET
-  /api/projection` today returns `MetricsDTO` rows only, which cover
-  weight (derived as `fat_mass_kg + lean_mass_kg`), body fat %, and
-  target calories, but not the forecasted waist/neck themselves — those
-  only exist on the `LogInput` half of
-  `Projection.project_series_with_inputs`'s return pairs, currently
-  surfaced only by the persisting `POST /api/projection` via
-  `ProjectionDTO`. The `GET` route switches from `project_series` to
-  `project_series_with_inputs` and adds three keys to each returned row
-  — `estimated_weight`, `estimated_waist`, `estimated_neck` (the same
-  names `ProjectionDTO` already uses for the same values) — alongside
-  the existing `MetricsDTO` fields. Purely additive: every existing
-  field keeps its exact meaning and value, so the standalone Projection
-  view (`renderProjectionTable`, which only reads
-  `fat_mass_kg`/`lean_mass_kg`/`body_fat`/`target_calories`) needs no
-  change. No migration, no `ENGINE_VERSION` bump — this is a read-side
-  response-shape change, not a compute-chain change.
-- **Client — `charts.js`**: `drawMultiLineChart` already supports a
-  `markers` option (a dashed vertical line with a hover title, used
-  today for goal-plan-change markers on the goal-trajectory chart), but
-  `drawLineChart` (the single-line Weight/Body fat/Calories charts) has
-  no equivalent. The marker-drawing block is extracted into a shared
-  `drawMarkerLines(svg, markers, xScale, width, height)` helper used by
-  both, and `drawLineChart` gains the same `markers = []` option
-  `drawMultiLineChart` already has.
-- **Client — `index.html`**: a small control row — a checkbox ("Show
-  next N weeks") plus a weeks `<select>` (4/8/12, default 4, matching
-  the note's own "the next 4 weeks" phrasing) — is added inside
-  `#dashboard-details`, after the advanced-stats tile row and before the
-  chart grid it actually affects, so it's only ever interactive once the
-  charts themselves are expanded/loaded (Phase 4.2's lazy-load guard
-  already ensures that).
-- **Client — `app.js`**: `refreshDashboardCharts()` splits into a
-  data-fetch half (unchanged) and a pure `renderDashboardCharts()` draw
-  half, so toggling the projection control doesn't refetch
-  logs/goals/energy-balance/etc. — only the forecast itself. New state:
-  `state.showProjection` (bool, default `false`) and
-  `state.projectionWeeks` (default `4`), plus a small per-weeks-value
-  cache (`state.projectionCache`) so flipping the toggle off and back
-  on, or re-picking the same weeks value, doesn't re-hit the API. When
-  the toggle is on:
-  - `api.projection(weeks, "real", "constant")` is fetched (plain-OLS
-    trend, real-only regression base, constant activity — the same
-    defaults the standalone Projection view opens with) and its rows
-    are appended to a *copy* of each affected chart's series, never
-    mutating `state.series` itself, which the summary section and every
-    other chart also read.
-  - Every forecast row already computes with `intake_is_real=false` →
-    `source="projected"` from the engine itself (the same field the
-    existing "assumed intake" weeks already use), so the "(forecast)"
-    tooltip suffix in `drawLineChart`/`drawMultiLineChart` applies to
-    genuinely-future weeks with no new code needed. Point *markers* for a
-    projected row are hollow (unfilled, stroked in the series' own color)
-    instead of a real row's filled dot -- a shared `drawPointMarker`
-    helper used by both chart functions, replacing an earlier
-    inconsistent pass (a smaller dot in an unrelated red on
-    `drawLineChart`, no distinction at all on `drawMultiLineChart`) that
-    read as a jarring color swap rather than "this point isn't measured
-    yet." The line itself stays one continuous color/style across the
-    real-to-projected boundary; only the marker shape changes. The
-    perimeters chart's waist/neck accessors fall back to the new
-    `estimated_waist`/`estimated_neck` fields when `row.log_id` is
-    `null` (true for every forecast row, never true for a real logged
-    week).
-  - Each affected chart gets a `markers: [{ date: <last real log's
-    date>, label: "Last logged" }]` so the dashed line lands in the same
-    place on every chart, independent of how many weeks are toggled on.
-    The goal-trajectory chart's own pre-existing goal-plan-change markers
-    (Phase 1.4) are filtered to `goal.start_date <= <last real log's
-    date>` before merging in the forecast marker: a goal's `start_date`
-    is the real wall-clock date it was created/changed (e.g. the very
-    first goal, dated at registration), which can fall after the last
-    logged week and previously just got silently clamped to the chart's
-    right edge on the real-only date domain -- widening that domain via
-    the forecast toggle would otherwise make it reappear mid-chart as a
-    second, unrelated marker alongside "Last logged".
-  - Turning the toggle off (or collapsing `<details>`) redraws every
-    chart from the unmodified base series, discarding the appended rows
-    — the forecast is never written anywhere, matching the read-only
-    nature of `GET /api/projection` today.
-- **Out of scope for this phase**: the "N weeks to goal" figure is
-  already shown as text in the Phase 4.2 Goal summary card; this phase
-  is only the chart overlay, not a new number. Configuring
-  `base`/`activity`/`trend_model` from the Dashboard toggle (rather than
-  the standalone Projection view) is also left out — the toggle is
-  deliberately simpler than the full Projection view's controls, per the
-  note's own "make it like the next 4 weeks" framing.
-- **Testing**: `Api_test.py`'s existing `test_projection_endpoint` case
-  gained an assertion that the three new fields round-trip correctly; two
-  new cases in `client/test/browser/Dashboard_test.py`
-  (`test_projection_toggle_overlays_forecast_and_marker`,
-  `test_goal_trajectory_marker_excludes_a_future_dated_goal_change`)
-  drive the toggle end-to-end against a real server+client — off by default,
-  turning it on appends the expected number of forecast points (via the
-  rendered SVG circle count) with the "Last logged" marker line present,
-  a weeks-value change from 4 to 8 appends more, and turning the toggle
-  back off removes them all.
-- **Housekeeping**: `sw.js`'s `CACHE_NAME` bumped `-v12` -> `-v13` per
-  this project's established convention, since `index.html`/`app.js`/
-  `charts.js`/`style.css` all changed.
+#### Phase 4.4 — Redesigned log capture (day/week view) (done)
 
-#### Phase 4.4 — Redesigned log capture (day/week view) (backlog, unscheduled)
+`things-to-improve.txt` item 4: replace the Log view's current layout --
+the wizard on top, then one unbounded table of every log the account has
+ever created underneath -- with a calendar-style navigator (prev/next
+arrows, a day/week toggle, a date picker) that puts the wizard "inside"
+a chosen day, defaults to today, and shows only that day's (or that
+week's) logs below it. Client-only, like Phase 4.2/4.3 -- `GET /api/logs`
+already returns every log for the account, so day/week view is a
+client-side filter over already-fetched data. No migration,
+no `ENGINE_VERSION` bump, no server route changes.
 
-`things-to-improve.txt` item 4: a calendar-style day selector (prev/next
-arrows, day/week toggle, date picker) with the log wizard and that
-day's/week's logs shown underneath, instead of one long table of every
-log ever entered.
+- The wizard's Date field becomes a read-only label bound to the
+  navigator's selected day, instead of a freely-editable date input --
+  you pick the day via the navigator first, then the wizard logs *for*
+  that day.
+- "Week" means the ISO calendar week (Monday-Sunday), the same grouping
+  `LogResampler.resample_to_weekly` uses server-side for daily-tagged
+  rows.
+- No inline edit UI, pagination, or new date-range API were added in this
+  phase (edit UI followed in Phase 5.7). The old "every log ever" table
+  is retired, not relocated -- full history stays reachable via the
+  date-picker, the Report view's full weekly series table, and JSON
+  export.
 
-#### Phase 4.5 — Retire the standalone Projection view (backlog, unscheduled)
+#### Phase 4.5 — Retire the standalone Projection view (done) — Phase 4 complete
 
-`things-to-improve.txt` item 5: once 4.3 and 4.4 ship, the dedicated
-Projection view can be removed entirely -- projected future data becomes
-a toggle on the Dashboard and the Log view instead of its own tab
-(further shrinking the nav Phase 4.1 already consolidated).
+`things-to-improve.txt` item 5: now that 4.3 (Dashboard forecast toggle)
+and 4.4 (Log view day/week navigator) have both shipped, the dedicated
+Projection view/tab is removed entirely -- forecast data becomes a
+Dashboard toggle (already true since 4.3) and appears directly in the Log
+view as a tagged row instead. Client-only: `GET /api/projection` already
+returns everything needed, so this is removing UI and reusing an
+existing fetch, not new server work.
+
+- The standalone view, its nav entry, and `refreshProjection()`/
+  `renderProjectionTable()` are removed.
+- A projected row now appears directly in the Log table, gated by a
+  Settings-view preference (`localStorage`-persisted, default on) rather
+  than a per-view toggle, since it's a display preference rather than an
+  engine input. It fires when the navigator's selected day/week has no
+  logged row yet and falls after the last real logged date.
+- The synthetic row uses the same columns as a real log, styled
+  italic/muted with a "projected" badge and no Delete button. Fields the
+  forecast never observed (intake, steps, cardio, macros) render as
+  "--" rather than fabricated.
+- How far to forecast is derived from navigation (days between the last
+  real log and the selected day/week-end, clamped 1-52), not a separate
+  input -- removing the standalone view means its
+  base/activity/trend-model configurability is gone entirely, an
+  accepted trade-off for the simplification the note asks for.
+
+**With this phase, Phase 4 (UX refinement: beta-testing feedback) is
+complete** -- all five `things-to-improve.txt` items from the first round
+of beta-testing are shipped.
+
+### Phase 5 — Beta-testing feedback, round 2 (done)
+
+Source: `things-to-improve.txt`'s "Things to change (Beta-testing) Phase 5"
+section, Demo_cut's second round of beta-testing notes -- eight items,
+mostly independent of each other (unlike Phase 4's chained items), plus
+two further-consideration items (5.9, 5.10) beyond the original eight.
+**All ten sub-phases, Phase 5.1-5.10, are done.**
+
+#### Phase 5.1 — Self-versioning service-worker cache (done)
+
+Problem: every prior phase's Housekeeping note ended with a
+manually-bumped `sw.js` `CACHE_NAME` -- easy to forget, and pure busywork
+a machine can do itself.
+
+- `sw.js` computes its own cache name at runtime: it fetches every
+  `APP_SHELL` file fresh, hashes their concatenated bytes
+  (`crypto.subtle.digest("SHA-256", ...)`), and uses the hash, prefixed
+  `justfitting-shell-`, as the cache name. `activate` deletes every other
+  `justfitting-shell-*` cache.
+- Any future edit to a shell file changes the hash automatically, so the
+  old cache is purged on the next `activate` -- no manual version bumps
+  needed going forward.
+- Verified manually (DevTools Application tab, and a Playwright-driven
+  check) that the cache name is a computed hash and the service worker
+  activates normally.
+
+#### Phase 5.2 — Registration no longer asks for a goal; sane per-sex defaults (done)
+
+Problem: `POST /api/users` required `target_bf`/`weekly_rate` and created
+a goal plan immediately at registration. The note wants account creation
+decoupled from goal-setting: a new account should start from a harmless
+default, with the user visiting the Plan tab only once they actually want
+to set a real goal.
+
+- New defaults (`services/composition/constants.py`): 15% body fat
+  (male) / 22% (female), 0% weekly rate. `UserManager.register()`'s
+  `target_bf`/`weekly_rate` become optional, resolved from these
+  constants by `sex` when omitted -- a goal plan is still always created,
+  just invisibly defaulted rather than user-chosen at signup.
+- The register form drops the goal fields entirely; registration becomes
+  just username/email/password/height/sex/birthdate.
+- Ties into Phase 5.8 below (goal editing lives only in the Plan tab from
+  here on, for both new and existing accounts).
+- Bug found and fixed along the way: `Trajectory.compute_weeks_to_goal`
+  divided by `ln(1 - weekly_rate)`, which is exactly `0` at
+  `weekly_rate = 0` -- a latent `ZeroDivisionError` the new default path
+  would trigger immediately. Guarded the same way
+  `IncrementAnalytics.py` already guards its own zero-rate case.
+
+#### Phase 5.3 — Scope computed series/charts/projections to the active goal's period (done)
+
+Problem: computed series (metrics, charts, alerts, projections) were
+always fit over every real log the account ever made, applying only the
+currently active goal's `target_bf`/`weekly_rate` uniformly across all of
+it -- so changing goals (e.g. finishing a cut, starting a bulk) silently
+recomputed history under the new goal and fed pre-change data into the
+forecast's trend regression.
+
+- A new `GoalPlanManager.active_period_start(user_id)` returns the active
+  goal's `start_date` only once the account has actually changed its goal
+  (more than one historized goal); otherwise `None`, meaning "use
+  everything" -- keeping a single-goal account a complete no-op.
+- `MetricsSeriesService.compute_series_for_user` and the projection
+  routes filter logs to that period before resampling/computing. `GET
+  /api/logs` (raw history, the Log view's table, `/export`) is
+  unaffected -- only derived series are scoped.
+- The engine threads an `initial_prev_weight_kg` context value through
+  `compute_series` so the first row of a new goal period still has a real
+  predecessor, avoiding a false "reset to zero deviation" spike on the
+  goal-trajectory chart at every goal change.
+- Both demo accounts (`admin_cut`, `admin_bulk`) now seed a two-goal
+  history so this scoping is exercised out of the box; the "Demo_cut
+  worked example" above reflects `admin_cut`'s actual active goal.
+
+#### Phase 5.4 — Log wizard defaults to the last log's perimeters (done)
+
+Problem: the wizard always opened with blank Waist/Neck fields, even
+though most weeks a person's perimeters barely change.
+
+- The wizard now pre-fills `waist_cm`/`neck_cm` from the most recent real
+  log across the whole account, at every "fresh wizard" reset point
+  (entering the Log view, switching day/week, after a save); a brand-new
+  account with no real logs still opens blank.
+- Scoped to perimeters only -- weight stays blank (it's meant to be
+  re-measured every time) and intake/steps/cardio/macros stay blank too
+  (today's actual entry, not a carry-forward).
+
+#### Phase 5.5 — Fix "Weight to goal" (was showing the weekly delta, not the total remaining) (done)
+
+Problem (confirmed bug, reported as "always showing 0.5kg"): the Goal
+summary's "Weight to goal" tile read `weight_to_shed_kg`, this week's
+incremental target change, not the total remaining distance to the goal
+-- for a steady weekly rate on a large body it always lands around the
+same figure regardless of how close the goal actually is.
+
+- Client-only fix: "Weight to goal" now computes from `final_weight_kg`
+  (the goal weight already returned by `MetricsDTO`) minus current total
+  weight -- the real remaining distance. `weight_to_shed_kg` itself is
+  untouched, since it's still correct for its actual job driving
+  `daily_deficit`/`target_calories` inside the engine.
+
+#### Phase 5.6 — Clearer Calories summary: label what each figure means (done)
+
+Problem: Target calories, TDEE, and Adherence were presented as three bare
+numbers with no explanation of what they are or how they relate --
+TDEE is estimated expenditure (never intake), and Adherence is a mean
+deviation across real-intake weeks, not simple arithmetic between the
+other two tiles.
+
+- Each tile gains a short subtitle clarifying its meaning ("what to eat",
+  "estimated calories burned", "actual vs target/day").
+- A fourth tile, this week's logged intake, is added so the three
+  genuinely comparable numbers (ate / should-eat / burn) sit together,
+  with Adherence (a derived comparison) last.
+- Out of scope: renaming/restructuring the underlying metrics themselves
+  -- this is a labeling fix over already-correct numbers.
+
+#### Phase 5.7 — Log editing (done)
+
+Problem: `PUT /api/logs/<id>`, `LogManager.update_log`, and
+`api.updateLog()` already existed end-to-end -- there was simply no UI to
+trigger them, so only Create and Delete were reachable from the Log
+view's table.
+
+- An "Edit" button opens the same 4-step wizard used for creating a log,
+  pre-filled with that row's values. The log's date and granularity
+  aren't editable in edit mode (the wizard's date is otherwise bound to
+  the navigator, which wouldn't necessarily match the edited row's own
+  date); every other field stays editable.
+- Saving submits via `api.updateLog()` instead of `api.createLog()`; a
+  Cancel affordance returns to create-mode without saving.
+
+#### Phase 5.8 — Split Account into Profile-only; Goal lives solely in the Plan tab (done)
+
+Problem: the Account view's profile form still had Target body
+fat/Weekly rate fields that saved through the same endpoint used to
+create a brand-new, unpreviewed goal plan -- a second path to change your
+goal that bypassed the Plan tab's preview-then-commit flow entirely.
+
+- Account's profile form drops the goal fields -- Height/Sex/Birthdate
+  only. The Plan tab remains the only place a goal changes, via its
+  existing preview -> commit flow.
+- Complements Phase 5.2: together, `target_bf`/`weekly_rate` never appear
+  anywhere except inside the Plan tab's preview/commit flow, for both a
+  new account and an existing one editing later.
+
+#### Phase 5.9 — Goal section: target-first framing with delta-to-goal tiles (done)
+
+Source: further consideration after Phase 4.2, not one of
+`things-to-improve.txt`'s original eight items. The Goal summary's tiles
+led with the current number and buried (or omitted) the actual target.
+
+- "Body fat vs target" becomes "Target body fat": the big value is now
+  the target itself, with the signed gap to it as a subtitle (e.g. "▼
+  -4.8% to goal").
+- "Weight to goal" becomes "Target weight (keep lean)": the big value is
+  now the goal weight (`final_weight_kg`), with the signed remaining
+  distance as a subtitle -- the same Phase 5.5 formula, sign-flipped into
+  "remaining distance in the direction of travel."
+
+#### Phase 5.10 — Alert new accounts about their auto-assigned default goal (done)
+
+Source: further consideration after Phase 5.2, not one of
+`things-to-improve.txt`'s original eight items. Since Phase 5.2, a
+brand-new account's first goal is silently assigned rather than chosen --
+a first-time user has no way to know a placeholder goal exists, let alone
+that the Plan tab is how they'd set a real one.
+
+- A new `unconfigured_goal` alert detector fires when an account has only
+  ever had one goal plan and its weekly rate is still exactly `0%` -- the
+  literal "no plan yet" signal, since any deliberately chosen goal
+  necessarily has a nonzero rate. No schema change: purely inferential,
+  and self-cleaning once a real goal is committed (which always adds a
+  new historized goal-plan row).
+- Flows through the existing persisted, dismissible alerts pipeline with
+  no client change needed.
 
 ## Android app
 
@@ -1079,4 +1127,4 @@ explicitly out of scope unless a strong reason emerges later.
 
 ## The Team
 
-Danel Arias — University of Deusto, Bilbao.
+Demo_cut Arias — University of Deusto, Bilbao.

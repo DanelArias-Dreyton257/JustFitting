@@ -1,4 +1,4 @@
-"""Named constants for the body-composition engine (the "Danel" model).
+"""Named constants for the body-composition engine (the "Demo_cut" model).
 
 Keep every magic number used by the engine here so routes and services never
 inline them (see docs/composition_spec.md, section on guardrails).
@@ -36,6 +36,15 @@ DAYS_PER_WEEK = 7
 SEX_MALE = 1
 SEX_FEMALE = 0
 
+#: Phase 5.2 -- sane per-sex defaults for a brand-new account's goal plan,
+#: used only when registration omits target_bf/weekly_rate. Every account
+#: still always gets *a* goal plan (the engine has no "no goal" mode); this
+#: just avoids asking for one at signup, deferring the real choice to the
+#: Plan tab's preview/commit flow.
+DEFAULT_TARGET_BF_MALE = 0.15
+DEFAULT_TARGET_BF_FEMALE = 0.22
+DEFAULT_WEEKLY_RATE = 0.0
+
 #: Alerts & feedback thresholds (see services/composition/Alerts.py).
 #: These, plus TEF/KCAL_PER_KG_FAT/NEAT_STEP_FACTOR above, are the module
 #: defaults used when a user has no `EngineSettings` override (Phase 1.5,
@@ -65,7 +74,7 @@ WEIGHTED_TREND_DECAY = 0.85
 
 #: Wave 2 (Phase 3) calibration constants -- see docs/composition_spec.md's
 #: "Wave 2" section, F8. All default to values that reproduce today's
-#: Danel numbers exactly; every field below is promoted to a per-account
+#: Demo_cut numbers exactly; every field below is promoted to a per-account
 #: overridable `EngineConstants`/`EngineSettings` field (Phase 3), same
 #: "no row = today's behavior" contract as every constant above.
 
