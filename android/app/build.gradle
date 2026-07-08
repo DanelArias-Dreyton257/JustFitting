@@ -16,9 +16,12 @@ android {
         // rules; versionName is what Android's Settings -> App info shows
         // the user. Was never previously kept in sync with the git tags
         // (still 1 / "1.0" through v1.2.0/v1.2.1); Phase 6 is the
-        // intended v2.0.0 release, so this bump starts that convention.
-        versionCode 2
-        versionName "2.0.0"
+        // intended v2.0.0 release, so this bump started that convention.
+        // v2.0.0's own CI never actually passed (a real Account-view race,
+        // fixed in v2.0.1), so its release never deployed -- v2.0.1 is
+        // Phase 6's first release that actually ships.
+        versionCode 3
+        versionName "2.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

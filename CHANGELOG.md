@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a real, if narrow-window, bug in the Account view surfaced by a
+  CI-only flake (`Account_test.AccountTest.
+  test_editing_profile_fields_round_trips_without_touching_the_active_goal`,
+  not reproducible locally, failing intermittently -- twice -- on the
+  `v2.0.0` release workflow's test gate). `navigate("account")` called
+  `refreshAccount()`, which re-fetched `GET /api/users/me` unawaited and
+  repopulated the profile form from the response. `state.profile` is
+  always already fresh by that point (set once at `boot()`, before any
+  navigation is possible), so this re-fetch was redundant -- and racy: if
+  it resolved after a user had already started editing the form but
+  before submitting, it silently overwrote their in-progress edits with
+  the stale pre-edit profile, sometimes causing the submitted PUT to
+  carry the old values instead of the new ones. Same root-cause shape as
+  the previous Log-view fix (`navigate()` racing an unawaited refresh
+  function) -- fixed the same way: `navigate()` now renders the form
+  synchronously from already-known `state.profile` instead of kicking off
+  an async re-fetch, so there's no longer an in-flight operation to race
+  against. The now-fully-redundant `refreshAccount()` function (its only
+  caller) was removed.
+
 ## [2.0.0] - 2026-07-09
 
 ### Added

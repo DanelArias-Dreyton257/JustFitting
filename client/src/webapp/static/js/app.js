@@ -200,7 +200,22 @@ function navigate(viewName) {
     refreshLogs();
   }
   if (viewName === "plan") refreshPlan();
-  if (viewName === "account") refreshAccount();
+  if (viewName === "account") {
+    // Render synchronously from already-known state -- state.profile is
+    // always populated by boot() before any navigation is possible, so
+    // there's no "still loading" gap to fill. This used to call the
+    // async refreshAccount(), which re-fetched GET /api/users/me
+    // unawaited: if that fetch resolved after the user had already
+    // started editing the form but before they submitted, it silently
+    // overwrote their in-progress edits with the stale pre-edit profile
+    // -- the same navigate()-races-an-unawaited-fetch shape as the Log
+    // view fix above, caught by a CI-only flake in Account_test.
+    // AccountTest.test_editing_profile_fields_round_trips_without_touching_the_active_goal
+    // (not reproducible locally). No legitimate reason for the profile
+    // to have changed server-side between boot() and this navigation in
+    // the first place, so the fetch was redundant, not just racy.
+    fillProfileForm(document.getElementById("profile-form"), state.profile);
+  }
   if (viewName === "report") refreshReport();
   if (viewName === "alert-history") refreshAlertHistory();
   if (viewName === "settings") refreshSettings();
@@ -715,12 +730,6 @@ async function refreshPlan() {
   document.getElementById("plan-preview-result").hidden = true;
   setFormError("plan-form", "");
   setFormError("plan-commit", "");
-}
-
-async function refreshAccount() {
-  const profile = await api.me();
-  state.profile = profile;
-  fillProfileForm(document.getElementById("profile-form"), profile);
 }
 
 async function refreshReport() {
