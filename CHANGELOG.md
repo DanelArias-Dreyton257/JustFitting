@@ -216,6 +216,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional `goal_start_date` override (defaults to today, unchanged for
   real signups); `DemoSeeder.py` now passes each account's actual
   reference-series start date for goal 1.
+- The Log view could briefly render an inconsistent default state (wrong
+  heading, table/placeholder visibility) right after navigating to it,
+  since `navigate()` showed the view synchronously but left
+  `refreshLogs()` -- which sets the nav label, heading, and table/
+  placeholder visibility -- to resolve asynchronously and unawaited,
+  racing against anything that inspected the view immediately (caught by
+  a flaky CI failure in `Log_test.LogNavTest.
+  test_default_is_todays_day_view_with_empty_placeholder`, not
+  reproducible locally). `navigate()` now calls `renderLogNav()`/
+  `renderFilteredLogList()` synchronously from already-known state
+  (`state.logNav` always defaults to today/day-view, `state.logs` starts
+  `[]`) before kicking off the fetch, so the view is always consistent
+  the instant it's shown, regardless of network timing.
 
 ## [1.1.0] - 2026-07-06
 

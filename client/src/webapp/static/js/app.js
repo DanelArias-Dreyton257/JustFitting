@@ -189,7 +189,16 @@ function navigate(viewName) {
   closeNavMenu();
   showView(viewName);
   if (viewName === "dashboard") refreshDashboardSummary();
-  if (viewName === "log") refreshLogs();
+  if (viewName === "log") {
+    // Render the nav label/heading and the (possibly still-empty) filtered
+    // list synchronously from already-known state -- state.logNav always
+    // defaults to today/day-view and state.logs starts as [] -- so the view
+    // never shows a raw-HTML-default flash while the async refreshLogs()
+    // fetch is in flight.
+    renderLogNav();
+    renderFilteredLogList();
+    refreshLogs();
+  }
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") refreshAccount();
   if (viewName === "report") refreshReport();
