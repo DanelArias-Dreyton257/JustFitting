@@ -1,4 +1,8 @@
 apply plugin: 'com.android.application'
+// Embedded on-device server (Phase 6, planned): bundles a real CPython
+// interpreter + these pip packages into the APK. See README's "Android
+// app -> Embedded on-device server" section for the full design.
+apply plugin: 'com.chaquo.python'
 
 android {
     namespace "com.danelarias.justfitting"
@@ -7,19 +11,113 @@ android {
         applicationId "com.danelarias.justfitting"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Tracks the repo's own vX.Y.Z release tags (README's Versioning
+        // section) -- versionCode must strictly increase per Play Store
+        // rules; versionName is what Android's Settings -> App info shows
+        // the user. Was never previously kept in sync with the git tags
+        // (still 1 / "1.0" through v1.2.0/v1.2.1); Phase 6 is the
+        // intended v2.0.0 release, so this bump starts that convention.
+        versionCode 2
+        versionName "2.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+
+        // Chaquopy 17 only ships Python 3.12 for 64-bit ABIs (confirmed
+        // by a failed build attempt: 32-bit armeabi-v7a/x86 aren't
+        // available) -- arm64-v8a covers real devices, x86_64 covers the
+        // emulator; every device old enough to be 32-bit-only is already
+        // excluded by this module's minSdk 24 bump for Chaquopy anyway.
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    // Explicit, not relying on AGP's own default: MainActivity.java uses
+    // lambdas (Phase 6's cold-start splash-screen wiring).
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        // Pinned to 3.12, not environment.yml's 3.10 floor, because the
+        // desktop `justfitting` conda env actually resolved to Python
+        // 3.12.13 on this machine -- Chaquopy's build-time interpreter
+        // (used to resolve pip packages) must match this major.minor
+        // exactly. No `buildPython(...)` override here on purpose: with
+        // the `justfitting` conda env active (`conda activate
+        // justfitting`), plain `python` on PATH already resolves to the
+        // matching 3.12 interpreter, so Chaquopy's own PATH-based search
+        // finds it -- avoids hardcoding a machine-specific, username-
+        // bearing absolute path into a committed file (same philosophy
+        // as this project's JAVA_HOME handling in README's Android SDK
+        // section: scoped to the session, not baked in).
+        version = "3.12"
+
+        pip {
+            // Mirrors server/requirements-prod.txt -- keep both lists in
+            // sync by hand; there is no automated sharing between
+            // Gradle's pip block and the desktop requirements file.
+            install "flask>=3.0,<4.0"
+            install "flask-cors>=4.0,<5.0"
+            install "python-dotenv>=1.0,<2.0"
+            install "waitress>=3.0,<4.0"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            // Root is the repo root (not server/ itself), so the `server`
+            // directory keeps being importable as `server.src.api.app`
+            // etc. -- matching every desktop entry point (Server.py,
+            // wsgi.py) and every server/test import -- instead of losing
+            // its `server.` prefix. Referenced from its real location,
+            // not copied, so the app runs the literal same code
+            // server/test already covers (README's "why an embedded
+            // Python interpreter, not a JS port" reasoning).
+            //
+            // No include("server/**") here on purpose: a Gradle
+            // SourceDirectorySet's include/exclude patterns apply
+            // globally across *every* srcDir registered on it (matched
+            // relative to each srcDir's own root), not per srcDir added
+            // -- an include("server/**") here previously also filtered
+            // out local_server.py from this module's own default
+            // src/main/python srcDir (whose relative path is just
+            // "local_server.py", not "server/..."), which is why the app
+            // crashed on a real device with "ModuleNotFoundError: No
+            // module named 'local_server'" despite building successfully
+            // (Chaquopy's own build-time checks don't catch a source file
+            // silently being filtered out). exclude-only avoids this,
+            // since it only ever removes matches and never acts as an
+            // allowlist against srcDirs it wasn't written for.
+            srcDir("../..")
+            exclude(
+                "client/**",
+                "scripts/**",
+                "node_modules/**",
+                "docs/**",
+                "android/**",
+                ".git/**",
+                ".github/**",
+                ".vscode/**",
+                ".claude/**",
+                ".pytest_cache/**",
+                "dist/**",
+                "server/test/**",
+                "**/__pycache__/**",
+                "**/*_test.py",
+            )
         }
     }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Phase 6 (embedded on-device server, see README): the WebView's bundled
+  UI (served from the https://localhost origin, README's Android app
+  Network notes) fetches the embedded API over plain HTTP on loopback
+  only. Android blocks cleartext traffic by default since API 28; this
+  scopes the exception to 127.0.0.1 exclusively, unlike the dev-only
+  blanket cleartext:true in capacitor.config.json used for LAN/emulator
+  testing against a desktop-run server. No other host can ever use
+  cleartext through this config.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

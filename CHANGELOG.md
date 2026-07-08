@@ -7,6 +7,130 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Phase 6 (embedded on-device server for Android, see README): first step
+  landed -- the Chaquopy Gradle plugin (`com.chaquo.python:gradle:17.0.0`)
+  is wired into `android/build.gradle`/`android/app/build.gradle`,
+  configured to pip-install this project's actual server dependencies
+  (`server/requirements-prod.txt`: Flask, flask-cors, python-dotenv,
+  waitress) for an on-device Python 3.12 interpreter. Three
+  version-specific issues surfaced and were resolved while wiring this
+  up: Chaquopy 17 requires `minSdkVersion >= 24`
+  (`android/variables.gradle` bumped `22 -> 24`, dropping Android
+  5.1/6.0 support); its build-time interpreter (used to resolve pip
+  packages, separate from the on-device runtime) must match the
+  on-device Python version exactly, and the desktop `justfitting` conda
+  env resolves to Python 3.12.13 (not `environment.yml`'s `>=3.10`
+  floor), so the on-device version is pinned to `"3.12"` rather than
+  Chaquopy's own 3.10 default -- resolved without hardcoding a
+  machine-specific interpreter path, by relying on `conda activate
+  justfitting` putting the matching `python` on `PATH`; and Python 3.12
+  only ships Chaquopy builds for 64-bit ABIs, so `ndk.abiFilters`
+  narrowed from all four ABIs to `arm64-v8a`/`x86_64`. Verified with a
+  real `assembleDebug` run: Flask 3.1.3, flask-cors 4.0.2, python-dotenv
+  1.2.2, waitress 3.0.2 and their transitive dependencies installed
+  cleanly for both ABIs, no C-extension/wheel problems; the debug APK
+  grew from the pre-Chaquopy ~4.1 MB baseline to ~40.8 MB with both ABIs
+  bundled in one file (a release build should split per-ABI). Not yet
+  done: anything that actually starts or talks to the embedded server --
+  see README's "Android app -> Embedded on-device server" section for
+  the full design and remaining steps.
+- Phase 6, continued: the embedded server now actually runs. A new
+  `chaquopy.sourceSets` entry (`android/app/build.gradle`) adds the repo
+  root as a Python source directory (excluding `server/test/**` and any
+  `*_test.py`), so the app imports the literal `server.src.*` package
+  from its real location instead of a copy. A new
+  on-device entry point, `android/app/src/main/python/local_server.py`,
+  starts the same Flask app `server/src/api/app.py` builds, served by
+  waitress (matching `server/wsgi.py`'s production path) bound to
+  `127.0.0.1:5000`, with `JUSTFITTING_DB_PATH` pointed at the app's
+  private storage; idempotent, so Android re-running `onCreate()` (e.g. a
+  config change) is a no-op rather than a crash. Its own desktop-runnable
+  test, `local_server_test.py` (excluded from the shipped APK), passes
+  against a real socket. `MainActivity.java` (plain Java -- the existing
+  Capacitor project already is Java, no new bridge language needed) calls
+  into it in `onCreate()`, before `super.onCreate()`, so the client's
+  first fetch can't race an unbound socket. A new
+  `network_security_config.xml`, wired into `AndroidManifest.xml`, scopes
+  Android's cleartext-HTTP exception to `127.0.0.1` only, unlike the
+  existing dev-only blanket `cleartext: true` used for LAN/emulator
+  testing. `package.json` gained `build:web:android-embedded` and
+  `android:sync:embedded` targets pointing the client's
+  `JUSTFITTING_API_BASE_URL` at the embedded server -- added alongside,
+  not replacing, the existing emulator/LAN-pointed `android:sync`/
+  `android:apk` scripts, so today's client-only debugging workflow is
+  unaffected. Verified: a real `assembleDebug` succeeds with every piece
+  wired together, and the full desktop `server/test` suite (310 tests)
+  still passes untouched. Not yet done: installing the built APK
+  (`JustFitting-debug.apk`) on an actual Android device or emulator --
+  no desktop check can confirm the WebView actually loads real data
+  through the embedded server.
+- Phase 6 complete: verified end-to-end on a real Android device, and one
+  real bug found and fixed along the way. The initial
+  `chaquopy.sourceSets` config used `include("server/**")` to scope the
+  repo-root source directory to just the `server` package; a Gradle
+  `SourceDirectorySet`'s include/exclude patterns apply globally across
+  *every* srcDir registered on it (matched relative to each srcDir's own
+  root), not just the one they were written for, so that include pattern
+  also silently filtered `local_server.py` out of this module's own
+  default `src/main/python` srcDir -- crashing the app on launch with
+  `com.chaquo.python.PyException: ModuleNotFoundError: No module named
+  'local_server'`, despite `assembleDebug` succeeding (a filtered-out
+  source file isn't a build error). Diagnosed via `adb logcat` against
+  the real device and fixed by dropping the `include(...)` allowlist for
+  `exclude(...)`-only patterns, which only ever remove matches rather
+  than acting as an allowlist against srcDirs they weren't written for.
+  After the fix, verified on a real phone (`adb install` + launch, with
+  `adb logcat` confirming no crash and a real listening socket on
+  `127.0.0.1:5000` answering `GET /api/health`): registering a new
+  account, logging a week's data, viewing the real computed Dashboard,
+  data surviving a force-close and reopen (the actual "persistence on the
+  phone" promise this phase exists for), and full functionality in
+  Airplane Mode (confirming the app never reaches Render). Phase 6 is
+  done.
+- Phase 6 polish, closing out its remaining open items:
+  - **Cold-start UX**: `MainActivity.onCreate()` no longer blocks the
+    main thread on server startup. It now installs the platform splash
+    screen (`androidx.core.splashscreen`, using Capacitor's own
+    `AppTheme.NoActionBarLaunch` theme, scaffolded but previously
+    unused), starts Chaquopy and `local_server.py` on a background
+    thread, and calls `super.onCreate()` immediately so the WebView
+    starts loading the bundled shell right away; the splash stays on
+    screen (`setKeepOnScreenCondition`) until the server signals ready.
+    A second real bug surfaced and was fixed getting here:
+    `installSplashScreen()` without a `postSplashScreenTheme` declared
+    crashed the app with `IllegalStateException: You need to use a
+    Theme.AppCompat theme (or descendant) with this activity`, since
+    Capacitor's `BridgeActivity` (an `AppCompatActivity`) checks the
+    active theme in its own `onCreate()`, and without that attribute the
+    splash-screen library never restores the real AppCompat-descended
+    theme. Fixed by adding `postSplashScreenTheme` to
+    `AppTheme.NoActionBarLaunch` (`res/values/styles.xml`), pointing at
+    the existing `AppTheme.NoActionBar`. `android/app/build.gradle`
+    gained an explicit `compileOptions` (Java 8) for the lambdas this
+    uses.
+  - **Chaquopy licensing**: resolved -- MIT-licensed since v12.0.1 (this
+    project uses 17.0.0), free for commercial/closed-source use, no
+    royalties, published to Maven Central. No longer an open question.
+  - **`android:sync`/`android:apk` now build the embedded target by
+    default**, matching what actually ships: `build:web:android` (and
+    therefore `android:sync`/`android:apk`) now points at
+    `http://127.0.0.1:5000`; the previous emulator/LAN-dev behavior moved
+    to explicitly-named `build:web:android-remote-dev`/
+    `android:sync:remote-dev` scripts rather than being removed, since
+    it's still useful for iterating on client-only changes without
+    rebuilding the whole Chaquopy-bundled APK each time.
+  - `android/app/build.gradle`'s `versionName`/`versionCode` -- never
+    previously bumped past their Phase-2-scaffold defaults through
+    v1.2.0/v1.2.1 -- are now `2.0.0`/`2`, tracking this repo's own
+    `vX.Y.Z` release tags for the intended v2.0.0 release.
+  - Verified on the real device again after all of the above: clean
+    launch (screenshot-confirmed the Log view rendering with data from
+    the earlier test session intact), server still answering
+    `GET /api/health` through a real socket, app version reporting
+    `2.0.0`, still fully functional in Airplane Mode.
+
 ## [1.2.1] - 2026-07-08
 
 ### Fixed

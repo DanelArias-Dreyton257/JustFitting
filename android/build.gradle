@@ -9,6 +9,11 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.2.1'
         classpath 'com.google.gms:google-services:4.4.0'
+        // Embedded on-device server (Phase 6, planned) -- resolves from
+        // mavenCentral() above, no extra chaquo.com/maven repo needed as
+        // of this version. See README's "Android app -> Embedded
+        // on-device server" section.
+        classpath 'com.chaquo.python:gradle:17.0.0'
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
