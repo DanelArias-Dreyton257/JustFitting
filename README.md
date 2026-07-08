@@ -994,8 +994,9 @@ dev processes. The web deployment (GitHub Pages + Render) is completely
 unaffected — it keeps talking to a remote API exactly as it does now,
 just a different build target of the same `dist/` client. See **Android
 app → Embedded on-device server** below for the full design and current
-status — the Chaquopy Gradle plumbing itself is done and verified; the
-Kotlin bridge that actually starts the server is not.
+status — everything through a successful `assembleDebug` (Chaquopy
+plumbing, the native bridge, the embedded server itself) is done; only
+running the built APK on a real device remains.
 
 (`things-to-improve.txt` separately lists its own unscheduled "Phase 6"
 — four smaller UX items from a further beta-testing round, unrelated to
@@ -1187,23 +1188,27 @@ debug APKs today, possibly Play Store later) — the plan below assumes
 that's fine, but it's an unverified external constraint, not a technical
 one.
 
-#### One process, two logical halves
+#### One process, two logical halves (done, unverified on a real device)
 
 ```
 Android app process
-├── Kotlin MainActivity (Capacitor's native shell)
-│   ├── starts Chaquopy's Python interpreter in onCreate()
+├── MainActivity.java (Capacitor's native shell -- Java, not Kotlin;
+│   │                   the existing generated project already is Java,
+│   │                   so no new language dependency was added)
+│   ├── onCreate(), before super.onCreate(): starts Chaquopy's Python
+│   │   interpreter, then calls local_server.py's start(db_path, port)
 │   │   -> imports server.src.api.app:create_app()
 │   │   -> runs it via waitress (same as server/wsgi.py, not Flask's
-│   │      dev server) bound to 127.0.0.1:<port>, on a background thread
+│   │      dev server) bound to 127.0.0.1:5000, on a background thread
 │   │   -> DB_PATH = <app-private files dir>/justfitting.db
-│   └── waits for a readiness signal before loading the WebView, so the
+│   └── start() only returns once its socket is actually bound (verified
+│       by android/app/src/main/python/local_server_test.py, a
+│       desktop-runnable test against a real socket -- passes), so the
 │       client's first fetch never races an unbound socket
 └── Capacitor WebView
     └── the same dist/ client Phase 2 already bundles, built with
-        JUSTFITTING_API_BASE_URL=http://127.0.0.1:<port> baked in
-        (a new build_static_site.py target, alongside today's
-        production/emulator/LAN ones)
+        JUSTFITTING_API_BASE_URL=http://127.0.0.1:5000 baked in via the
+        new `npm run build:web:android-embedded` target
 ```
 
 No separate Android Service, no notification, no background execution
@@ -1211,7 +1216,12 @@ after the app is swiped away — the server's lifetime is tied to the
 app's process, matching the "two local terminals" mental model exactly:
 closing the app stops the server, same as Ctrl+C; reopening it starts a
 fresh server process against the same persisted DB file, same as
-re-running `python -m server.src.Server`.
+re-running `python -m server.src.Server`. Built successfully
+(`assembleDebug`, both the Gradle/Chaquopy plumbing and this bridge
+together) and verified at the Python-logic level via
+`local_server_test.py`; **not yet installed and run on an actual Android
+device or emulator** -- that end-to-end check (does the WebView actually
+load real data through the embedded server) is still open.
 
 #### Networking & security
 
@@ -1258,8 +1268,14 @@ re-running `python -m server.src.Server`.
   from plain `mavenCentral()`, no extra repo needed at this version) and
   a `chaquopy { defaultConfig { pip { install ... } } }` block mirroring
   `server/requirements-prod.txt` (a new place that list has to stay in
-  sync with — worth a comment pointing each at the other). Three
-  version-specific gotchas hit and resolved while wiring this up:
+  sync with — worth a comment pointing each at the other). A
+  `chaquopy.sourceSets` entry adds the repo root as a Python source
+  directory (scoped with `include("server/**")` /
+  `exclude("server/test/**", "**/__pycache__/**", "**/*_test.py")`), so
+  the app imports the literal `server.src.*` package from its real
+  location — not a copy — while excluding `client/`, `scripts/`,
+  `node_modules/`, and this same `android/` project from the bundle.
+  Four version-specific gotchas hit and resolved while wiring this up:
   - Chaquopy 17 requires **minSdk >= 24** — `android/variables.gradle`
     bumped `minSdkVersion` `22 -> 24` (drops Android 5.1/6.0 support).
   - Chaquopy's build-time interpreter (`buildPython`, used to resolve
@@ -1281,22 +1297,30 @@ re-running `python -m server.src.Server`.
     4.0.2, python-dotenv 1.2.2, waitress 3.0.2 and their transitive deps
     (Werkzeug, Jinja2, MarkupSafe, click, itsdangerous, blinker) installed
     cleanly for both ABIs, no C-extension/wheel-availability problems.
-- A new Kotlin bridge class (e.g.
-  `android/app/src/main/java/.../LocalServer.kt`) owning interpreter
-  startup, readiness signaling, and shutdown — **not started**: the
-  plugin/toolchain builds, but nothing calls into Python yet, so the app
-  doesn't actually run a server on launch at this point.
-- `capacitor.config.json` / `network_security_config.xml`: the scoped
-  cleartext exception above, wired into `AndroidManifest.xml`'s
-  `android:networkSecurityConfig` — not started.
+- `android/app/src/main/python/local_server.py` (**done**): the on-device
+  entry point Chaquopy calls into — see the diagram above. Its own
+  desktop-runnable test, `local_server_test.py` (excluded from the
+  bundled APK via the `**/*_test.py` exclude above), passes against a
+  real socket, confirming the DB file gets created at the given path and
+  that a second `start()` call is a true no-op.
+- `MainActivity.java` (**done**, plain Java — the existing Capacitor
+  project already is Java, not Kotlin, so this needed no new bridge
+  language): starts Chaquopy's interpreter and calls
+  `local_server.start(db_path, port)` in `onCreate()`, before
+  `super.onCreate()`.
+- `android/app/src/main/res/xml/network_security_config.xml` (**done**),
+  wired into `AndroidManifest.xml`'s `android:networkSecurityConfig`: the
+  scoped cleartext exception above.
 - `scripts/build_static_site.py`: no code change needed (it already
   takes an arbitrary API base URL) — a new `npm run
   build:web:android-embedded` script target (`python
-  scripts/build_static_site.py http://127.0.0.1:<port>`) becomes what
-  `npm run android:apk` actually ships, replacing today's emulator/LAN-
-  pointed build for anything but active client-only debugging against a
-  desktop-run server (those two dev workflows keep working unchanged,
-  side by side with the new embedded-server target) — not started.
+  scripts/build_static_site.py http://127.0.0.1:5000`) plus `npm run
+  android:sync:embedded` (**done**, both added to `package.json`).
+  Deliberately **not** wired as the new default: `npm run
+  android:sync`/`android:apk` still point at the emulator/LAN target used
+  for client-only debugging against a desktop-run server, unchanged —
+  switching the default to the embedded target is a separate decision,
+  not bundled into this change.
 - `environment.yml`: no new conda dependency for the on-device runtime
   itself — Chaquopy downloads its own Android-ABI Python build via
   Gradle, separate from the desktop `justfitting` conda env. That conda
@@ -1330,24 +1354,33 @@ re-running `python -m server.src.Server`.
   interpreter.
 - **Cold-start time**: interpreter boot + Flask app-factory + first
   SQLite connect, before the WebView can make its first successful
-  fetch — needs a visible "Starting…" state (Capacitor's splash screen,
-  held until the native readiness signal fires) rather than a failed
-  fetch or blank screen. Not yet measurable: no code calls into Python at
-  app launch yet (see Build & distribution changes above).
+  fetch. `MainActivity.onCreate()` currently blocks synchronously on this
+  (no splash-screen/readiness-event UI yet) — acceptable for a first cut
+  since the whole sequence runs before the WebView is even created, but
+  still unmeasured on real hardware, and a visible "Starting…" state is
+  the natural follow-up once real cold-start numbers are in.
 - **Chaquopy licensing**, noted above — an external, unverified
   constraint on this whole approach, still unresolved.
 - **Dependency wheel availability** for Flask/Werkzeug/Jinja2/click/
   itsdangerous/flask-cors/waitress on Chaquopy's supported Android ABIs —
   **resolved**: confirmed clean (no C-extension/wheel problems) via a
   real `assembleDebug` run, see above.
+- **End-to-end device verification** — the one piece that can't be
+  checked from a desktop: installing the built debug APK
+  (`JustFitting-debug.apk`, repo root) on a real phone and confirming the
+  app launches, the embedded server actually starts, and the WebView
+  loads real data through it. Not yet done — the next step once a device
+  is available to sideload onto.
 
-Status: **in progress.** Done: the Gradle/Chaquopy plumbing itself
-(plugin applied, on-device Python pinned to 3.12, pip dependencies
-installing correctly for both ABIs, `assembleDebug` succeeds). Not done:
-anything that actually starts or talks to the embedded server — the
-Kotlin bridge, DB path wiring, network security config, and the client's
-loopback build target are all still open from the Build & distribution
-list above.
+Status: **in progress.** Done, and verified as far as a desktop machine
+can verify it: the Gradle/Chaquopy plumbing (plugin applied, on-device
+Python pinned to 3.12, pip dependencies installing correctly for both
+ABIs), the `server/src` sourceSet wiring, `local_server.py` (passes its
+own real-socket test), the `MainActivity.java` bridge, the scoped network
+security config, and the embedded-target build scripts — `assembleDebug`
+succeeds end-to-end and produces an installable APK. Not done: running
+that APK on an actual Android device or emulator, which is the only
+remaining check before this phase can be called complete.
 
 ### Alternative considered: client-side local/offline mode (design note, superseded by Phase 6)
 

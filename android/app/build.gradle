@@ -63,6 +63,29 @@ chaquopy {
             install "waitress>=3.0,<4.0"
         }
     }
+
+    sourceSets {
+        getByName("main") {
+            // Root is the repo root (not server/ itself), so the `server`
+            // directory keeps being importable as `server.src.api.app`
+            // etc. -- matching every desktop entry point (Server.py,
+            // wsgi.py) and every server/test import -- instead of losing
+            // its `server.` prefix. The include/exclude below scope this
+            // down to just that package: the repo root also holds
+            // client/, scripts/, node_modules/, docs/, .git, and this
+            // same android/ project, none of which belong in the
+            // on-device Python bundle. Referenced from its real location,
+            // not copied, so the app runs the literal same code
+            // server/test already covers (README's "why an embedded
+            // Python interpreter, not a JS port" reasoning).
+            srcDir("../..")
+            include("server/**")
+            // *_test.py also excludes local_server_test.py, which lives
+            // alongside local_server.py under this module's own default
+            // src/main/python -- both srcDirs share one exclude list.
+            exclude("server/test/**", "**/__pycache__/**", "**/*_test.py")
+        }
+    }
 }
 
 repositories {

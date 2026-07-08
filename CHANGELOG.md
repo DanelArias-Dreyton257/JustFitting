@@ -36,6 +36,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   done: anything that actually starts or talks to the embedded server --
   see README's "Android app -> Embedded on-device server" section for
   the full design and remaining steps.
+- Phase 6, continued: the embedded server now actually runs. A new
+  `chaquopy.sourceSets` entry (`android/app/build.gradle`) adds the repo
+  root as a Python source directory, scoped to `server/**` (excluding
+  `server/test/**` and any `*_test.py`), so the app imports the literal
+  `server.src.*` package from its real location instead of a copy. A new
+  on-device entry point, `android/app/src/main/python/local_server.py`,
+  starts the same Flask app `server/src/api/app.py` builds, served by
+  waitress (matching `server/wsgi.py`'s production path) bound to
+  `127.0.0.1:5000`, with `JUSTFITTING_DB_PATH` pointed at the app's
+  private storage; idempotent, so Android re-running `onCreate()` (e.g. a
+  config change) is a no-op rather than a crash. Its own desktop-runnable
+  test, `local_server_test.py` (excluded from the shipped APK), passes
+  against a real socket. `MainActivity.java` (plain Java -- the existing
+  Capacitor project already is Java, no new bridge language needed) calls
+  into it in `onCreate()`, before `super.onCreate()`, so the client's
+  first fetch can't race an unbound socket. A new
+  `network_security_config.xml`, wired into `AndroidManifest.xml`, scopes
+  Android's cleartext-HTTP exception to `127.0.0.1` only, unlike the
+  existing dev-only blanket `cleartext: true` used for LAN/emulator
+  testing. `package.json` gained `build:web:android-embedded` and
+  `android:sync:embedded` targets pointing the client's
+  `JUSTFITTING_API_BASE_URL` at the embedded server -- added alongside,
+  not replacing, the existing emulator/LAN-pointed `android:sync`/
+  `android:apk` scripts, so today's client-only debugging workflow is
+  unaffected. Verified: a real `assembleDebug` succeeds with every piece
+  wired together, and the full desktop `server/test` suite (310 tests)
+  still passes untouched. Not yet done: installing the built APK
+  (`JustFitting-debug.apk`) on an actual Android device or emulator --
+  no desktop check can confirm the WebView actually loads real data
+  through the embedded server.
 
 ## [1.2.1] - 2026-07-08
 
