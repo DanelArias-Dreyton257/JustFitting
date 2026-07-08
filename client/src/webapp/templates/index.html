@@ -220,7 +220,7 @@
         </div>
 
         <fieldset class="wizard-step" data-step="1">
-          <p class="wizard-selected-date">Logging for <strong id="log-wizard-date-label"></strong></p>
+          <p class="wizard-selected-date"><span id="log-wizard-date-prefix">Logging for</span> <strong id="log-wizard-date-label"></strong></p>
           <input type="hidden" name="date" id="log-wizard-date-input" />
           <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
           <label>Granularity
@@ -259,6 +259,7 @@
           <button type="button" id="log-back" hidden>Back</button>
           <button type="button" id="log-next">Next</button>
           <button type="submit" id="log-save" hidden>Save log</button>
+          <button type="button" id="log-cancel-edit" hidden>Cancel</button>
         </div>
         <p class="form-error" data-for="log-form"></p>
       </form>

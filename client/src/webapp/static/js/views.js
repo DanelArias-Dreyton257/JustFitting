@@ -367,7 +367,12 @@ export function renderLogTable(tbody, logs) {
         <td>${formatMacros(log)}</td>
         <td><span class="badge ${log.source}">${log.source}</span></td>
         <td>${log.granularity ? `<span class="badge ${log.granularity}">${log.granularity}</span>` : "—"}</td>
-        <td>${log.log_id != null ? `<button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button>` : ""}</td>
+        <td>${
+          log.log_id != null
+            ? `<button class="edit-log-btn" data-log-id="${log.log_id}">Edit</button> `
+              + `<button class="delete-log-btn" data-log-id="${log.log_id}">Delete</button>`
+            : ""
+        }</td>
       </tr>`
     )
     .join("");

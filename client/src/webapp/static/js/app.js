@@ -105,6 +105,7 @@ const state = {
   projectionWeeks: 4,
   projectionCache: {},
   logNav: { selectedDate: todayIso(), viewMode: "day" },
+  editingLogId: null,
 };
 
 const LOG_WIZARD_STEPS = 4;
@@ -174,6 +175,7 @@ async function enterApp() {
   state.projectionWeeks = 4;
   state.projectionCache = {};
   state.logNav = { selectedDate: todayIso(), viewMode: "day" };
+  state.editingLogId = null;
   const dashboardDetails = document.getElementById("dashboard-details");
   if (dashboardDetails) dashboardDetails.open = false;
   const projectionToggle = document.getElementById("dashboard-projection-toggle");
@@ -494,6 +496,46 @@ function resetWizardDefaults() {
   prefillWizardFromLastLog();
 }
 
+function fillWizardFromLog(log) {
+  const form = document.getElementById("log-form");
+  form.weight_kg.value = log.weight_kg;
+  form.waist_cm.value = log.waist_cm;
+  form.neck_cm.value = log.neck_cm;
+  form.intake_kcal.value = log.intake_kcal;
+  form.steps.value = log.steps;
+  form.cardio_kcal.value = log.cardio_kcal;
+  form.carbs_g.value = log.carbs_g == null ? "" : log.carbs_g;
+  form.fat_g.value = log.fat_g == null ? "" : log.fat_g;
+  form.protein_g.value = log.protein_g == null ? "" : log.protein_g;
+  form.granularity.value = log.granularity;
+}
+
+// Phase 5.7: a log's date and granularity are not editable -- the wizard's
+// date label/hidden input are pinned to the log's own date (instead of the
+// navigator's selected day/week) and the granularity select is disabled,
+// both restored by exitEditMode(). Every other field stays editable.
+function enterEditMode(log) {
+  state.editingLogId = log.log_id;
+  fillWizardFromLog(log);
+  document.getElementById("log-wizard-granularity").disabled = true;
+  document.getElementById("log-wizard-date-input").value = log.date;
+  document.getElementById("log-wizard-date-prefix").textContent = "Editing log for";
+  document.getElementById("log-wizard-date-label").textContent = formatDayLabel(log.date);
+  document.getElementById("log-save").textContent = "Save changes";
+  document.getElementById("log-cancel-edit").hidden = false;
+  goToLogStep(1);
+}
+
+// Only clears edit-mode's own UI flags -- callers (Cancel, or a successful
+// edit save via refreshLogs()) are responsible for restoring the form and
+// wizard nav themselves, same as the create-mode reset they already do.
+function exitEditMode() {
+  state.editingLogId = null;
+  document.getElementById("log-wizard-granularity").disabled = false;
+  document.getElementById("log-save").textContent = "Save log";
+  document.getElementById("log-cancel-edit").hidden = true;
+}
+
 function renderLogNav() {
   const { selectedDate, viewMode } = state.logNav;
   const isWeek = viewMode === "week";
@@ -505,10 +547,15 @@ function renderLogNav() {
   document.getElementById("log-nav-day").classList.toggle("active", !isWeek);
   document.getElementById("log-nav-week").classList.toggle("active", isWeek);
 
-  document.getElementById("log-wizard-date-input").value = selectedDate;
-  document.getElementById("log-wizard-date-label").textContent = isWeek
-    ? formatWeekLabel(selectedDate)
-    : formatDayLabel(selectedDate);
+  // While editing an existing log, the wizard's date is bound to that log's
+  // own date (set by enterEditMode), not the navigator's selected day/week.
+  if (state.editingLogId == null) {
+    document.getElementById("log-wizard-date-prefix").textContent = "Logging for";
+    document.getElementById("log-wizard-date-input").value = selectedDate;
+    document.getElementById("log-wizard-date-label").textContent = isWeek
+      ? formatWeekLabel(selectedDate)
+      : formatDayLabel(selectedDate);
+  }
 
   const heading = document.getElementById("log-list-heading");
   if (isWeek) {
@@ -613,7 +660,14 @@ function goToLogStep(step) {
   const form = document.getElementById("log-form");
   showWizardStep(form, step, LOG_WIZARD_STEPS);
   if (step === LOG_WIZARD_STEPS) {
-    renderLogReview(document.getElementById("log-review"), formToJson(form));
+    const values = formToJson(form);
+    // The granularity <select> is disabled while editing, so FormData
+    // excludes it -- pull it back in from the log being edited for display.
+    if (state.editingLogId != null) {
+      const editing = state.logs.find((log) => log.log_id === state.editingLogId);
+      if (editing) values.granularity = editing.granularity;
+    }
+    renderLogReview(document.getElementById("log-review"), values);
   }
 }
 
@@ -786,21 +840,32 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   event.preventDefault();
   setFormError("log-form", "");
   const raw = formToJson(event.target);
-  const payload = {
-    date: raw.date,
+  // Shared by create and edit; date/granularity are only ever sent when
+  // creating -- edit mode omits them so the server's partial-update
+  // semantics (log_routes.py's update_log) leave them untouched, since
+  // neither is editable here.
+  const measurements = {
     weight_kg: Number(raw.weight_kg),
     waist_cm: Number(raw.waist_cm),
     neck_cm: Number(raw.neck_cm),
     intake_kcal: Number(raw.intake_kcal),
     steps: Number(raw.steps) || 0,
     cardio_kcal: Number(raw.cardio_kcal) || 0,
-    granularity: raw.granularity || "weekly",
     carbs_g: optionalNumber(raw.carbs_g),
     fat_g: optionalNumber(raw.fat_g),
     protein_g: optionalNumber(raw.protein_g),
   };
   try {
-    await api.createLog(payload);
+    if (state.editingLogId != null) {
+      await api.updateLog(state.editingLogId, measurements);
+      exitEditMode();
+    } else {
+      await api.createLog({
+        ...measurements,
+        date: raw.date,
+        granularity: raw.granularity || "weekly",
+      });
+    }
     event.target.reset();
     await refreshLogs();
   } catch (err) {
@@ -808,11 +873,26 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   }
 });
 
+document.getElementById("log-cancel-edit").addEventListener("click", () => {
+  exitEditMode();
+  document.getElementById("log-form").reset();
+  resetWizardDefaults();
+  renderLogNav();
+  goToLogStep(1);
+});
+
 document.querySelector("#log-table tbody").addEventListener("click", async (event) => {
-  const btn = event.target.closest(".delete-log-btn");
-  if (!btn) return;
-  await api.deleteLog(btn.dataset.logId);
-  await refreshLogs();
+  const deleteBtn = event.target.closest(".delete-log-btn");
+  if (deleteBtn) {
+    await api.deleteLog(deleteBtn.dataset.logId);
+    await refreshLogs();
+    return;
+  }
+  const editBtn = event.target.closest(".edit-log-btn");
+  if (editBtn) {
+    const log = state.logs.find((l) => l.log_id === Number(editBtn.dataset.logId));
+    if (log) enterEditMode(log);
+  }
 });
 
 document.getElementById("dashboard-alerts").addEventListener("click", async (event) => {

@@ -260,6 +260,85 @@ class LogNavTest(unittest.TestCase):
             self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), "35"
         )
 
+    def test_editing_a_log_updates_the_row_in_place_and_persists_after_reload(self):
+        iso_date = _MONDAY.isoformat()
+        self._log_on(iso_date, 90.0)
+
+        row = self.page.locator("#log-table tbody tr").first
+        original_log_id = row.get_attribute("data-log-id")
+
+        row.locator(".edit-log-btn").click()
+        self.page.wait_for_function(
+            "document.getElementById('log-save').textContent === 'Save changes'"
+        )
+        self.assertIn("Editing log for", self.page.inner_text("#log-form"))
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="weight_kg"]', "el => el.value"), "90"
+        )
+        self.assertTrue(
+            self.page.eval_on_selector(
+                "#log-wizard-granularity", "el => el.disabled"
+            )
+        )
+
+        self.page.fill('#log-form [name="weight_kg"]', "88.5")
+        self.page.click("#log-next")
+        self.page.click("#log-next")
+        self.page.click("#log-next")
+        self.page.click("#log-save")
+        self.page.wait_for_function(
+            "document.querySelector('#log-table tbody tr td:nth-child(2)')?.textContent === '88.5'"
+        )
+
+        # Same row updated in place -- no new row, log_id unchanged, and the
+        # wizard reverts to create-mode.
+        rows = self.page.locator("#log-table tbody tr")
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first.get_attribute("data-log-id"), original_log_id)
+        self.assertEqual(self.page.inner_text("#log-save"), "Save log")
+        self.assertTrue(self.page.is_hidden("#log-cancel-edit"))
+        self.assertFalse(
+            self.page.eval_on_selector("#log-wizard-granularity", "el => el.disabled")
+        )
+
+        # Round-trips through a page reload (not just left in local state).
+        self.page.reload()
+        self._navigate_to_log()
+        self._jump_to_date(iso_date)
+        self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_date}")')
+        self.assertEqual(
+            self.page.locator("#log-table tbody tr").first.locator("td").nth(1).inner_text(),
+            "88.5",
+        )
+
+    def test_cancel_edit_discards_changes_and_returns_to_create_mode(self):
+        iso_date = _MONDAY.isoformat()
+        self._log_on(iso_date, 90.0)
+        original_weight = (
+            self.page.locator("#log-table tbody tr").first.locator("td").nth(1).inner_text()
+        )
+
+        self.page.locator("#log-table tbody tr").first.locator(".edit-log-btn").click()
+        self.page.wait_for_function(
+            "document.getElementById('log-save').textContent === 'Save changes'"
+        )
+        self.page.fill('#log-form [name="weight_kg"]', "50")
+
+        self.page.click("#log-cancel-edit")
+        self.page.wait_for_function(
+            "document.getElementById('log-save').textContent === 'Save log'"
+        )
+        self.assertTrue(self.page.is_hidden("#log-cancel-edit"))
+        self.assertEqual(
+            self.page.eval_on_selector('#log-form [name="weight_kg"]', "el => el.value"), ""
+        )
+
+        # The cancelled edit was never submitted -- the row is untouched.
+        self.assertEqual(
+            self.page.locator("#log-table tbody tr").first.locator("td").nth(1).inner_text(),
+            original_weight,
+        )
+
     def test_show_projected_preference_stays_inert_on_a_real_logged_day(self):
         iso_week1 = _MONDAY.isoformat()
         iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
