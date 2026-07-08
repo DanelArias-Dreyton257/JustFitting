@@ -9,8 +9,8 @@ model (BMR / NEAT / TDEE / target calories), a goal trajectory (target
 weight, weekly deficit, weeks-to-goal), and a forecast of future weeks.
 
 Try it out! https://danelarias-dreyton257.github.io/JustFitting/ — log in
-with `admin_cut` / `adminadmin` (a cut, resembling Danel) or `admin_bulk` /
-`adminadmin` (a bulk, resembling Sergio) to see a populated dashboard. The
+with `admin_cut` / `adminadmin` (a cut, resembling Demo_cut) or `admin_bulk` /
+`adminadmin` (a bulk, resembling Demo_bulk) to see a populated dashboard. The
 API is on Render's free tier, so the first request after idling may take
 up to a minute to wake it up.
 
@@ -59,7 +59,7 @@ All scripts live in `scripts/` and `cd` to the repo root themselves.
 | `run.sh` | Start server + client together; Ctrl+C stops both. |
 | `update.sh` | `conda env update --prune`; re-apply the (idempotent) DB schema. |
 | `reset_db.sh [path]` | Delete the SQLite file (confirms unless `FORCE=1`). |
-| `seed_demo_data.sh` | Register `admin_cut`/`admin_bulk` (both `adminadmin`) and seed their Danel (cut) and Sergio (bulk) reference series. No-op per-account if already seeded. |
+| `seed_demo_data.sh` | Register `admin_cut`/`admin_bulk` (both `adminadmin`) and seed their Demo_cut (cut) and Demo_bulk (bulk) reference series. No-op per-account if already seeded. |
 | `uninstall.sh [path]` | Remove the conda env and optionally the DB. |
 | `build_static_site.py [api_base_url]` | Build the client into `dist/` for a static host or the Android app (see **Android app** below). |
 
@@ -225,15 +225,24 @@ Wfinal_i   = LeanMass_i / (1 - tau)
 Weeks_i    = ln(W_i / Wfinal_i) / ln(1 - r)
 ```
 
-Danel worked example (`H=176, sex=1, birthdate=2001-08-22, target_bf=0.15,
-weekly_rate=-0.005`), last real record 2026-06-26 (`W=90.7, waist=80.0,
-neck=35.0, steps=5000`):
+Demo_cut worked example (`H=176, sex=1, birthdate=2001-08-22`) -- registered
+targeting 17% body fat at -0.5%/week, then switched on 2026-05-01 to a
+steeper 15% target at -1%/week (the demo seed's Phase 5.3 two-goal
+history, below). Last real record 2026-06-26 (`W=90.7, waist=80.0,
+neck=35.0, steps=5000`), computed under the active (second) goal
+(`target_bf=0.15, weekly_rate=-0.01`):
 
 ```
 BMI 29.28 | BF 19.91% | FatMass 18.06 kg | LeanMass 72.64 kg
-BMR 2098.08 | TDEE 2583.14 | TargetCal 2027.03
-Wobj 90.545 | DailyDeficit 500.5 | Wfinal 85.459 | Weeks 11.93
+BMR 2098.08 | TDEE 2583.14 | TargetCal 1470.92
+Wobj 90.09 | DailyDeficit 1001.0 | Wfinal 85.459 | Weeks 5.98
 ```
+
+BMI/BF/FatMass/LeanMass/BMR/TDEE/Wfinal only ever depend on the logged
+anthropometric data and `target_bf` (unchanged at 0.15 across both
+goals here), never `weekly_rate` -- only Wobj/DailyDeficit/TargetCal/Weeks
+shift with the goal change, since those are the only formulas above that
+read `r`.
 
 Future weeks are forecast with a linear trend fit — plain or
 recency-weighted OLS, selectable via `trend_model` — for weight/waist/neck;
@@ -443,7 +452,7 @@ builds on, without touching any existing (cut-mode) computed values:
   3.2/3.1 respectively, shipped now so `engine_settings` doesn't need a
   second migration later) — historized like every other per-account
   constant (migration 12), defaulting to values that reproduce today's
-  numbers exactly, never Sergio's own calibration. `GET`/`PUT
+  numbers exactly, never Demo_bulk's own calibration. `GET`/`PUT
   /api/users/me/settings` pick up all seven fields automatically (the
   route is driven off `EngineSettingsManager.FIELDS`); the Settings view
   gained a "Body-fat & BMR calibration" section.
@@ -663,7 +672,7 @@ unscheduled from either source document's eight-plus-one capabilities:
 
 ### Phase 4 — UX refinement: beta-testing feedback (done)
 
-Source: `things-to-improve.txt`, Danel's own notes from the first round of
+Source: `things-to-improve.txt`, Demo_cut's own notes from the first round of
 beta-testing the shipped v1.0.0 app. Five items, roughly in the order
 they unlock each other (2-5 lean on 1, and on each other); this phase's
 sub-phases track them 1:1. **All five, Phase 4.1-4.5, are done.**
@@ -789,7 +798,7 @@ engine work, migration, or `ENGINE_VERSION` bump was needed.
   established convention.
 - Manually verified against both seeded demo accounts
   (`scripts/seed_demo_data.sh`): `admin_cut`'s summary reproduces the
-  README's own Danel worked example almost exactly (BF 19.9%, TDEE 2583
+  README's own Demo_cut worked example almost exactly (BF 19.9%, TDEE 2583
   kcal, target 2027 kcal, ~11.9 weeks to goal); `admin_bulk` renders the
   same layout correctly with upward weight/lean-mass deltas and a
   "Bulk" direction badge.
@@ -1174,7 +1183,7 @@ of beta-testing are shipped.
 ### Phase 5 — Beta-testing feedback, round 2 (in progress)
 
 Source: `things-to-improve.txt`'s "Things to change (Beta-testing) Phase 5"
-section, Danel's second round of beta-testing notes -- eight items, mostly
+section, Demo_cut's second round of beta-testing notes -- eight items, mostly
 independent of each other (unlike Phase 4's chained items). Sub-phases
 below track them 1:1 in the order the note lists them.
 
@@ -1334,6 +1343,77 @@ projections and plotting tendencies" the note flags.
   source is empty, same as too few real logs); every existing
   single-goal-history test across the whole suite stayed green untouched,
   proving the no-op case.
+- **Demo data now exercises this out of the box**: both `admin_cut` and
+  `admin_bulk` (`services/DemoSeeder.py`) are seeded with a two-goal
+  history instead of one -- `admin_cut` registers at 17% body fat/-0.5%
+  weekly, then switches to 15%/-1% 8 weeks before its last reference log
+  (`LogManager.DEMO_SECOND_GOAL`/`DEMO_GOAL_CHANGE_DATE`); `admin_bulk`
+  registers at 20%/+2%, then switches to 18%/+0.05%
+  (`DEMO_BULK_SECOND_GOAL`/`DEMO_BULK_GOAL_CHANGE_DATE`). `DemoSeeder.seed_if_empty`
+  gained a required `goal_plan_manager` parameter to create the second
+  goal after seeding each account's logs (both call sites -- `api/app.py`'s
+  boot seeder and `scripts/seed_demo_data.py` -- already had one in
+  scope). The "Demo_cut worked example" above is updated to reflect
+  `admin_cut`'s actual active (second) goal, since `Wobj`/`DailyDeficit`/
+  `TargetCal`/`Weeks` all depend on `weekly_rate`.
+- **Two real client-side bugs found while testing this against the new
+  two-goal demo accounts** (both pre-existing, unrelated to this phase's
+  own server-side scoping work, but only became easy to spot with real
+  multi-month reference data to browse through):
+  - **The Log view's day view only ever matched a "weekly" log against
+    its own exact logged date** (`app.js`'s `filteredLogs()`), instead of
+    treating it as covering its whole ISO week (Mon-Sun) -- the same
+    grouping `LogResampler.resample_to_weekly` already uses server-side.
+    Browsing day-by-day through an already-logged week showed the real
+    log only on the one day it happened to be entered, and an empty
+    placeholder on every other day of that same week.
+  - **That same gap made `refreshProjectedRow()` misfire**: since
+    `filteredLogs()` incorrectly returned empty for most days of an
+    already-logged week, the "show projected values" feature (Phase 4.5)
+    concluded those days had no log yet and injected a projected row --
+    so a real, already-logged week could show a stale-looking
+    "projected" row on six of its seven days. Fixing `filteredLogs()`
+    fixes both symptoms at once, since `refreshProjectedRow()` already
+    bails out whenever `filteredLogs()` is non-empty.
+  - Fixed by making `filteredLogs()`'s day-view branch check whether the
+    selected day falls within a `"weekly"` log's ISO week (matching
+    week-view's own range check), while a `"daily"` log still only
+    matches its own exact date, since it genuinely represents just that
+    one day. New `Log_test.py` cases cover both: a weekly log appears on
+    every day of its week (and not the day after), and a daily log
+    appears on only its own day.
+- **Two more bugs found the same way, both server-side, once the demo
+  accounts' Weight vs Goal Trajectory chart was actually eyeballed
+  end-to-end**:
+  - **A fake "reset to zero deviation" spike at every goal change**: the
+    scoping filter above (correctly) excludes pre-goal-change logs from
+    the engine's input series, but `CompositionEngine.compute_series`
+    then treats the new period's first log as having *no* predecessor
+    (`prev_weight_kg=None`), which is `Trajectory.compute_weight_objective`'s
+    base case for "start of history" -- it snaps `weight_objective_kg` to
+    match that week's actual weight exactly, then jumps to a real
+    ~1%/week step the following week. On the chart this reads as a
+    vertical line at every goal change, even though a real prior
+    weigh-in exists just outside the scoped window. Fixed by threading an
+    `initial_prev_weight_kg` context value through `compute_series` (new
+    optional param) and `MetricsCache.get_or_compute_series`:
+    `MetricsSeriesService.compute_series_for_user` now looks up the last
+    real log *before* `active_period_start` and passes its weight in as
+    context only -- never re-included in the output series -- so the
+    first displayed row of a new goal period still has a genuine
+    predecessor and the trajectory stays continuous.
+  - **Goal history start dates shown backwards**: `admin_cut`/
+    `admin_bulk`'s *first* goal was always created with
+    `start_date=date.today()` (whenever the seed script happened to run,
+    via `UserManager.register`), while their *second* goal used an
+    explicit backdated `start_date` (the demo seeding above). Since the
+    demo seed runs well after each reference series' documented start
+    date, goal 1 ended up showing a *later* start date than goal 2 in the
+    goal history. Fixed with a new optional `goal_start_date` param on
+    `UserManager.register` (defaults to `date.today()`, unchanged for
+    every real signup); `DemoSeeder.py` now passes each account's actual
+    reference-series start date (`DEMO_FIRST_LOG`/`DEMO_BULK_FIRST_LOG`)
+    for goal 1.
 
 #### Phase 5.4 — Log wizard defaults to the last log's perimeters (done)
 
@@ -1764,4 +1844,4 @@ explicitly out of scope unless a strong reason emerges later.
 
 ## The Team
 
-Danel Arias — University of Deusto, Bilbao.
+Demo_cut Arias — University of Deusto, Bilbao.

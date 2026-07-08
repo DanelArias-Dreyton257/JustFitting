@@ -55,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise exclude any log dated before signup for every single-goal
   account. `GET /api/logs`/`/export` (raw history) are unaffected --
   only the derived series is scoped.
+- Both demo accounts (`admin_cut`/`admin_bulk`, `services/DemoSeeder.py`)
+  now seed with a two-goal history instead of one, so they exercise the
+  Phase 5.3 scoping above out of the box: `admin_cut` registers at 17%
+  body fat/-0.5% weekly, then switches to 15%/-1% 8 weeks before its last
+  reference log; `admin_bulk` registers at 20%/+2%, then switches to
+  18%/+0.05%. The "Demo_cut worked example" in this README is updated to
+  match `admin_cut`'s actual active goal (`Wobj`/`DailyDeficit`/
+  `TargetCal`/`Weeks` all depend on `weekly_rate`, unlike the rest of the
+  figures there).
 - Registration no longer asks for a goal, and the Account view is
   profile-only (README's Phase 5.2/5.8). `POST /api/users` drops its
   `target_bf`/`weekly_rate` requirement -- an omitted goal resolves to a
@@ -174,6 +183,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `abs(weekly_rate) < 1e-9` epsilon guard `IncrementAnalytics.py` already
   uses for its own zero-rate case, returning the same `0.0` "no
   meaningful figure" sentinel every consumer already renders as "--".
+- The Log view's day view only ever matched a `"weekly"` log against its
+  own literal logged date instead of its whole ISO week (README's Phase
+  5.3 follow-up) -- browsing day-by-day through an already-logged week
+  showed the real log on only the one day it happened to be entered, an
+  empty placeholder on every other day of that week, and (since
+  `refreshProjectedRow()` already bails out whenever a day has a real
+  log) a stale-looking "projected" row injected on those other six days
+  even though the week was already logged. `app.js`'s `filteredLogs()`
+  now matches a `"weekly"` log against its whole Mon-Sun week in day
+  view too (the same range check week view already used), fixing both
+  symptoms at once; a `"daily"` log still only matches its own exact
+  date.
+- The Weight vs Goal Trajectory chart showed a fake vertical-line spike
+  at every goal change (README's Phase 5.3 follow-up) -- Phase 5.3's
+  period scoping correctly excludes pre-goal-change logs from the
+  engine's input, but that left the new period's first row with no
+  predecessor, so `weight_objective_kg` snapped to that week's actual
+  weight exactly before jumping to a real weekly step the week after.
+  `CompositionEngine.compute_series` gained an optional
+  `initial_prev_weight_kg` context param (threaded through
+  `MetricsCache.get_or_compute_series`); `MetricsSeriesService.
+  compute_series_for_user` now passes in the last real log's weight from
+  *before* the scoped period as trajectory context only, never
+  re-included in the output, so the series stays continuous across a
+  goal change.
+- `admin_cut`/`admin_bulk`'s goal history showed dates backwards (README's
+  Phase 5.3 follow-up) -- their first goal was always stamped
+  `start_date=date.today()` at seed time (`UserManager.register`), while
+  their second, backdated goal used an earlier explicit date, so goal 1
+  appeared to start *after* goal 2. `UserManager.register` gained an
+  optional `goal_start_date` override (defaults to today, unchanged for
+  real signups); `DemoSeeder.py` now passes each account's actual
+  reference-series start date for goal 1.
 
 ## [1.1.0] - 2026-07-06
 
@@ -309,7 +351,7 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
   (F5), `increment_analytics` (F7), `tef` (F9) and `macro_targets` (F9+)
   -- closing the README's former "Future work" gap where a bulk account's
   trainer/nutritionist export/report only ever showed the original
-  Danel-era metrics. A new shared `_wave2_metrics` helper in
+  Demo_cut-era metrics. A new shared `_wave2_metrics` helper in
   `user_routes.py` computes all five from the same `services/
   composition/*` functions and reuses the exact DTOs `GET /api/metrics/*`
   already exposes -- no new computation, no `ENGINE_VERSION` implications.
@@ -341,16 +383,16 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
   database doesn't error or lose data; every other DAO-level test is
   unaffected.
 - `services/DemoSeeder.py` now seeds **two** demo accounts instead of one:
-  `admin_cut` (Danel's cut reference series, unchanged) and `admin_bulk`
-  (a new Sergio-resembling bulk reference series), both password
+  `admin_cut` (Demo_cut's cut reference series, unchanged) and `admin_bulk`
+  (a new Demo_bulk-resembling bulk reference series), both password
   `adminadmin`. `admin_bulk` is also given customized `EngineSettings`
   (`bmr_model="mifflin"`, `tef_mode="macros"`) and its most recent 4 weeks
   are logged at daily granularity with carb/fat/protein grams, so the
   seeded database actually exercises Phase 3/3.1/3.2/3.3/3.4's bulk-mode,
   cardio, gain-quality, energy-reconciliation, daily-granularity and
   macro-TEF/macro-target code paths end to end, not just the original
-  Danel cut. `LogManager.py` gained the parallel `SERGIO_PROFILE`/
-  `seed_bulk_reference_series` (Danel's `seed_reference_series` and its
+  Demo_cut cut. `LogManager.py` gained the parallel `DEMO_BULK_PROFILE`/
+  `seed_bulk_reference_series` (Demo_cut's `seed_reference_series` and its
   constants are untouched -- composition_spec.md's golden reference stays
   exactly as documented). `seed_if_empty` seeds each account
   independently (idempotent per-account) and takes an optional
@@ -492,7 +534,7 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
     are overridden together in the same call), `lean_tissue_kcal_per_kg`
     (default `2100`, unused until Phase 3.2's energy reconciliation) and
     `fat_ratio_ideal` (default `0.25`, unused until Phase 3.1's
-    gain-quality panel) -- all reproducing today's Danel numbers exactly
+    gain-quality panel) -- all reproducing today's Demo_cut numbers exactly
     by default. `BodyFat.compute_body_fat` and
     `Anthropometry.compute_ffmi_adjusted` gained trailing, defaulted
     parameters for the new weights/offset/coefficient; migration 12 adds
@@ -1031,14 +1073,14 @@ reconciliation, daily/weekly logs, TEF by macronutrients, macro targets).
     mark Phase 1.1's §14/§15/§16 items done.
 - Phase 1: server-client web app.
   - Composition engine (`server/src/services/composition/`) implementing
-    the verified "Danel" spec — anthropometry, body-fat estimators
+    the verified "Demo_cut" spec — anthropometry, body-fat estimators
     (RFM/Navy/Deurenberg), energy model (BMR/NEAT/TDEE/target calories),
     goal trajectory, and OLS-based weekly projection.
   - SQLite-backed data layer with a linear migration runner, DAOs for
     users/sessions/body logs, and domain/DTO models.
   - Services layer: `UserManager` (profile CRUD, PBKDF2 password hashing),
     `AuthService` (bearer sessions with sliding expiry), `LogManager`
-    (weekly log CRUD, real-vs-assumed intake, Danel reference demo seed).
+    (weekly log CRUD, real-vs-assumed intake, Demo_cut reference demo seed).
   - Flask REST API: auth, profile, logs, derived metrics, and projection
     routes, plus `GET /api/health`.
   - Static, dependency-free web client (vanilla JS ES modules) with

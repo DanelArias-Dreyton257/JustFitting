@@ -14,3 +14,10 @@ Things to change (Beta-testing) Phase 5
 6 - FIX Calories taraget calories tdee and adherence are not comprehensible, what do they mean maybe other metrics are best. Adherence is weird because you would expect that target calories indicate how much should you eat, TDEE how much DID you eat and adherence the difference daily but doesn't match. 
 7 - Log editing posible
 8 - Account setting goal and profile be separated, goal has its own tab, so only profile setting should be there
+
+New things to add (Phase 6)
+---
+1 - Add a progress bar to the dashboard showing how far since the goal definition to the current date and the projected end date (weeks to goal). The dashboard is should show the progress bar just before the plots occupying in width the same as all page (respect margins)
+2 - Add min info of last log in the dashboard, just show when last log was done as info to the user.
+3 - Add a log missing alert if the user hasnt log in a week.
+4 - Add an alert if the loss of in a cut (the week rate) is bigger than 1% what is indicated in the literature that is the max. possible to not induce in muscle loss over time.
