@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The Android app's launcher icon was still Capacitor's default placeholder
+  (a white background with a generic angular mark) instead of JustFitting's
+  own logo. All launcher icon assets --
+  `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher{,_round}.png` (legacy icons) and
+  `mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png` (the adaptive-icon
+  foreground layer, Android 8+) -- are regenerated from the same
+  `icon-512.png` "JF" mark already used as the web app's favicon/PWA icon,
+  and the adaptive icon's background color
+  (`values/ic_launcher_background.xml`) changed from the placeholder white
+  to the logo's own `#0f1115`, so the installed app icon now matches the
+  website/PWA icon exactly.
+
 ## [1.2.0] - 2026-07-08
 
 Phase 4.4-4.5 and Phase 5.1-5.10: the day/week log navigator, retiring the
