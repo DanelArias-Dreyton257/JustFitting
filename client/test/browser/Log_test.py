@@ -172,6 +172,45 @@ class LogNavTest(unittest.TestCase):
             "document.querySelectorAll('#log-table tbody tr').length === 1"
         )
 
+    def test_weekly_log_covers_its_whole_iso_week_in_day_view(self):
+        # A "weekly" log represents its whole ISO week (Mon-Sun), the same
+        # grouping LogResampler.resample_to_weekly uses server-side -- day
+        # view should show it on every day of that week, not just its own
+        # literal logged date (a bug: it previously only appeared on the
+        # exact day it was logged, which also meant refreshProjectedRow()
+        # incorrectly injected a projected row on the other six days,
+        # since it thought the week had no real log yet).
+        iso_monday = _MONDAY.isoformat()
+        self.page.click("#log-nav-week")  # week view defaults new logs to "weekly"
+        self._log_on(iso_monday, 90.0)
+        self.page.click("#log-nav-day")
+
+        for offset in range(7):
+            day = (_MONDAY + datetime.timedelta(days=offset)).isoformat()
+            self._jump_to_date(day)
+            self.page.wait_for_function(
+                "document.querySelectorAll('#log-table tbody tr').length === 1"
+            )
+            self.assertEqual(
+                self.page.locator("#log-table tbody tr td").first.inner_text(),
+                iso_monday,
+            )
+
+        # The day right after the week ends is not covered by it.
+        day_after = (_MONDAY + datetime.timedelta(days=7)).isoformat()
+        self._jump_to_date(day_after)
+        self.page.wait_for_selector("#log-list-empty:visible")
+
+    def test_daily_log_only_covers_its_own_day(self):
+        # Unlike a weekly log, a "daily" log genuinely represents just that
+        # one day -- it must not spill over into neighboring days.
+        iso_monday = _MONDAY.isoformat()
+        self._log_on(iso_monday, 90.0)  # day view defaults new logs to "daily"
+
+        iso_tuesday = _TUESDAY.isoformat()
+        self._jump_to_date(iso_tuesday)
+        self.page.wait_for_selector("#log-list-empty:visible")
+
     def _set_show_projected(self, checked: bool):
         # Phase 4.5: the preference lives in Settings (a localStorage-backed
         # browser preference, not part of the historized account settings

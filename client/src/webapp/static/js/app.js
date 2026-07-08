@@ -572,7 +572,19 @@ function filteredLogs() {
     const { start, end } = isoWeekRange(selectedDate);
     return state.logs.filter((log) => log.date >= start && log.date <= end);
   }
-  return state.logs.filter((log) => log.date === selectedDate);
+  // A "weekly" log represents its whole ISO week (Mon-Sun), the same
+  // grouping LogResampler.resample_to_weekly uses server-side -- so it
+  // should appear on every day of that week in day view, not just its
+  // own literal logged date (which is often the day it happened to be
+  // entered, e.g. a Sunday). A "daily" log still only matches its own
+  // exact date, since it genuinely represents just that one day.
+  return state.logs.filter((log) => {
+    if (log.granularity === "weekly") {
+      const { start, end } = isoWeekRange(log.date);
+      return selectedDate >= start && selectedDate <= end;
+    }
+    return log.date === selectedDate;
+  });
 }
 
 function renderFilteredLogList(extraRow) {
