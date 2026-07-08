@@ -161,7 +161,10 @@ Node.js/Capacitor (`package.json`, `capacitor.config.json`) is a dev-time
 packaging tool for the Android app, not a runtime dependency — it bundles
 the same static `dist/` client the web deployment already builds. Node
 itself is a conda dependency (`environment.yml`), same as Python. See
-**Android app** below.
+**Android app** below. Phase 6 (planned) adds a genuine on-device runtime
+dependency for the Android target specifically — an embedded Python
+interpreter running the server itself — without changing anything above
+for the web deployment; see **Android app → Embedded on-device server**.
 
 ### Repository layout
 
@@ -978,6 +981,27 @@ that the Plan tab is how they'd set a real one.
 - Flows through the existing persisted, dismissible alerts pipeline with
   no client change needed.
 
+### Phase 6 — Embedded on-device server for Android (in progress, v2.0)
+
+Today's Android app (Phase 2) is a remote-API client: the WebView UI runs
+on-device, but every request still goes out over HTTP(S) to the Render
+deployment, exactly like the browser client. Phase 6 changes that for the
+Android target only — the same Flask API and SQLite persistence the
+server already is runs *inside* the APK's own process, reachable only at
+`http://127.0.0.1`, the same relationship `scripts/run.sh`'s two local
+terminals already have today, just packaged into one app instead of two
+dev processes. The web deployment (GitHub Pages + Render) is completely
+unaffected — it keeps talking to a remote API exactly as it does now,
+just a different build target of the same `dist/` client. See **Android
+app → Embedded on-device server** below for the full design and current
+status — the Chaquopy Gradle plumbing itself is done and verified; the
+Kotlin bridge that actually starts the server is not.
+
+(`things-to-improve.txt` separately lists its own unscheduled "Phase 6"
+— four smaller UX items from a further beta-testing round, unrelated to
+this. Whichever lands in this README first keeps the number 6; the other
+becomes Phase 7. Not yet decided.)
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
@@ -1114,16 +1138,230 @@ environment variables anywhere in the chain. Not done: a release keystore/
 signed build, and an emulator system image (needs admin — use a real
 device instead, see above).
 
-### Future: local/offline data mode (design note, not implemented)
+### Embedded on-device server (Phase 6, in progress)
 
-Today the Android app is purely a remote-API client, same as the web app.
-A natural next step once this need arises is a data-access layer inside
-the client JS that can choose between **remote API mode** (today's
-behavior, unchanged), **local storage mode** (logs/metrics cached or
-entered offline, most likely via a Capacitor storage/SQLite plugin), and
-a future **sync mode** reconciling the two. This is only a design
-direction, not scoped work — running the full Flask server on-device is
-explicitly out of scope unless a strong reason emerges later.
+**Goal**: the Android app becomes self-contained. When it's opened, it
+starts its own copy of `server/src/api/app.py`'s Flask API, listening on
+loopback only, backed by a SQLite file living in the app's private
+storage — and the exact same client UI Phase 2 already bundles talks to
+`http://127.0.0.1:<port>` instead of a remote `JUSTFITTING_API_BASE_URL`.
+One app, one process, two logical halves in the same relationship
+`scripts/run.sh`'s two terminals have on a dev machine today, just
+started together instead of separately.
+
+**Non-goals**: this is not a rewrite of the composition engine, not a
+second app, and not a sync/multi-device feature — an on-device account's
+data lives only on that device (`GET /api/users/me/report` and
+`/export` remain the manual way to move data off it, same as today).
+
+#### Why an embedded Python interpreter, not a JS port
+
+The engine (`server/src/services/composition/`) is the product's actual
+value — five phases of carefully derived, cross-checked formulas
+(`docs/composition_spec.md`), each with its own golden-reference test.
+Reimplementing it in client JS to avoid an on-device server would fork it
+into two implementations that must be kept in sync forever, doubling the
+regression surface for every future phase. Embedding CPython instead
+means the Android app runs the literal same `server/src/` package the
+tests already cover — zero engine rewrite, and every existing
+`server/test` suite stays the real verification for Android's behavior
+too, not just the web/API's.
+
+[Chaquopy](https://chaquo.com/chaquopy/) (a Gradle plugin) is the
+concrete mechanism: it bundles a real CPython interpreter plus
+pip-installed dependencies into the APK per target ABI, callable from
+Kotlin/Java. This project's server dependencies
+(`server/requirements-prod.txt`: Flask, flask-cors, python-dotenv,
+waitress) are all pure-Python — no C-extension wheels to cross-compile
+for Android, which is the usual Chaquopy pain point — so this should be a
+comparatively clean integration. This is actually a *return* to the
+original Phase 2 plan (Chaquopy + on-device Flask + WebView), which was
+repointed to a hosted-API approach (TWA, then Capacitor) before any of it
+was built, for simplicity's sake at the time (see CHANGELOG's Phase 2
+history). Phase 6 is that same idea, now justified by a real persistence
+requirement instead of just "serve the client locally."
+
+**Before committing further design**: verify Chaquopy's license terms
+against this project's distribution model (open-source repo, sideloaded
+debug APKs today, possibly Play Store later) — the plan below assumes
+that's fine, but it's an unverified external constraint, not a technical
+one.
+
+#### One process, two logical halves
+
+```
+Android app process
+├── Kotlin MainActivity (Capacitor's native shell)
+│   ├── starts Chaquopy's Python interpreter in onCreate()
+│   │   -> imports server.src.api.app:create_app()
+│   │   -> runs it via waitress (same as server/wsgi.py, not Flask's
+│   │      dev server) bound to 127.0.0.1:<port>, on a background thread
+│   │   -> DB_PATH = <app-private files dir>/justfitting.db
+│   └── waits for a readiness signal before loading the WebView, so the
+│       client's first fetch never races an unbound socket
+└── Capacitor WebView
+    └── the same dist/ client Phase 2 already bundles, built with
+        JUSTFITTING_API_BASE_URL=http://127.0.0.1:<port> baked in
+        (a new build_static_site.py target, alongside today's
+        production/emulator/LAN ones)
+```
+
+No separate Android Service, no notification, no background execution
+after the app is swiped away — the server's lifetime is tied to the
+app's process, matching the "two local terminals" mental model exactly:
+closing the app stops the server, same as Ctrl+C; reopening it starts a
+fresh server process against the same persisted DB file, same as
+re-running `python -m server.src.Server`.
+
+#### Networking & security
+
+- The server binds **loopback only** (`127.0.0.1`, never `0.0.0.0`) — no
+  other app or device on the network can reach it, unlike the LAN-dev
+  case the Network notes above describe.
+- Android still blocks plaintext HTTP by default (API 28+), so this needs
+  a cleartext exception — but scoped precisely to `127.0.0.1` via a
+  `network_security_config.xml` (`<domain-config
+  cleartextTrafficPermitted="true"><domain>127.0.0.1</domain></domain-config>`),
+  instead of today's dev-only blanket `"server": {"cleartext": true}` in
+  `capacitor.config.json` (which the Network notes above say to always
+  revert before a release build). This is actually *more* precise than
+  today's LAN-dev workaround: the exception only ever applies to the
+  device talking to itself.
+- CORS: `JUSTFITTING_CORS_ORIGINS` is already environment-driven
+  (`server/src/api/app.py`); the embedded server's env just needs
+  `https://localhost` allowed, the same origin the Network notes above
+  already document for Capacitor's WebView.
+
+#### Persistence
+
+- `DB_PATH` resolves to a path under Android's app-private storage
+  (`Context.getFilesDir()`), passed into the Python process the same way
+  `JUSTFITTING_DB_PATH` already overrides it today — no server code
+  change needed, this is purely a native-side config value.
+- `DB.py`'s idempotent `CREATE TABLE IF NOT EXISTS` schema (see its own
+  module docstring) already applies on every connect with no migration
+  runner — an app update that adds columns just works on next launch,
+  the same story a `git pull` + restart already is for a dev/prod server.
+- Uninstalling the app deletes its data (standard Android sandboxing);
+  `GET /api/users/me/export` remains the user's manual backup/move path,
+  now genuinely useful for Android since there's no server-side copy to
+  fall back on. Enabling Android's own auto-backup (`android:allowBackup`,
+  off by default for a fresh Capacitor project) is worth revisiting so a
+  device restore also restores the DB file — a decision to make
+  explicitly, not inherit by default, since it also means the
+  (locally-hashed but real) password data leaves the device.
+
+#### Build & distribution changes
+
+- `android/build.gradle` / `android/app/build.gradle` (**done**): the
+  Chaquopy Gradle plugin (`com.chaquo.python:gradle:17.0.0`, resolves
+  from plain `mavenCentral()`, no extra repo needed at this version) and
+  a `chaquopy { defaultConfig { pip { install ... } } }` block mirroring
+  `server/requirements-prod.txt` (a new place that list has to stay in
+  sync with — worth a comment pointing each at the other). Three
+  version-specific gotchas hit and resolved while wiring this up:
+  - Chaquopy 17 requires **minSdk >= 24** — `android/variables.gradle`
+    bumped `minSdkVersion` `22 -> 24` (drops Android 5.1/6.0 support).
+  - Chaquopy's build-time interpreter (`buildPython`, used to resolve
+    pip packages, distinct from the on-device runtime) must exactly
+    match the app's target Python major.minor. The desktop `justfitting`
+    conda env resolves to Python 3.12.13 (not `environment.yml`'s
+    `>=3.10` floor), so `chaquopy.defaultConfig.version` is pinned to
+    `"3.12"` rather than Chaquopy's own 3.10 default — with `conda
+    activate justfitting` run first, plain `python` on `PATH` already
+    resolves to the matching interpreter, so no hardcoded
+    machine-specific `buildPython(...)` path was needed (same
+    session-scoped philosophy as this section's `JAVA_HOME` handling
+    above).
+  - Chaquopy only ships Python 3.12 for 64-bit ABIs — `ndk.abiFilters`
+    narrowed to `arm64-v8a`/`x86_64` (real devices + emulator); the
+    32-bit ABIs a broader filter would have requested aren't available
+    for this Python version at all, not just unwanted for size.
+  - Verified with a real `assembleDebug` run: Flask 3.1.3, flask-cors
+    4.0.2, python-dotenv 1.2.2, waitress 3.0.2 and their transitive deps
+    (Werkzeug, Jinja2, MarkupSafe, click, itsdangerous, blinker) installed
+    cleanly for both ABIs, no C-extension/wheel-availability problems.
+- A new Kotlin bridge class (e.g.
+  `android/app/src/main/java/.../LocalServer.kt`) owning interpreter
+  startup, readiness signaling, and shutdown — **not started**: the
+  plugin/toolchain builds, but nothing calls into Python yet, so the app
+  doesn't actually run a server on launch at this point.
+- `capacitor.config.json` / `network_security_config.xml`: the scoped
+  cleartext exception above, wired into `AndroidManifest.xml`'s
+  `android:networkSecurityConfig` — not started.
+- `scripts/build_static_site.py`: no code change needed (it already
+  takes an arbitrary API base URL) — a new `npm run
+  build:web:android-embedded` script target (`python
+  scripts/build_static_site.py http://127.0.0.1:<port>`) becomes what
+  `npm run android:apk` actually ships, replacing today's emulator/LAN-
+  pointed build for anything but active client-only debugging against a
+  desktop-run server (those two dev workflows keep working unchanged,
+  side by side with the new embedded-server target) — not started.
+- `environment.yml`: no new conda dependency for the on-device runtime
+  itself — Chaquopy downloads its own Android-ABI Python build via
+  Gradle, separate from the desktop `justfitting` conda env. That conda
+  env is still needed at Android build time now, though, for its
+  matching-version `python` (`buildPython`, above) and its JDK
+  (`JAVA_HOME`, already true before Phase 6) — both session-scoped via
+  `conda activate justfitting`, not a new persistent dependency.
+
+#### What stays exactly the same
+
+- The web deployment (GitHub Pages client + Render API, `render.yaml`,
+  the release workflow) — a completely untouched build target.
+- The composition engine, every DAO/service, every existing
+  `server/test`/`client/test` suite — Android runs the identical Python
+  package, not a port.
+- The client JS (`api.js`, `session.js`, `views.js`, `app.js`,
+  `charts.js`) — it already only knows "some base URL," never how that
+  URL is reached.
+
+#### Open risks to validate before/while building this
+
+- **APK size** — measured, not just estimated: the debug build grew from
+  the pre-Chaquopy baseline's ~4.1 MB (`JustFitting-debug-v1-2.apk`) to
+  ~40.8 MB with both `arm64-v8a` and `x86_64` bundled in one APK (a real
+  device only ever uses one ABI's worth of native libraries at runtime,
+  so this single-APK debug number overstates what an actual install
+  needs). A release build should split per-ABI (Gradle APK splits or an
+  Android App Bundle, which the Play Store already does automatically)
+  so each device downloads roughly half this — still a large jump from
+  today's Capacitor-only APK, an accepted cost of bundling a real
+  interpreter.
+- **Cold-start time**: interpreter boot + Flask app-factory + first
+  SQLite connect, before the WebView can make its first successful
+  fetch — needs a visible "Starting…" state (Capacitor's splash screen,
+  held until the native readiness signal fires) rather than a failed
+  fetch or blank screen. Not yet measurable: no code calls into Python at
+  app launch yet (see Build & distribution changes above).
+- **Chaquopy licensing**, noted above — an external, unverified
+  constraint on this whole approach, still unresolved.
+- **Dependency wheel availability** for Flask/Werkzeug/Jinja2/click/
+  itsdangerous/flask-cors/waitress on Chaquopy's supported Android ABIs —
+  **resolved**: confirmed clean (no C-extension/wheel problems) via a
+  real `assembleDebug` run, see above.
+
+Status: **in progress.** Done: the Gradle/Chaquopy plumbing itself
+(plugin applied, on-device Python pinned to 3.12, pip dependencies
+installing correctly for both ABIs, `assembleDebug` succeeds). Not done:
+anything that actually starts or talks to the embedded server — the
+Kotlin bridge, DB path wiring, network security config, and the client's
+loopback build target are all still open from the Build & distribution
+list above.
+
+### Alternative considered: client-side local/offline mode (design note, superseded by Phase 6)
+
+Before Phase 6, the fallback design for "make the Android app not depend
+on network access" was a data-access layer inside the client JS choosing
+between **remote API mode** (today's behavior), **local storage mode** (a
+Capacitor storage/SQLite plugin caching or accepting offline entries),
+and a future **sync mode** reconciling the two — deliberately avoiding an
+on-device server. Phase 6 replaces this direction: persistence needed a
+real reason to justify embedding Python, and "the app should work
+standalone with real persistence" is that reason. This note stays on
+record as the fallback if Chaquopy turns out to be impractical (APK size,
+licensing) — the same three-mode JS data-access-layer idea would then be
+the way to get offline support without an embedded server.
 
 ## The Team
 

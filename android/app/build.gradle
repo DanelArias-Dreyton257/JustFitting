@@ -1,4 +1,8 @@
 apply plugin: 'com.android.application'
+// Embedded on-device server (Phase 6, planned): bundles a real CPython
+// interpreter + these pip packages into the APK. See README's "Android
+// app -> Embedded on-device server" section for the full design.
+apply plugin: 'com.chaquo.python'
 
 android {
     namespace "com.danelarias.justfitting"
@@ -15,11 +19,48 @@ android {
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+
+        // Chaquopy 17 only ships Python 3.12 for 64-bit ABIs (confirmed
+        // by a failed build attempt: 32-bit armeabi-v7a/x86 aren't
+        // available) -- arm64-v8a covers real devices, x86_64 covers the
+        // emulator; every device old enough to be 32-bit-only is already
+        // excluded by this module's minSdk 24 bump for Chaquopy anyway.
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        // Pinned to 3.12, not environment.yml's 3.10 floor, because the
+        // desktop `justfitting` conda env actually resolved to Python
+        // 3.12.13 on this machine -- Chaquopy's build-time interpreter
+        // (used to resolve pip packages) must match this major.minor
+        // exactly. No `buildPython(...)` override here on purpose: with
+        // the `justfitting` conda env active (`conda activate
+        // justfitting`), plain `python` on PATH already resolves to the
+        // matching 3.12 interpreter, so Chaquopy's own PATH-based search
+        // finds it -- avoids hardcoding a machine-specific, username-
+        // bearing absolute path into a committed file (same philosophy
+        // as this project's JAVA_HOME handling in README's Android SDK
+        // section: scoped to the session, not baked in).
+        version = "3.12"
+
+        pip {
+            // Mirrors server/requirements-prod.txt -- keep both lists in
+            // sync by hand; there is no automated sharing between
+            // Gradle's pip block and the desktop requirements file.
+            install "flask>=3.0,<4.0"
+            install "flask-cors>=4.0,<5.0"
+            install "python-dotenv>=1.0,<2.0"
+            install "waitress>=3.0,<4.0"
         }
     }
 }

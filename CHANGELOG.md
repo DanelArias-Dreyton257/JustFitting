@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Phase 6 (embedded on-device server for Android, see README): first step
+  landed -- the Chaquopy Gradle plugin (`com.chaquo.python:gradle:17.0.0`)
+  is wired into `android/build.gradle`/`android/app/build.gradle`,
+  configured to pip-install this project's actual server dependencies
+  (`server/requirements-prod.txt`: Flask, flask-cors, python-dotenv,
+  waitress) for an on-device Python 3.12 interpreter. Three
+  version-specific issues surfaced and were resolved while wiring this
+  up: Chaquopy 17 requires `minSdkVersion >= 24`
+  (`android/variables.gradle` bumped `22 -> 24`, dropping Android
+  5.1/6.0 support); its build-time interpreter (used to resolve pip
+  packages, separate from the on-device runtime) must match the
+  on-device Python version exactly, and the desktop `justfitting` conda
+  env resolves to Python 3.12.13 (not `environment.yml`'s `>=3.10`
+  floor), so the on-device version is pinned to `"3.12"` rather than
+  Chaquopy's own 3.10 default -- resolved without hardcoding a
+  machine-specific interpreter path, by relying on `conda activate
+  justfitting` putting the matching `python` on `PATH`; and Python 3.12
+  only ships Chaquopy builds for 64-bit ABIs, so `ndk.abiFilters`
+  narrowed from all four ABIs to `arm64-v8a`/`x86_64`. Verified with a
+  real `assembleDebug` run: Flask 3.1.3, flask-cors 4.0.2, python-dotenv
+  1.2.2, waitress 3.0.2 and their transitive dependencies installed
+  cleanly for both ABIs, no C-extension/wheel problems; the debug APK
+  grew from the pre-Chaquopy ~4.1 MB baseline to ~40.8 MB with both ABIs
+  bundled in one file (a release build should split per-ABI). Not yet
+  done: anything that actually starts or talks to the embedded server --
+  see README's "Android app -> Embedded on-device server" section for
+  the full design and remaining steps.
+
 ## [1.2.1] - 2026-07-08
 
 ### Fixed
