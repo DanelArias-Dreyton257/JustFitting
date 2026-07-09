@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-09
+
+### Fixed
+
+- Fixed a real, pre-existing race surfaced by v3.0.0's own release
+  workflow CI gate failing (the tag never actually deployed): `navigate()`
+  called the async `refreshSettings()` without awaiting it, and
+  `refreshSettings()` only set `#settings-show-projected-logs`'s checked
+  state (from `getShowProjectedLogs()`, a synchronous `localStorage`
+  read with no legitimate reason to be sequenced after a network fetch)
+  after first awaiting two unrelated API calls. A test (or a real user)
+  interacting with that checkbox right after navigating to Settings could
+  race the JS-driven assignment and have its own click silently
+  overwritten -- the same `navigate()`-races-an-unawaited-refresh shape
+  already fixed twice before, in the Log view and the Account view (see
+  v2.0.1's entry below). Fixed the same way: the purely local assignment
+  is now set synchronously in `navigate()`'s own dispatch, before
+  `refreshSettings()` (which still needs its network calls for the rest
+  of the view) even starts, closing the race window entirely rather than
+  just narrowing it. Verified with 3 consecutive full local client-suite
+  runs, all green.
+
 ## [3.0.0] - 2026-07-09
 
 ### Added
