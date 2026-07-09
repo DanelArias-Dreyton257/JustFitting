@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-09
+
 ### Added
 
 - Phase 7.1 (data portability, see README): hardened `POST
@@ -71,14 +73,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   via the new upsert-by-date endpoint, per source, instead of an earlier
   client-side-cache-and-prefill design -- a synced day is a real row the
   moment it's synced. Completing a day is exactly the existing log-edit
-  flow. The Settings view's Export/Import section is retitled "Data
+  flow. The Account view's Export/Import section is retitled "Data
   import, export & sync" and gains (Android only) a Connect button, a
-  Sync now button, a per-source connected status line, and a last-synced
-  timestamp. Fixed `HealthSyncPlugin.hasPermissions()` (Phase 7.3) to
-  report Steps/Nutrition independently instead of one combined boolean,
-  needed for the per-source status line. The log table and wizard now
-  render a partial row's missing fields as a dash/blank input instead of
-  the literal string `"null"`.
+  "Sync last N days" field (default 7, capped at 90), a Sync now button,
+  a per-source connected status line, and a last-synced timestamp.
+  Fixed `HealthSyncPlugin.hasPermissions()` (Phase 7.3) to report
+  Steps/Nutrition independently instead of one combined boolean, needed
+  for the per-source status line. The log table and wizard now render a
+  partial row's missing fields as a dash/blank input instead of the
+  literal string `"null"`. Export/Import/Connect/Sync now buttons match
+  the app's existing blue button styling.
+
+### Fixed
+
+- Phase 7.3/7.5, found via real-device testing (see README's "Verified
+  on a real device"): `HealthConnectBridge.readDailyReadings` built its
+  query range from `Instant`s, which fails at runtime against
+  `aggregateGroupByPeriod` ("Either use TimeRangeFilter with
+  LocalDateTime or AggregateGroupByDurationRequest") -- a constraint
+  enforced at runtime, not encoded in `TimeRangeFilter`'s type, so no
+  amount of compiling or static analysis could have caught it. Fixed by
+  building the range from `LocalDate.atStartOfDay()` instead.
+- The Account-view health-sync section only appeared after visiting
+  Settings first -- `refreshHealthSyncUI()` was wired to `navigate()`'s
+  `"settings"` case, but its markup actually lives in the Account view,
+  not the engine-constants Settings view. Fixed by moving the call to
+  the `"account"` case.
 
 ## [2.0.1] - 2026-07-09
 

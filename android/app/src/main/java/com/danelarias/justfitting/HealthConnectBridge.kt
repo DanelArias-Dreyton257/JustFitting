@@ -98,10 +98,17 @@ object HealthConnectBridge {
         nutritionPackageNames: Set<String>,
     ): List<DailyReading> = runBlocking {
         val client = HealthConnectClient.getOrCreate(context)
-        val zone = ZoneId.systemDefault()
+        // aggregateGroupByPeriod (a calendar Period, not a fixed Duration)
+        // requires a LocalDateTime-based TimeRangeFilter, not an
+        // Instant-based one -- confirmed on a real device: the Instant
+        // form fails at runtime with "Either use TimeRangeFilter with
+        // LocalDateTime or AggregateGroupByDurationRequest", a constraint
+        // enforced inside aggregateGroupByPeriod itself, not by the
+        // compiler (TimeRangeFilter's type doesn't encode which
+        // constructor built it).
         val range = TimeRangeFilter.between(
-            sinceDate.atStartOfDay(zone).toInstant(),
-            untilDate.atStartOfDay(zone).toInstant(),
+            sinceDate.atStartOfDay(),
+            untilDate.atStartOfDay(),
         )
 
         val stepsByDay = mutableMapOf<LocalDate, Double>()

@@ -219,6 +219,15 @@ function navigate(viewName) {
     // to have changed server-side between boot() and this navigation in
     // the first place, so the fetch was redundant, not just racy.
     fillProfileForm(document.getElementById("profile-form"), state.profile);
+    // Phase 7.5 (Health Connect sync, see README): the "Data import,
+    // export & sync" section (Export/Import/health sync) lives in the
+    // Account view's markup, not Settings' (view-settings is only the
+    // engine-constants form) -- this was previously wired to the
+    // "settings" case below, which meant it silently never ran on an
+    // Account visit; the section only ever appeared after some other
+    // navigation happened to also visit Settings and unhide the shared
+    // element from underneath the (still-active) Account view.
+    refreshHealthSyncUI();
   }
   if (viewName === "report") refreshReport();
   if (viewName === "alert-history") refreshAlertHistory();
@@ -766,14 +775,22 @@ async function refreshSettings() {
   renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
   setFormError("settings-form", "");
   document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
-  await refreshHealthSyncUI();
 }
 
 // Phase 7.5 (Health Connect sync, see README): Android app only -- a no-op
 // (section stays hidden) on the web build and any device where the native
 // plugin isn't available.
-const HEALTH_SYNC_WINDOW_DAYS = 14;
+const HEALTH_SYNC_DEFAULT_WINDOW_DAYS = 7;
 const HEALTH_SYNC_LAST_SYNCED_KEY = "healthSyncLastSyncedAt";
+
+// Falls back to the default for a blank/invalid/out-of-range value rather
+// than rejecting it outright -- this is a convenience field, not a form
+// that needs its own error state.
+function healthSyncWindowDays() {
+  const raw = Number(document.getElementById("health-sync-days-input").value);
+  if (!Number.isFinite(raw) || raw < 1) return HEALTH_SYNC_DEFAULT_WINDOW_DAYS;
+  return Math.min(raw, 90);
+}
 
 async function refreshHealthSyncUI() {
   const section = document.getElementById("health-sync-section");
@@ -803,7 +820,7 @@ document.getElementById("health-sync-now-btn").addEventListener("click", async (
   const summaryEl = document.getElementById("health-sync-summary");
   summaryEl.textContent = "Syncing…";
   try {
-    const sinceDate = addDays(todayIso(), -HEALTH_SYNC_WINDOW_DAYS);
+    const sinceDate = addDays(todayIso(), -healthSyncWindowDays());
     const { readings } = await healthSync.syncRecentReadings(sinceDate);
     let stepsCount = 0;
     let nutritionCount = 0;

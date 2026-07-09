@@ -1298,7 +1298,7 @@ settings, not a proprietary-API integration:
   `VIEW_PERMISSION_USAGE`/`HEALTH_PERMISSIONS` category, and Android
   13-and-below's `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE`) —
   both point at the same single Activity this app already has, which is
-  where the Phase 7.5 Settings section lives.
+  where the Phase 7.5 Account-view section lives.
 - **Permission model**: Health Connect permissions are scoped by *data
   type* (`StepsRecord`, `NutritionRecord`), not by which app wrote them —
   if a phone has more than one app writing steps (e.g. both Mi Fitness and
@@ -1504,7 +1504,7 @@ persisted partial row possible:
   field, isn't blocked by browser-native validation -- the server is the
   source of truth for what's valid (Phase 7.4).
 - **One unified data section, not a separate page/section**: the
-  Settings view's existing Export JSON button and Import file input
+  Account view's existing Export JSON button and Import file input
   (`#export-btn`/`#import-input`, both already present) gain the Phase
   7.2 CSV option in place, retitled "Data import, export & sync", and --
   Android app only, appended into that *same* section rather than a new
@@ -1512,13 +1512,14 @@ persisted partial row possible:
   requesting Steps and Nutrition together in one Health Connect
   permission dialog -- that dialog itself already lets the user grant/
   deny each data type individually, so a combined request doesn't force
-  an all-or-nothing choice) plus a "Sync now" button running the loop
-  above, with a per-source (Mi Fitness / Samsung Health) connected/not-
-  connected status line and a last-synced timestamp (`localStorage`, the
-  one piece of sync-related client state that's still appropriate there
-  -- unlike the rejected reading-data cache, this is just "when did I
-  last press the button"). Getting the per-source status line required
-  fixing `HealthSyncPlugin.hasPermissions()` (Phase 7.3): it originally
+  an all-or-nothing choice), a "Sync last N days" field (number input,
+  default 7, capped at 90 client-side), and a "Sync now" button running
+  the loop above for that window, with a per-source (Mi Fitness /
+  Samsung Health) connected/not-connected status line and a last-synced
+  timestamp (`localStorage`, the one piece of sync-related client state
+  that's still appropriate there -- unlike the rejected reading-data
+  cache, this is just "when did I last press the button"). Getting the
+  per-source status line required fixing `HealthSyncPlugin.hasPermissions()` (Phase 7.3): it originally
   returned one combined `granted` boolean, not enough to show "steps
   connected, nutrition not" independently -- it and
   `HealthConnectBridge.grantedPermissions` now expose the raw granted set
@@ -1535,16 +1536,72 @@ native-code build doesn't pick up client changes on its own) succeeds
 end to end against the real client this phase shipped. 335 server tests,
 58 client tests green.
 
+#### Verified on a real device (done)
+
+Installed and driven end-to-end on a real Xiaomi phone (MIUI) via `adb`
+(no `input tap`/`input text` injection available on this device's MIUI
+build without an extra Developer Options toggle, so UI steps were driven
+manually while verification -- API calls, logcat, screenshots -- ran
+through `adb`). Three real bugs surfaced, none of which any amount of
+`gradlew assembleDebug`/unit testing could have caught:
+
+- **`TimeRangeFilter` needs `LocalDateTime`, not `Instant`, for
+  `aggregateGroupByPeriod`** -- `HealthConnectBridge.readDailyReadings`
+  built its range from `Instant`s (matching a fixed-`Duration` request
+  shape), which fails at runtime with "Either use TimeRangeFilter with
+  LocalDateTime or AggregateGroupByDurationRequest" -- a constraint
+  `aggregateGroupByPeriod` enforces itself, not encoded in `TimeRangeFilter`'s
+  type, so nothing before a real call could have caught it. Fixed by
+  building the range from `LocalDate.atStartOfDay()` (no zone conversion)
+  instead.
+- **The Account-view health-sync section only appeared after visiting
+  Settings first** -- `refreshHealthSyncUI()` was wired to `navigate()`'s
+  `"settings"` case, but the actual markup (Export/Import/health sync)
+  lives in the Account view's HTML, not the engine-constants Settings
+  view's. A first-ever Account visit left the section in its default
+  `hidden` state; it only appeared once some other navigation (a Settings
+  visit) happened to unhide the shared DOM node out from under the
+  already-open Account view. Fixed by moving the call to the `"account"`
+  case, where it belongs.
+- **Xiaomi/Samsung package names, confirmed correct** -- `dumpsys package`
+  on-device confirmed `com.xiaomi.wearable` (Mi Fitness) declares and has
+  `android.permission.health.WRITE_STEPS` granted, and
+  `com.sec.android.app.shealth` (Samsung Health) has
+  `android.permission.health.WRITE_NUTRITION` granted -- both already
+  actively writing to Health Connect on the test device, no alias-list
+  changes needed.
+
+One more real finding worth recording so it's never mistaken for a
+JustFitting bug later: a 30-day sync window (confirmed correct via
+logcat's `sinceDate`) still only returned 5 days of step readings. A
+temporary raw-record diagnostic (removed once confirmed) showed Health
+Connect itself only had 5 calendar days of `StepsRecord` entries stored
+for Mi Fitness's package, regardless of the query window. On the test
+device, both Samsung Health and Mi Fitness only start writing their
+logged data into Health Connect *from the moment each app itself is
+granted permission to write there* -- not retroactively for whatever
+they'd already logged before that grant -- so a source app connected to
+Health Connect only recently will genuinely have nothing older to hand
+over, independent of anything this app requests. A limitation of those
+data sources (and squarely outside this app's code to influence -- it's
+governed by when the user connects each source app to Health Connect in
+that app's own settings, not JustFitting's), not a bug in this app's
+query.
+
+The full loop was verified working: register/login against the embedded
+on-device server (Phase 6), Connect grants both permissions, Sync now
+creates partial `daily` rows via `PUT /api/logs/by-date` for real steps
+and nutrition data, and those rows round-trip correctly through
+`GET /api/logs`.
+
 #### Open risks to validate before/while building Phase 7.3, 7.5
 
-- **Xiaomi package name drift**: Mi Fitness's Health-Connect-visible
-  package name has changed across regions and app versions, so
-  `HealthSyncPlugin`'s `MI_FITNESS_PACKAGES` is already a small
-  known-alias list (`com.xiaomi.wearable`, `com.mi.health`, the older Mi
-  Fit's `com.xiaomi.hm.health`) rather than one hardcoded string — still
-  needs confirming against whichever one a real device's Mi Fitness
-  install actually uses, and the list may need another alias added once
-  that's known.
+- **Samsung Health nutrition completeness**: whether Samsung Health's own
+  food-logging writes full per-entry macros (protein/fat/carbs) into
+  `NutritionRecord`, or only aggregate calories with macros left blank,
+  needs on-device verification — if macros are inconsistently present,
+  7.4's macro prefill degrades to calories-only some days, which is fine
+  (prefill is always optional) but should be verified, not assumed.
 - **Samsung Health nutrition completeness**: whether Samsung Health's own
   food-logging writes full per-entry macros (protein/fat/carbs) into
   `NutritionRecord`, or only aggregate calories with macros left blank,

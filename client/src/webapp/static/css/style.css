@@ -179,7 +179,9 @@ select {
 }
 
 button[type="submit"],
-button#export-btn {
+button#export-btn,
+button#health-connect-btn,
+button#health-sync-now-btn {
   background: var(--accent-strong);
   border: none;
   color: #fff;
@@ -189,7 +191,10 @@ button#export-btn {
   font-weight: 600;
 }
 
-button[type="submit"]:hover {
+button[type="submit"]:hover,
+button#export-btn:hover,
+button#health-connect-btn:hover,
+button#health-sync-now-btn:hover {
   background: var(--accent);
 }
 
