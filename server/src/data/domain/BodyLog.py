@@ -12,12 +12,16 @@ class BodyLog:
     log_id: int
     user_id: int
     date: date
-    weight_kg: float
-    waist_cm: float
-    neck_cm: float
-    intake_kcal: float
+    # Phase 7.4 (partial logs, see README): individually optional -- a row
+    # can be missing any subset of these until completed by a later merge
+    # (LogManager.upsert_fields) or edit. `None` means "not logged yet by
+    # any source," distinct from `0.0`.
+    weight_kg: Optional[float]
+    waist_cm: Optional[float]
+    neck_cm: Optional[float]
+    intake_kcal: Optional[float]
     intake_is_real: bool
-    steps: float
+    steps: Optional[float]
     cardio_kcal: float
     source: str  # "real" | "projected"
     created_at: datetime

@@ -11,12 +11,14 @@ class BodyLogDTO:
     log_id: int
     user_id: int
     date: str
-    weight_kg: float
-    waist_cm: float
-    neck_cm: float
-    intake_kcal: float
+    # Phase 7.4 (partial logs, see README): individually optional, same as
+    # the domain model -- `None` serializes to JSON `null`.
+    weight_kg: Optional[float]
+    waist_cm: Optional[float]
+    neck_cm: Optional[float]
+    intake_kcal: Optional[float]
     intake_is_real: bool
-    steps: float
+    steps: Optional[float]
     cardio_kcal: float
     source: str
     granularity: str

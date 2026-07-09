@@ -174,6 +174,77 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(missing_update.status_code, 404)
 
+    def test_upsert_by_date_creates_a_partial_row_then_merges_more_fields_in(self):
+        """Phase 7.4 (partial logs & independent-source merging, see
+        README): PUT /api/logs/by-date/<date> is the order-independent
+        primitive a future Health Connect sync uses -- steps first, then
+        nutrition, then body measurements, each only touching its own
+        fields."""
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        steps_response = self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"steps": 7000, "granularity": "daily"},
+            headers=headers,
+        )
+        self.assertEqual(steps_response.status_code, 200)
+        body = steps_response.get_json()
+        self.assertEqual(body["steps"], 7000)
+        self.assertIsNone(body["weight_kg"])
+        self.assertEqual(body["granularity"], "daily")
+        log_id = body["log_id"]
+
+        nutrition_response = self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"intake_kcal": 2200, "carbs_g": 250, "fat_g": 70, "protein_g": 150},
+            headers=headers,
+        )
+        self.assertEqual(nutrition_response.status_code, 200)
+        body = nutrition_response.get_json()
+        self.assertEqual(body["log_id"], log_id)  # same row, merged in
+        self.assertEqual(body["steps"], 7000)  # untouched by this call
+        self.assertEqual(body["intake_kcal"], 2200)
+
+        body_response = self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+            headers=headers,
+        )
+        self.assertEqual(body_response.status_code, 200)
+        body = body_response.get_json()
+        self.assertEqual(body["log_id"], log_id)
+        self.assertEqual(body["weight_kg"], 90.0)
+        self.assertEqual(body["steps"], 7000)
+        self.assertEqual(body["intake_kcal"], 2200)
+        # Only ever set once, on first creation (by the steps write above).
+        self.assertEqual(body["granularity"], "daily")
+
+        list_response = self.client.get("/api/logs", headers=headers)
+        self.assertEqual(len(list_response.get_json()), 1)
+
+    def test_upsert_by_date_rejects_an_invalid_value(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"weight_kg": -5.0},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_upsert_by_date_rejects_a_malformed_date(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.put(
+            "/api/logs/by-date/not-a-date",
+            json={"steps": 7000},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_log_create_and_update_persist_cardio_kcal(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -601,7 +672,7 @@ class ApiTestCase(unittest.TestCase):
                 "logs": [
                     {
                         "date": "2026-02-01",
-                        # weight_kg missing
+                        "weight_kg": -5.0,  # invalid: must be positive
                         "waist_cm": 88.0,
                         "neck_cm": 37.0,
                         "intake_kcal": 2200,
@@ -617,6 +688,38 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(body["skipped"]), 1)
         self.assertEqual(body["skipped"][0]["row"], 0)
         self.assertIn("weight_kg", body["skipped"][0]["reason"])
+
+    def test_import_accepts_a_partial_row_missing_weight(self):
+        """Phase 7.4 (partial logs, see README): weight_kg (and the other
+        four core measurements) are no longer required on import -- a row
+        can be steps/nutrition-only, matching what a Health Connect sync
+        would send."""
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.post(
+            "/api/users/me/import",
+            json={
+                "logs": [
+                    {
+                        "date": "2026-02-01",
+                        "steps": 7000,
+                        "intake_kcal": 2200,
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["imported"], 1)
+        self.assertEqual(body["skipped"], [])
+        imported_log = body["logs"][0]
+        self.assertIsNone(imported_log["weight_kg"])
+        self.assertIsNone(imported_log["waist_cm"])
+        self.assertIsNone(imported_log["neck_cm"])
+        self.assertEqual(imported_log["steps"], 7000)
+        self.assertEqual(imported_log["intake_kcal"], 2200)
 
     def test_delete_account(self):
         token = self._register().get_json()["token"]

@@ -22,12 +22,21 @@ from server.src.data.domain.BodyLog import BodyLog
 
 
 def _mean_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
-    """Phase 3.4 (Wave 2, F9): average whatever days logged this macro
-    (minimum 1), rather than requiring every day in the week -- the same
-    graceful-degradation philosophy as weight's median above. `None` if no
-    day in the group logged it at all."""
+    """Average whatever days logged this field (minimum 1), rather than
+    requiring every day in the week -- originally Phase 3.4 (Wave 2, F9)'s
+    macro-averaging rule, generalized in Phase 7.4 (partial logs, see
+    README) to weight/waist/neck/intake/steps too, now that any of those
+    can also be missing on a given day. `None` if no day in the group
+    logged it at all."""
     logged = [v for v in values if v is not None]
     return mean(logged) if logged else None
+
+
+def _median_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
+    """Same graceful-degradation rule as `_mean_of_logged`, but median --
+    used for weight specifically (robust to a day's water/sodium swing)."""
+    logged = [v for v in values if v is not None]
+    return median(logged) if logged else None
 
 
 def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
@@ -49,12 +58,18 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
         resampled.append(
             replace(
                 representative,
-                weight_kg=median(log.weight_kg for log in group),
-                waist_cm=mean(log.waist_cm for log in group),
-                neck_cm=mean(log.neck_cm for log in group),
-                intake_kcal=mean(log.intake_kcal for log in group),
-                intake_is_real=all(log.intake_is_real for log in group),
-                steps=mean(log.steps for log in group),
+                weight_kg=_median_of_logged(log.weight_kg for log in group),
+                waist_cm=_mean_of_logged(log.waist_cm for log in group),
+                neck_cm=_mean_of_logged(log.neck_cm for log in group),
+                intake_kcal=_mean_of_logged(log.intake_kcal for log in group),
+                # Phase 7.4 (partial logs): a day with no intake logged at
+                # all doesn't get a vote either way -- `all()` over an
+                # empty sequence is `True`, the same "assume real" default
+                # every pre-Phase-7.4 log already had.
+                intake_is_real=all(
+                    log.intake_is_real for log in group if log.intake_kcal is not None
+                ),
+                steps=_mean_of_logged(log.steps for log in group),
                 cardio_kcal=mean(log.cardio_kcal for log in group),
                 carbs_g=_mean_of_logged(log.carbs_g for log in group),
                 fat_g=_mean_of_logged(log.fat_g for log in group),
@@ -63,6 +78,22 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
         )
 
     return sorted(resampled, key=lambda log: log.date)
+
+
+def is_computable(log: BodyLog) -> bool:
+    """Whether a (possibly resampled) row has everything
+    `CompositionEngine.compute_row` needs -- see its
+    `REQUIRED_FOR_COMPUTATION`/`require_complete_log_input`. Phase 7.4
+    (partial logs, see README): a week can be "logged" (it has a row, or a
+    resampled group of daily rows) without being computable yet, if no
+    source has supplied one of these fields for any day in it."""
+    return (
+        log.weight_kg is not None
+        and log.waist_cm is not None
+        and log.neck_cm is not None
+        and log.intake_kcal is not None
+        and log.steps is not None
+    )
 
 
 @dataclass(frozen=True)

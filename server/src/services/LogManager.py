@@ -160,11 +160,14 @@ class LogManager:
         *,
         user_id: int,
         log_date: date,
-        weight_kg: float,
-        waist_cm: float,
-        neck_cm: float,
-        intake_kcal: float,
-        steps: float,
+        # Phase 7.4 (partial logs, see README): individually optional --
+        # a row can be created with only some of these known, and
+        # completed later by an edit or LogManager.upsert_fields.
+        weight_kg: Optional[float] = None,
+        waist_cm: Optional[float] = None,
+        neck_cm: Optional[float] = None,
+        intake_kcal: Optional[float] = None,
+        steps: Optional[float] = None,
         intake_is_real: bool = True,
         cardio_kcal: float = 0.0,
         source: str = "real",
@@ -216,6 +219,33 @@ class LogManager:
 
     def get_by_date(self, user_id: int, log_date: date) -> Optional[BodyLog]:
         return self.log_dao.get_by_user_and_date(user_id, log_date)
+
+    def upsert_fields(
+        self,
+        user_id: int,
+        log_date: date,
+        fields: dict,
+        default_granularity: str = "weekly",
+    ) -> BodyLog:
+        """Order- and source-independent merge for one date (Phase 7.4,
+        see README): merges `fields` into the existing row for (user_id,
+        log_date) if one exists -- delegating to `update_log`, which
+        already only touches submitted keys, so an unrelated field (e.g.
+        weight, when a nutrition sync only sends intake_kcal/macros) is
+        never clobbered -- or creates a new row scoped to just those
+        fields if none does. `default_granularity` is only used when
+        creating a new row; an existing row's granularity is never
+        changed by a later merge, so it doesn't matter which of the three
+        independent sources (steps, nutrition, body measurements) happens
+        to arrive first for a given date."""
+        existing = self.get_by_date(user_id, log_date)
+        if existing is not None:
+            updated = self.update_log(existing.log_id, **fields)
+            assert updated is not None
+            return updated
+        create_fields = dict(fields)
+        create_fields.setdefault("granularity", default_granularity)
+        return self.create_log(user_id=user_id, log_date=log_date, **create_fields)
 
     def update_log(self, log_id: int, **fields) -> Optional[BodyLog]:
         existing = self.log_dao.get_by_id(log_id)

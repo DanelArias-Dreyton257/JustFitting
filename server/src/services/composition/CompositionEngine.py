@@ -43,11 +43,25 @@ ENGINE_VERSION = 2
 IMPLAUSIBLE_WEEKLY_CHANGE_PCT = constants.IMPLAUSIBLE_WEEKLY_CHANGE_PCT
 
 
-def validate_log_input(log: LogInput) -> None:
-    """Reject non-positive measurements and an impossible waist/neck pair.
+#: The five fields compute_row needs to produce any result at all -- every
+#: metric ultimately cascades from weight (BMI, Deurenberg's BF term via
+#: BMI, FatMass/LeanMass, BMR, NEAT) or from waist/neck (RFM, Navy) or from
+#: intake/steps (NEAT, TDEE, IntakeDiff). Phase 7.4 (partial logs, README):
+#: a `BodyLog`/`LogInput` can be missing any subset of these until
+#: completed; this is what "complete" means to the engine specifically.
+REQUIRED_FOR_COMPUTATION = ("weight_kg", "waist_cm", "neck_cm", "intake_kcal", "steps")
 
-    Shared by the engine (before computing a row) and the service layer
-    (before persisting a log), so both reject bad input the same way.
+
+def validate_log_input(log: LogInput) -> None:
+    """Reject invalid measurements and an impossible waist/neck pair.
+
+    Phase 7.4 (partial logs, see README): `None` is a valid value for
+    weight_kg/waist_cm/neck_cm/intake_kcal/steps -- it means "not logged
+    yet by any source" -- but a value that *is* present must still be
+    positive. Shared by the engine (before computing a row -- see
+    `require_complete_log_input` below for the separate completeness
+    check) and the service layer (before persisting a log, complete or
+    partial), so both reject bad input the same way.
     """
     positive_fields = {
         "weight_kg": log.weight_kg,
@@ -57,9 +71,13 @@ def validate_log_input(log: LogInput) -> None:
         "steps": log.steps,
     }
     for name, value in positive_fields.items():
-        if value is None or value <= 0:
+        if value is not None and value <= 0:
             raise ValueError(f"{name} must be positive, got {value!r}")
-    if log.waist_cm <= log.neck_cm:
+    if (
+        log.waist_cm is not None
+        and log.neck_cm is not None
+        and log.waist_cm <= log.neck_cm
+    ):
         raise ValueError("waist_cm must be greater than neck_cm")
 
     # Phase 3.4 (Wave 2, F9): macros are logged together or not at all --
@@ -78,6 +96,19 @@ def validate_log_input(log: LogInput) -> None:
             raise ValueError(f"{name} must not be negative, got {value!r}")
 
 
+def require_complete_log_input(log: LogInput) -> None:
+    """Raises a clear error naming whichever of `REQUIRED_FOR_COMPUTATION`
+    are still missing, instead of letting a partial `LogInput` crash with
+    an opaque `TypeError` deep inside the formula chain. `LogResampler`/
+    `MetricsSeriesService` are what guarantee only complete rows reach
+    `compute_row` in practice (Phase 7.4, see README) -- this is a
+    defensive safety net, not a code path any normal request should ever
+    hit."""
+    missing = [name for name in REQUIRED_FOR_COMPUTATION if getattr(log, name) is None]
+    if missing:
+        raise ValueError(f"cannot compute a row missing required fields: {', '.join(missing)}")
+
+
 def compute_row(
     profile: ProfileParams,
     log: LogInput,
@@ -92,6 +123,7 @@ def compute_row(
     model's fixed constants (TEF, kcal/kg fat, NEAT step factor, implausible
     -change threshold); defaults to today's `constants.py` values.
     """
+    require_complete_log_input(log)
     validate_log_input(log)
     ec = engine_constants or DEFAULT_ENGINE_CONSTANTS
 

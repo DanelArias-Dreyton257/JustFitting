@@ -1298,7 +1298,7 @@ settings, not a proprietary-API integration:
   `VIEW_PERMISSION_USAGE`/`HEALTH_PERMISSIONS` category, and Android
   13-and-below's `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE`) —
   both point at the same single Activity this app already has, which is
-  where the Phase 7.4 Settings section lives.
+  where the Phase 7.5 Settings section lives.
 - **Permission model**: Health Connect permissions are scoped by *data
   type* (`StepsRecord`, `NutritionRecord`), not by which app wrote them —
   if a phone has more than one app writing steps (e.g. both Mi Fitness and
@@ -1324,17 +1324,14 @@ settings, not a proprietary-API integration:
   to ship, and consistent with Phase 6's "no background execution after
   the app is swiped away" posture. A later phase can revisit
   automatic/periodic sync once manual sync is proven on-device; not
-  scoped here. Once pressed, the result is cached client-side
-  (`localStorage`, keyed by ISO date) so the wizard has something to
-  prefill from until the next manual sync — nothing is written into
-  `body_logs` or any new server table (no schema/migration change for
-  this whole phase). A synced reading is a *prefill suggestion* the next
-  phase surfaces in the log wizard, never an auto-created log row —
-  `weight_kg`/`waist_cm`/`neck_cm` have no phone-sensor source at all and
-  stay mandatory manual entries (`body_logs`'s `NOT NULL` columns are
-  unchanged), so a "log" can't be synthesized from Health Connect data
-  alone; this keeps the entire feature additive and reversible, the same
-  posture every other read-side feature in this README takes.
+  scoped here. What happens to the result once `readRecentReadings`
+  returns it to the client is Phase 7.5's job, below — this plugin's own
+  job stops at handing back `{readings: [...]}`; nothing here writes to
+  the server. (An earlier version of this plan cached the result in
+  `localStorage` as a wizard-prefill-only suggestion, never touching
+  `body_logs` — superseded once Phase 7.4 made a *real*, persisted
+  partial log possible; see that section for why direct writes are both
+  safer and simpler than a client-side cache once partial rows exist.)
 
 **Verified so far, without a device**: `gradlew assembleDebug` succeeds
 end-to-end — Kotlin/Java compilation (including every connect-client
@@ -1353,40 +1350,164 @@ surfaces at least one real bug only a real device catches (there, an
 `include()` pattern silently dropping a source file, and a splash-screen
 theme crash).
 
-#### Phase 7.4 — Wizard prefill from synced readings + unified data section (planned, Android app only)
+#### Phase 7.4 — Partial logs & independent-source merging (done)
 
-- Extends Phase 5.4's `prefillWizardFromLastLog()` (`app.js:508`) pattern
-  rather than replacing it: a new `prefillWizardFromExternalReadings(date)`
-  fills `steps` (from the Mi Fitness reading) and
-  `intake_kcal`/`carbs_g`/`fat_g`/`protein_g` (from the Samsung Health
-  reading) only when (a) no log already exists for that date, (b) the
-  date is strictly before today, and (c) a cached reading exists for it
-  (i.e. the user has pressed "Sync now" at least once since) — called
-  from the same "fresh wizard" reset points Phase 5.4 already hooks
-  (entering the Log view, switching day/week), guarded by `healthSync.js`
-  reporting `available: true`. Fields populate as ordinary editable
-  inputs with a small "from Health Connect" badge, not read-only — manual
-  entry always overrides, and nothing is ever auto-submitted, consistent
-  with 7.3's prefill-not-autocommit design.
+Prompted directly by the sync workflow: Health Connect exposes Steps (Mi
+Fitness) and Nutrition (Samsung Health) as two independent data types
+that can each succeed, fail, or simply not be connected on any given
+sync, and neither one ever provides body measurements (weight/waist/
+neck) at all -- those stay a manual or imported input. The goal: whether
+the user syncs first and adds body measurements later, logs body
+measurements first and syncs afterward, or only ever gets one of the two
+automatic sources working, they should always converge on one complete
+log for that date, not several separate, conflicting entries. This is a
+data-model foundation, not a client feature on its own -- it has no UI
+of its own and needs no phone to verify; Phase 7.5 below is what
+actually uses it.
+
+**Rejected**: full cross-day merging within an ISO week (an earlier
+round of this plan considered reconciling a weekly body-measurement
+entry on one day with that week's separate daily activity entries on
+other days into a single computed week). That's real new resampler
+algorithm -- more moving parts, more ways to regress the existing
+mixed-granularity behavior Phase 3.3 already ships and tests -- and it's
+not needed for the actual workflow described: completing a partial day
+means editing *that exact date's* row, which already exists (or gets
+created) from whichever source touched it first. `LogResampler`'s
+existing rule ("daily rows in an ISO week group together, weekly rows
+pass straight through unchanged") stays completely untouched.
+
+- **Schema**: `body_logs`'s `weight_kg`, `waist_cm`, `neck_cm`,
+  `intake_kcal`, `steps` become individually nullable
+  (`server/src/data/db/DB.py`) -- `NULL` means "not logged yet by any
+  source," not zero. `cardio_kcal` and `intake_is_real` are unaffected
+  (they stay `NOT NULL DEFAULT`, meaningful only once `intake_kcal`
+  itself is set). This project has no migration runner (`DB.py`'s own
+  docstring) -- this is a direct edit to `SCHEMA`, picked up the same way
+  every prior schema change has been (`scripts/reset_db.sh` + reseed for
+  an existing local DB).
+- `BodyLog` (domain), `BodyLogDTO`, and `LogInput`
+  (`services/composition/models.py`) all mark those five fields
+  `Optional[float]`.
+- `validate_log_input` (`services/composition/CompositionEngine.py`)
+  changes from "must be present and positive" to "if present, must be
+  positive" for those five -- `None` is now a valid value, the same
+  treatment the macro trio has had since Phase 3.4. The `waist_cm >
+  neck_cm` check only runs when both are present. Used by both the
+  persistence layer (`LogManager.create_log`/`update_log`, now genuinely
+  allowing a partial save) and, unchanged, by `compute_row`.
+- **Engine safety net, not a behavior change**: `compute_row` gains a
+  completeness check (all five present) *before* its existing
+  `validate_log_input` call, raising a clear `ValueError` naming the
+  missing fields instead of an opaque `TypeError` from deep inside the
+  formula chain if it's ever handed a partial row. In practice it never
+  should be -- see the resampler/series filtering below -- so this is
+  defense-in-depth, not a new code path any existing test exercises
+  differently. `ENGINE_VERSION` does **not** bump: the formulas
+  themselves, and every value they produce for a complete row, are
+  byte-for-byte unchanged; the only thing that changed is which rows are
+  allowed to reach them.
+- **`LogResampler.resample_to_weekly`**: the existing daily-granularity
+  grouping (median weight, mean of everything else) generalizes to skip
+  `None`s within the group instead of crashing on them -- the same
+  "average whatever days logged this" rule Phase 3.4 already applies to
+  the macro trio now applies to weight/waist/neck/intake/steps too. A
+  field is only `None` in the resampled row if *no* day in that week's
+  group ever logged it. Weekly-tagged rows still pass straight through
+  untouched, exactly as today.
+- **`MetricsSeriesService.compute_series_for_user`**: after resampling,
+  a week that's still missing any of the five fields (no day ever
+  supplied it) is excluded from the computed series before it reaches
+  `to_engine_inputs`/the engine -- the same outcome as a week with no log
+  at all, just reachable now by "logged, but never completed" as well as
+  "never logged." The raw week still shows up in `GET /api/logs`/export/
+  the Log view table, just contributes nothing to charts/metrics/alerts
+  until it's complete.
+- **Order- and source-independent merging**: a new
+  `LogManager.upsert_fields(user_id, date, fields)` finds the existing
+  row for that date, if any, and merges in only the given fields
+  (delegating to the existing `update_log`, which already only touches
+  submitted keys) -- or creates a new row scoped to just those fields
+  (delegating to `create_log`, now that its required fields are optional)
+  if none exists yet. `granularity` is set only when a row is first
+  created and never overwritten by a later merge, so it doesn't matter
+  which of the three sources (steps, nutrition, body measurements)
+  happens to arrive first. Exposed as a new route, `PUT
+  /api/logs/by-date/<date>`, every body field optional -- this is what
+  Phase 7.5's "Sync now" calls once per source (steps, nutrition),
+  independently, so Mi Fitness failing or being disconnected never blocks
+  Samsung Health's write, and vice versa; it's also usable directly for a
+  future "log just my weight today" shortcut, or by import.
+- `POST /api/logs` and `POST /api/users/me/import` (Phase 7.1) both relax
+  from requiring all five fields to accepting any subset -- a manual
+  wizard save or an imported row can now be partial too, not just a
+  synced one. Import keeps its existing skip-on-duplicate-date behavior
+  (Phase 7.1) unchanged -- it's a distinct, safer default for a
+  whole-file restore than a per-field merge; `upsert_fields`/`PUT
+  /api/logs/by-date` is the new, narrower primitive for the "independent
+  sources converging" case specifically, not a replacement for it.
+
+Covered by new tests at every layer touched -- `CompositionEngine_test.py`
+(`require_complete_log_input`'s clear error, `validate_log_input`
+accepting partial/rejecting invalid-when-present values),
+`LogResampler_test.py` (null-tolerant grouping across partial days,
+`is_computable`), `MetricsSeriesService_test.py` (an incomplete week
+excluded from the series, then appearing once completed by an edit),
+`LogManager_test.py` (`upsert_fields` create/merge/order-independence/
+granularity-only-set-once), and `Api_test.py` (`PUT
+/api/logs/by-date/<date>` end to end, plus the existing import test suite
+updated for a no-longer-required field). 335 server tests, 57 client
+tests green. The local dev DB was reset and reseeded
+(`scripts/reset_db.sh` + `scripts/seed_demo_data.sh`) against the new
+schema, per this project's no-migration-runner convention (`DB.py`'s own
+docstring).
+
+#### Phase 7.5 — Sync writes partial logs directly + unified data section (planned, Android app only)
+
+Supersedes 7.3's original "client-side cache, prefill-only" plan for how
+a synced reading reaches an actual log, now that Phase 7.4 makes a real,
+persisted partial row possible:
+
+- Pressing "Sync now" calls the new `PUT /api/logs/by-date/<date>`
+  (Phase 7.4) once per successfully-read day, per source -- Mi Fitness's
+  steps and Samsung Health's nutrition/macros each merge independently
+  into that date's row, creating it as a `granularity="daily"` partial
+  row if nothing exists there yet. A day that already has a complete or
+  partial log (however it got there) just gets whichever fields that
+  source owns refreshed -- never touching weight/waist/neck, which no
+  synced source ever provides. `healthSync.js`'s `syncRecentReadings()`
+  result (already `{readings: [...]}`) drives this loop directly; a
+  reading is a real row the moment it's synced, not a suggestion waiting
+  to be typed in -- the `localStorage`-cache/`prefillWizardFrom
+  ExternalReadings` idea from the original plan is dropped entirely (see
+  7.3's "Manual sync only" note).
+- **Completing a day** is exactly Phase 5.7's existing edit flow, unchanged:
+  a synced day is already a normal (partial) row, so open that date in
+  the Log view, edit, add weight/waist/neck, save. No new wizard mode or
+  "complete" action needed. `views.js`'s log table and the wizard's edit
+  prefill need a small, contained fix so a partial row renders blank/dash
+  placeholders for its missing fields instead of `null`/`NaN` -- the same
+  treatment the macro fields already get when unset.
 - **One unified data section, not a separate page/section**: the
   Settings view's existing Export JSON button and Import file input
   (`#export-btn`/`#import-input`, both already present) gain the Phase
-  7.2 CSV option in place, and — Android app only, appended into that
-  *same* section rather than a new one — a single "Connect" button
+  7.2 CSV option in place, and -- Android app only, appended into that
+  *same* section rather than a new one -- a single "Connect" button
   (`healthSync.requestPermissions()`, which requests Steps and Nutrition
-  together in one Health Connect permission dialog — that dialog itself
+  together in one Health Connect permission dialog -- that dialog itself
   already lets the user grant/deny each data type individually, so a
   combined request doesn't force an all-or-nothing choice) plus a
-  "Sync now" button that runs `syncRecentReadings()`, with a per-source
-  (Mi Fitness / Samsung Health) connected/not-connected status line
-  driven by `hasPermissions()`'s own per-type result and a last-synced
-  timestamp next to the button. The section is retitled "Data import,
-  export & sync"; on the web build (and any Android device where
+  "Sync now" button that runs the per-source `syncRecentReadings()` +
+  `PUT /api/logs/by-date` loop above, with a per-source (Mi Fitness /
+  Samsung Health) connected/not-connected status line driven by
+  `hasPermissions()`'s own per-type result and a last-synced timestamp
+  next to the button. The section is retitled "Data import, export &
+  sync"; on the web build (and any Android device where
   `healthSync.isSupported()` is false), the Connect/Sync controls simply
-  don't render, and the section is just Export/Import as it is today —
+  don't render, and the section is just Export/Import as it is today --
   same `dist/` output, no build-time branch.
 
-#### Open risks to validate before/while building Phase 7.3–7.4
+#### Open risks to validate before/while building Phase 7.3, 7.5
 
 - **Xiaomi package name drift**: Mi Fitness's Health-Connect-visible
   package name has changed across regions and app versions, so

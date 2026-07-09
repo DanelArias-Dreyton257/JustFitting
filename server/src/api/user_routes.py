@@ -344,11 +344,14 @@ def import_data():
                 log_manager.create_log(
                     user_id=g.user_id,
                     log_date=log_date,
-                    weight_kg=float(entry["weight_kg"]),
-                    waist_cm=float(entry["waist_cm"]),
-                    neck_cm=float(entry["neck_cm"]),
-                    intake_kcal=float(entry["intake_kcal"]),
-                    steps=float(entry["steps"]),
+                    # Phase 7.4 (partial logs, see README): optional, not
+                    # required -- an imported row can be partial too, not
+                    # just a synced one.
+                    weight_kg=_optional_float(entry.get("weight_kg")),
+                    waist_cm=_optional_float(entry.get("waist_cm")),
+                    neck_cm=_optional_float(entry.get("neck_cm")),
+                    intake_kcal=_optional_float(entry.get("intake_kcal")),
+                    steps=_optional_float(entry.get("steps")),
                     intake_is_real=bool(entry.get("intake_is_real", True)),
                     cardio_kcal=float(entry.get("cardio_kcal", 0.0)),
                     granularity=entry.get("granularity", "weekly"),
