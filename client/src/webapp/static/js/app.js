@@ -28,6 +28,7 @@ import {
   fillSettingsForm,
   renderSettingsStatus,
   renderSettingsHistory,
+  renderImportSummary,
 } from "./views.js";
 import {
   drawLineChart,
@@ -1028,10 +1029,16 @@ document.getElementById("export-btn").addEventListener("click", async () => {
 document.getElementById("import-input").addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
-  const text = await file.text();
-  const payload = JSON.parse(text);
-  await api.importData(payload);
-  await refreshLogs();
+  const summaryEl = document.getElementById("import-summary");
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const result = await api.importData(payload);
+    renderImportSummary(summaryEl, result);
+    await refreshLogs();
+  } catch (err) {
+    summaryEl.textContent = `Import failed: ${err.message}`;
+  }
   event.target.value = "";
 });
 

@@ -214,6 +214,9 @@ class LogManager:
     def get_log(self, log_id: int) -> Optional[BodyLog]:
         return self.log_dao.get_by_id(log_id)
 
+    def get_by_date(self, user_id: int, log_date: date) -> Optional[BodyLog]:
+        return self.log_dao.get_by_user_and_date(user_id, log_date)
+
     def update_log(self, log_id: int, **fields) -> Optional[BodyLog]:
         existing = self.log_dao.get_by_id(log_id)
         if existing is None:

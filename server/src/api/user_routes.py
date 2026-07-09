@@ -48,6 +48,12 @@ def _log_manager():
     return current_app.extensions["log_manager"]
 
 
+def _optional_float(value):
+    """`None` (missing key or explicit JSON `null`) means "not logged", not
+    `0.0` -- Phase 3.4's macro fields must stay unset, not zeroed."""
+    return None if value is None else float(value)
+
+
 def _goal_plan_manager():
     return current_app.extensions["goal_plan_manager"]
 
@@ -314,14 +320,30 @@ def report():
 @user_bp.post("/users/me/import")
 @require_auth
 def import_data():
+    """Bulk-import log rows from the same shape `GET /api/users/me/export`
+    produces (JSON) or, client-side, a CSV file translated into it (Phase
+    7.2, README) -- see the README's "Import JSON format reference" for the
+    full field-by-field contract this route implements."""
     payload = request.get_json(force=True) or {}
+    log_manager = _log_manager()
     created = []
-    for entry in payload.get("logs", []):
+    skipped = []
+    for index, entry in enumerate(payload.get("logs", [])):
+        try:
+            log_date = date.fromisoformat(entry["date"])
+        except (KeyError, ValueError) as exc:
+            skipped.append({"row": index, "reason": f"invalid date: {exc}"})
+            continue
+
+        if log_manager.get_by_date(g.user_id, log_date) is not None:
+            skipped.append({"row": index, "reason": "duplicate date"})
+            continue
+
         try:
             created.append(
-                _log_manager().create_log(
+                log_manager.create_log(
                     user_id=g.user_id,
-                    log_date=date.fromisoformat(entry["date"]),
+                    log_date=log_date,
                     weight_kg=float(entry["weight_kg"]),
                     waist_cm=float(entry["waist_cm"]),
                     neck_cm=float(entry["neck_cm"]),
@@ -329,15 +351,25 @@ def import_data():
                     steps=float(entry["steps"]),
                     intake_is_real=bool(entry.get("intake_is_real", True)),
                     cardio_kcal=float(entry.get("cardio_kcal", 0.0)),
-                    source=entry.get("source", "real"),
+                    granularity=entry.get("granularity", "weekly"),
+                    carbs_g=_optional_float(entry.get("carbs_g")),
+                    fat_g=_optional_float(entry.get("fat_g")),
+                    protein_g=_optional_float(entry.get("protein_g")),
+                    # Imports are always real, logged data -- "projected" rows
+                    # only ever come from the engine's own forecast, never a
+                    # hand-written or re-imported file (whatever the entry's
+                    # own `source` field says, if any, is ignored).
+                    source="real",
                 )
             )
-        except (KeyError, ValueError):
-            continue
+        except (KeyError, ValueError) as exc:
+            skipped.append({"row": index, "reason": str(exc)})
+
     return (
         jsonify(
             {
                 "imported": len(created),
+                "skipped": skipped,
                 "logs": [asdict(BodyLogDTO.from_domain(log)) for log in created],
             }
         ),

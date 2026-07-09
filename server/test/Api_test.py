@@ -491,6 +491,133 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(import_response.status_code, 201)
         self.assertEqual(import_response.get_json()["imported"], 2)
 
+    def test_import_preserves_granularity_and_macros(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.post(
+            "/api/users/me/import",
+            json={
+                "logs": [
+                    {
+                        "date": "2026-02-01",
+                        "weight_kg": 90.0,
+                        "waist_cm": 88.0,
+                        "neck_cm": 37.0,
+                        "intake_kcal": 2200,
+                        "steps": 7000,
+                        "granularity": "daily",
+                        "carbs_g": 200.0,
+                        "fat_g": 60.0,
+                        "protein_g": 150.0,
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["imported"], 1)
+        self.assertEqual(body["skipped"], [])
+        imported_log = body["logs"][0]
+        self.assertEqual(imported_log["granularity"], "daily")
+        self.assertEqual(imported_log["carbs_g"], 200.0)
+        self.assertEqual(imported_log["fat_g"], 60.0)
+        self.assertEqual(imported_log["protein_g"], 150.0)
+
+    def test_import_skips_duplicate_date_with_reason_and_keeps_the_rest(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.post(
+            "/api/users/me/import",
+            json={
+                "logs": [
+                    {  # collides with _seed_two_logs' first row
+                        "date": "2025-12-28",
+                        "weight_kg": 99.0,
+                        "waist_cm": 92.0,
+                        "neck_cm": 39.0,
+                        "intake_kcal": 2500,
+                        "steps": 5500,
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "weight_kg": 95.0,
+                        "waist_cm": 89.0,
+                        "neck_cm": 38.0,
+                        "intake_kcal": 2300,
+                        "steps": 6800,
+                    },
+                ]
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["imported"], 1)
+        self.assertEqual(len(body["skipped"]), 1)
+        self.assertEqual(body["skipped"][0], {"row": 0, "reason": "duplicate date"})
+
+        # The colliding date's original row is untouched, not overwritten.
+        logs_response = self.client.get("/api/logs", headers=headers)
+        original_row = next(
+            row for row in logs_response.get_json() if row["date"] == "2025-12-28"
+        )
+        self.assertEqual(original_row["weight_kg"], 97.0)
+
+    def test_import_forces_source_real_regardless_of_the_file(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.post(
+            "/api/users/me/import",
+            json={
+                "logs": [
+                    {
+                        "date": "2026-02-01",
+                        "weight_kg": 90.0,
+                        "waist_cm": 88.0,
+                        "neck_cm": 37.0,
+                        "intake_kcal": 2200,
+                        "steps": 7000,
+                        "source": "projected",
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.get_json()["logs"][0]["source"], "real")
+
+    def test_import_reports_a_reason_for_an_invalid_row(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.post(
+            "/api/users/me/import",
+            json={
+                "logs": [
+                    {
+                        "date": "2026-02-01",
+                        # weight_kg missing
+                        "waist_cm": 88.0,
+                        "neck_cm": 37.0,
+                        "intake_kcal": 2200,
+                        "steps": 7000,
+                    }
+                ]
+            },
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["imported"], 0)
+        self.assertEqual(len(body["skipped"]), 1)
+        self.assertEqual(body["skipped"][0]["row"], 0)
+        self.assertIn("weight_kg", body["skipped"][0]["reason"])
+
     def test_delete_account(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

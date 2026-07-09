@@ -293,6 +293,18 @@ export function fillSettingsForm(form, dto) {
   form.macro_target_deviation_pct.value = (dto.macro_target_deviation_pct * 100).toFixed(0);
 }
 
+export function renderImportSummary(container, result) {
+  const { imported, skipped } = result;
+  if (!skipped || skipped.length === 0) {
+    container.textContent = `Imported ${imported} log${imported === 1 ? "" : "s"}.`;
+    return;
+  }
+  const reasons = skipped.map((row) => `row ${row.row + 1}: ${row.reason}`).join("; ");
+  container.textContent =
+    `Imported ${imported} log${imported === 1 ? "" : "s"}, ` +
+    `skipped ${skipped.length} (${reasons}).`;
+}
+
 export function renderSettingsStatus(container, dto) {
   container.textContent = dto.is_default
     ? "Using default engine constants (no overrides saved yet)."

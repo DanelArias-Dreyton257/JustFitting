@@ -1016,48 +1016,52 @@ own leftover four items (a goal progress bar, a "last logged" info line,
 a missing-log alert, and a >1%/week cut-rate alert) move to **Phase 8**,
 unscheduled for now.
 
-#### Phase 7.1 — Harden the existing JSON import (planned)
+#### Phase 7.1 — Harden the existing JSON import (done)
 
 `POST /api/users/me/import` and the Import-JSON file input
-(`#import-input`, `client/src/webapp/static/js/app.js`) already exist
-and round-trip the exact shape `GET /api/users/me/export` produces —
-Phase 7 doesn't invent import from scratch, it fixes real gaps found
-while planning this phase:
+(`#import-input`, `client/src/webapp/static/js/app.js`) already existed
+and round-tripped the exact shape `GET /api/users/me/export` produces —
+this phase didn't invent import from scratch, it fixed four real gaps
+found while planning Phase 7:
 
-- **Silent field loss**: `import_data` (`server/src/api/user_routes.py`)
-  calls `_log_manager().create_log(...)` without `granularity`,
-  `carbs_g`, `fat_g`, `protein_g` — re-importing an export of a Phase
-  3.3/3.4 mixed-granularity, macro-logging account (e.g. `admin_bulk`)
-  silently drops those fields on every row, defaulting to `weekly` and no
-  macros. Fix: pass every `BodyLogDTO` field through, same as
-  `create_log`'s own `POST /api/logs` route already does.
-- **Unhandled duplicate-date crash**: `body_logs` has `UNIQUE(user_id,
-  date)` (`server/src/data/db/DB.py`); importing a file that overlaps an
-  existing log's date raises `sqlite3.IntegrityError`, which the route's
-  `except (KeyError, ValueError)` doesn't catch — an unhandled 500, not a
-  graceful skip. Fix: catch it and record the row as skipped with reason
-  `"duplicate date"` instead of aborting the whole import.
-- **Forged `source`**: `entry.get("source", "real")` currently trusts the
-  imported file's own `source` field, so a hand-edited (or buggy) import
-  can inject a `source="projected"` row indistinguishable from an
-  engine-generated forecast row, corrupting `LogResampler`/chart logic
-  that assumes `projected` rows are never real data. Fix: imports always
-  force `source="real"` regardless of what the file says.
-- **No feedback**: today's route returns only a count and the created
-  rows; anything skipped vanishes with no explanation, and the client's
-  handler does a blind `refreshLogs()` with no summary. Fix: the response
-  gains a `skipped: [{row: <index>, reason: <string>}]` array alongside
-  `imported`; the client renders an "Imported N, skipped M (reasons)"
-  summary instead of a silent refresh.
+- **Silent field loss (fixed)**: `import_data`
+  (`server/src/api/user_routes.py`) called `_log_manager().create_log(...)`
+  without `granularity`, `carbs_g`, `fat_g`, `protein_g` — re-importing an
+  export of a Phase 3.3/3.4 mixed-granularity, macro-logging account
+  (e.g. `admin_bulk`) silently dropped those fields on every row,
+  defaulting to `weekly` and no macros. Every `BodyLogDTO` field is now
+  passed through, same as `create_log`'s own `POST /api/logs` route
+  already does.
+- **Unhandled duplicate-date crash (fixed)**: `body_logs` has
+  `UNIQUE(user_id, date)` (`server/src/data/db/DB.py`); importing a file
+  that overlapped an existing log's date raised an uncaught
+  `sqlite3.IntegrityError` — a 500, not a graceful skip. The route now
+  checks `LogManager.get_by_date` (a new method, wrapping
+  `BodyLogDAO.get_by_user_and_date`) before inserting and records the row
+  as skipped with reason `"duplicate date"` instead, so the rest of the
+  file still imports.
+- **Forged `source` (fixed)**: `entry.get("source", "real")` used to
+  trust the imported file's own `source` field, so a hand-edited (or
+  buggy) import could inject a `source="projected"` row indistinguishable
+  from an engine-generated forecast row, corrupting `LogResampler`/chart
+  logic that assumes `projected` rows are never real data. Imports now
+  always force `source="real"`, regardless of what the file says.
+- **No feedback (fixed)**: the route used to return only a count and the
+  created rows, with anything skipped vanishing unexplained, and the
+  client did a blind `refreshLogs()`. The response now carries a
+  `skipped: [{row: <index>, reason: <string>}]` array alongside
+  `imported`; `views.js`'s new `renderImportSummary` renders an "Imported
+  N, skipped M (reasons)" line (`#import-summary`, next to the Import
+  control) instead of a silent refresh.
 
-No schema/migration change — this is a route-logic and client-feedback
-fix over the existing `logs: [...]` contract, not a new one.
+No schema/migration change — this was a route-logic and client-feedback
+fix over the existing `logs: [...]` contract, not a new one. Covered by
+four new `Api_test.py` cases (granularity/macro round-trip, duplicate-date
+skip leaving the original row untouched, forced `source`, and a
+missing-required-field skip reason) alongside the existing
+`test_export_and_import_roundtrip` — 314 server tests green.
 
 ##### Import JSON format reference (for hand-written import files)
-
-Documented here so a JSON import file can be hand-written today, ahead
-of 7.1 actually landing — the table below calls out which behaviors are
-current and which only apply once 7.1 ships.
 
 `POST /api/users/me/import` (and, once 7.2 lands, the CSV path feeding
 the same pipeline) only ever reads one top-level key:
@@ -1069,10 +1073,9 @@ the same pipeline) only ever reads one top-level key:
 Everything else `GET /api/users/me/export` produces —
 `profile`/`goal_history`/`audit_log` and every Wave 2 read-side section
 (`gain_quality`, `energy_balance`, `tef`, etc.) — is informational only
-and already silently ignored on import today; a hand-written import file
-can omit all of it and just supply `{"logs": [...]}`. Profile and goal
-setup always happen through registration/the Plan tab, never through
-import.
+and silently ignored on import; a hand-written import file can omit all
+of it and just supply `{"logs": [...]}`. Profile and goal setup always
+happen through registration/the Plan tab, never through import.
 
 Each entry in `logs` is one `BodyLog` row, validated by the same
 `validate_log_input` (`services/composition/CompositionEngine.py`) every
@@ -1080,7 +1083,7 @@ manual wizard save goes through:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `date` | `"YYYY-MM-DD"` | yes | Must be unique per account. **Today**: a date colliding with an existing log crashes the whole import (the bug 7.1 fixes). **After 7.1**: that row is skipped with reason `"duplicate date"`, the rest of the file still imports. |
+| `date` | `"YYYY-MM-DD"` | yes | Must be unique per account — a date colliding with an existing log is skipped with reason `"duplicate date"`, the rest of the file still imports. |
 | `weight_kg` | number > 0 | yes | |
 | `waist_cm` | number > 0 | yes | Must be strictly greater than `neck_cm`. |
 | `neck_cm` | number > 0 | yes | |
@@ -1088,14 +1091,14 @@ manual wizard save goes through:
 | `steps` | number > 0 | yes | |
 | `intake_is_real` | boolean | no (default `true`) | `false` marks intake as assumed/estimated rather than actually logged — affects the Adherence figure (`docs/composition_spec.md`), not the engine's own math. |
 | `cardio_kcal` | number ≥ 0 | no (default `0`) | Phase 3.1's EAT term. |
-| `granularity` | `"daily"` \| `"weekly"` | no (default `"weekly"`) | `"daily"` rows in the same ISO week get resampled together (`LogResampler`, Phase 3.3). **Today**: silently ignored by the import route regardless of what's supplied — every imported row lands as `"weekly"`. **After 7.1**: respected. |
-| `carbs_g`, `fat_g`, `protein_g` | number ≥ 0 | no | All three or none — a partial trio is rejected (whole row skipped). Omit all three (or `null`) for the flat-TEF fallback. **Today**: silently dropped by the import route even if supplied. **After 7.1**: respected. |
-| `source` | — | ignored | **Today**: whatever the file says is trusted verbatim, including `"projected"` — a real gap (see 7.1). **After 7.1**: always forced to `"real"` regardless of what's supplied — `"projected"` rows only ever come from the engine's own forecast, never a hand-written import. |
+| `granularity` | `"daily"` \| `"weekly"` | no (default `"weekly"`) | `"daily"` rows in the same ISO week get resampled together (`LogResampler`, Phase 3.3). |
+| `carbs_g`, `fat_g`, `protein_g` | number ≥ 0 | no | All three or none — a partial trio is rejected (whole row skipped). Omit all three (or `null`) for the flat-TEF fallback. |
+| `source` | — | ignored | Always forced to `"real"` regardless of what's supplied — `"projected"` rows only ever come from the engine's own forecast, never a hand-written import. |
 
 A row missing a required field, or failing `validate_log_input` (e.g.
-`waist_cm <= neck_cm`, a non-positive measurement), is skipped silently
-today and, after 7.1, skipped with a reported reason — never a partial
-save.
+`waist_cm <= neck_cm`, a non-positive measurement), is skipped with a
+reported reason (`skipped: [{row, reason}]` in the response) — never a
+partial save.
 
 Example — two weekly rows plus one daily row with macros:
 
