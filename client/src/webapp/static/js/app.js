@@ -231,7 +231,19 @@ function navigate(viewName) {
   }
   if (viewName === "report") refreshReport();
   if (viewName === "alert-history") refreshAlertHistory();
-  if (viewName === "settings") refreshSettings();
+  if (viewName === "settings") {
+    // Set synchronously, before the unawaited async refreshSettings()
+    // below even starts -- getShowProjectedLogs() is a localStorage read,
+    // not a fetch, so there's no legitimate reason to leave it sequenced
+    // after refreshSettings()'s own network calls. Same
+    // navigate()-races-an-unawaited-refresh shape already fixed for the
+    // Log and Account views (see the Account case above and v2.0.1's
+    // CHANGELOG entry) -- caught here by an intermittent CI/local
+    // Playwright failure ("Clicking the checkbox did not change its
+    // state") on Log_test.py's show-projected-preference tests.
+    document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
+    refreshSettings();
+  }
 }
 
 async function refreshDashboardSummary() {
@@ -774,7 +786,6 @@ async function refreshSettings() {
   renderSettingsStatus(document.getElementById("settings-status"), settings);
   renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
   setFormError("settings-form", "");
-  document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
 }
 
 // Phase 7.5 (Health Connect sync, see README): Android app only -- a no-op
