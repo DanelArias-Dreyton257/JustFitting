@@ -293,6 +293,21 @@ export function fillSettingsForm(form, dto) {
   form.macro_target_deviation_pct.value = (dto.macro_target_deviation_pct * 100).toFixed(0);
 }
 
+// Phase 7.5 (Health Connect sync, see README): permissions is
+// {steps, nutrition} (each independent -- Health Connect's own dialog
+// lets the user grant one and deny the other); lastSyncedAt is an ISO
+// timestamp string or null.
+export function renderHealthSyncStatus(container, permissions, lastSyncedAt) {
+  const stepsText = permissions.steps ? "Mi Fitness (steps): connected" : "Mi Fitness (steps): not connected";
+  const nutritionText = permissions.nutrition
+    ? "Samsung Health (nutrition): connected"
+    : "Samsung Health (nutrition): not connected";
+  const lastSyncedText = lastSyncedAt
+    ? `Last synced ${new Date(lastSyncedAt).toLocaleString()}.`
+    : "Never synced yet.";
+  container.textContent = `${stepsText}. ${nutritionText}. ${lastSyncedText}`;
+}
+
 export function renderImportSummary(container, result) {
   const { imported, skipped } = result;
   if (!skipped || skipped.length === 0) {
@@ -370,9 +385,9 @@ export function renderLogTable(tbody, logs) {
       (log) => `
       <tr ${log.log_id != null ? `data-log-id="${log.log_id}"` : ""} class="${log.log_id == null ? "log-row-projected" : ""}">
         <td>${log.date}</td>
-        <td>${log.weight_kg}</td>
-        <td>${log.waist_cm}</td>
-        <td>${log.neck_cm}</td>
+        <td>${dash(log.weight_kg)}</td>
+        <td>${dash(log.waist_cm)}</td>
+        <td>${dash(log.neck_cm)}</td>
         <td>${dash(log.intake_kcal)}</td>
         <td>${dash(log.steps)}</td>
         <td>${dash(log.cardio_kcal)}</td>

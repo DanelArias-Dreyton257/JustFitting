@@ -94,6 +94,39 @@ class ViewsTest(unittest.TestCase):
         self.assertTrue(self._hidden("#log-next"))
         self.assertFalse(self._hidden("#log-save"))
 
+    def test_render_log_table_shows_dashes_for_a_partial_row(self):
+        """Phase 7.4 (partial logs, see README): a synced, steps-only row
+        has no weight/waist/neck yet -- the table shows a dash, not the
+        literal string "null"."""
+        logs = [
+            {
+                "log_id": 1,
+                "date": "2026-01-05",
+                "weight_kg": None,
+                "waist_cm": None,
+                "neck_cm": None,
+                "intake_kcal": 2200,
+                "steps": 7000,
+                "cardio_kcal": 0,
+                "carbs_g": None,
+                "fat_g": None,
+                "protein_g": None,
+                "source": "real",
+                "granularity": "daily",
+            }
+        ]
+        self.page.evaluate(
+            "(logs) => window.__views.renderLogTable(document.getElementById('log-table-body'), logs)",
+            logs,
+        )
+        cells = self.page.eval_on_selector_all(
+            "#log-table-body tr td", "els => els.map(el => el.textContent)"
+        )
+        self.assertEqual(cells[1], "—")  # weight
+        self.assertEqual(cells[2], "—")  # waist
+        self.assertEqual(cells[3], "—")  # neck
+        self.assertNotIn("null", "".join(cells))
+
     def test_render_log_review_lists_the_given_values(self):
         self.page.evaluate(
             "(values) => window.__views.renderLogReview(document.getElementById('log-review'), values)",

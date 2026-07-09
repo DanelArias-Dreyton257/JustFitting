@@ -1462,50 +1462,78 @@ tests green. The local dev DB was reset and reseeded
 schema, per this project's no-migration-runner convention (`DB.py`'s own
 docstring).
 
-#### Phase 7.5 — Sync writes partial logs directly + unified data section (planned, Android app only)
+#### Phase 7.5 — Sync writes partial logs directly + unified data section (built, pending on-device verification)
 
 Supersedes 7.3's original "client-side cache, prefill-only" plan for how
 a synced reading reaches an actual log, now that Phase 7.4 makes a real,
 persisted partial row possible:
 
 - Pressing "Sync now" calls the new `PUT /api/logs/by-date/<date>`
-  (Phase 7.4) once per successfully-read day, per source -- Mi Fitness's
-  steps and Samsung Health's nutrition/macros each merge independently
-  into that date's row, creating it as a `granularity="daily"` partial
-  row if nothing exists there yet. A day that already has a complete or
-  partial log (however it got there) just gets whichever fields that
-  source owns refreshed -- never touching weight/waist/neck, which no
-  synced source ever provides. `healthSync.js`'s `syncRecentReadings()`
-  result (already `{readings: [...]}`) drives this loop directly; a
-  reading is a real row the moment it's synced, not a suggestion waiting
-  to be typed in -- the `localStorage`-cache/`prefillWizardFrom
-  ExternalReadings` idea from the original plan is dropped entirely (see
-  7.3's "Manual sync only" note).
-- **Completing a day** is exactly Phase 5.7's existing edit flow, unchanged:
-  a synced day is already a normal (partial) row, so open that date in
-  the Log view, edit, add weight/waist/neck, save. No new wizard mode or
-  "complete" action needed. `views.js`'s log table and the wizard's edit
-  prefill need a small, contained fix so a partial row renders blank/dash
-  placeholders for its missing fields instead of `null`/`NaN` -- the same
-  treatment the macro fields already get when unset.
+  (Phase 7.4, via `api.upsertLogByDate`) once per successfully-read day,
+  per source -- Mi Fitness's steps and Samsung Health's nutrition/macros
+  each merge independently into that date's row, creating it as a
+  `granularity="daily"` partial row if nothing exists there yet. A day
+  that already has a complete or partial log (however it got there) just
+  gets whichever fields that source owns refreshed -- never touching
+  weight/waist/neck, which no synced source ever provides. Macros are
+  only ever sent as a complete trio, matching `validate_log_input`'s
+  all-or-nothing rule -- a day where Health Connect only had e.g. carbs
+  just sends `intake_kcal` that day and skips carbs/fat/protein, rather
+  than getting the whole call rejected. `healthSync.js`'s
+  `syncRecentReadings()` result (`{readings: [...]}`) drives this loop
+  directly; a reading is a real row the moment it's synced, not a
+  suggestion waiting to be typed in -- the `localStorage`-cache/
+  `prefillWizardFromExternalReadings` idea from the original plan was
+  dropped entirely (see 7.3's "Manual sync only" note). The sync window
+  is a fixed rolling 14 days on every press; re-syncing an overlapping
+  day is harmless (upsert, not create) since it just refreshes that
+  source's own fields to their latest values.
+- **Completing a day** is exactly Phase 5.7's existing edit flow,
+  unchanged: a synced day is already a normal (partial) row, so open that
+  date in the Log view, edit, add weight/waist/neck, save. No new wizard
+  mode or "complete" action needed. `renderLogTable` now wraps
+  weight/waist/neck in the same `dash()` fallback `intake_kcal`/`steps`/
+  `cardio_kcal` already used, and `fillWizardFromLog`/
+  `prefillWizardFromLastLog` fall back to an empty input instead of the
+  literal string `"null"` for any missing field -- the latter also now
+  searches for the most recent log that actually *has* perimeters, not
+  just the most recent log period, since that could now be a
+  steps-only synced day. The wizard's weight/waist/neck/intake `required`
+  HTML attributes are removed (`steps` already had none) so a genuinely
+  partial manual save, or an incremental edit that only touches one
+  field, isn't blocked by browser-native validation -- the server is the
+  source of truth for what's valid (Phase 7.4).
 - **One unified data section, not a separate page/section**: the
   Settings view's existing Export JSON button and Import file input
   (`#export-btn`/`#import-input`, both already present) gain the Phase
-  7.2 CSV option in place, and -- Android app only, appended into that
-  *same* section rather than a new one -- a single "Connect" button
-  (`healthSync.requestPermissions()`, which requests Steps and Nutrition
-  together in one Health Connect permission dialog -- that dialog itself
-  already lets the user grant/deny each data type individually, so a
-  combined request doesn't force an all-or-nothing choice) plus a
-  "Sync now" button that runs the per-source `syncRecentReadings()` +
-  `PUT /api/logs/by-date` loop above, with a per-source (Mi Fitness /
-  Samsung Health) connected/not-connected status line driven by
-  `hasPermissions()`'s own per-type result and a last-synced timestamp
-  next to the button. The section is retitled "Data import, export &
-  sync"; on the web build (and any Android device where
-  `healthSync.isSupported()` is false), the Connect/Sync controls simply
-  don't render, and the section is just Export/Import as it is today --
-  same `dist/` output, no build-time branch.
+  7.2 CSV option in place, retitled "Data import, export & sync", and --
+  Android app only, appended into that *same* section rather than a new
+  one -- a single "Connect" button (`healthSync.requestPermissions()`,
+  requesting Steps and Nutrition together in one Health Connect
+  permission dialog -- that dialog itself already lets the user grant/
+  deny each data type individually, so a combined request doesn't force
+  an all-or-nothing choice) plus a "Sync now" button running the loop
+  above, with a per-source (Mi Fitness / Samsung Health) connected/not-
+  connected status line and a last-synced timestamp (`localStorage`, the
+  one piece of sync-related client state that's still appropriate there
+  -- unlike the rejected reading-data cache, this is just "when did I
+  last press the button"). Getting the per-source status line required
+  fixing `HealthSyncPlugin.hasPermissions()` (Phase 7.3): it originally
+  returned one combined `granted` boolean, not enough to show "steps
+  connected, nutrition not" independently -- it and
+  `HealthConnectBridge.grantedPermissions` now expose the raw granted set
+  so the UI can report each source on its own. On the web build (and any
+  Android device where `healthSync.isSupported()` is false), the section
+  is just Export/Import as it is today -- same `dist/` output, no
+  build-time branch.
+
+Covered by a new Playwright test (`Views_test.py`, `renderLogTable`
+showing dashes not `"null"` for a partial row) plus the full existing
+suite proving nothing regressed; `gradlew assembleDebug` (after
+`npm run android:sync` to actually rebuild the bundled client -- a plain
+native-code build doesn't pick up client changes on its own) succeeds
+end to end against the real client this phase shipped. 335 server tests,
+58 client tests green.
 
 #### Open risks to validate before/while building Phase 7.3, 7.5
 

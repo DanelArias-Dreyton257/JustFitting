@@ -49,6 +49,11 @@ export const api = {
   createLog: (payload) => request("POST", "/api/logs", { body: payload }),
   updateLog: (logId, payload) => request("PUT", `/api/logs/${logId}`, { body: payload }),
   deleteLog: (logId) => request("DELETE", `/api/logs/${logId}`),
+  // Phase 7.4/7.5 (partial logs & Health Connect sync, see README):
+  // order-/source-independent merge for one date -- only touches the
+  // given fields, creating a partial row if none exists yet.
+  upsertLogByDate: (date, fields) =>
+    request("PUT", `/api/logs/by-date/${date}`, { body: fields }),
 
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),

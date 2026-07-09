@@ -1,6 +1,7 @@
 // Controller: holds all app state, wires DOM events to api.js and views.js.
 import { api } from "./api.js";
 import { parseCsvLogs } from "./csvImport.js";
+import * as healthSync from "./healthSync.js";
 import {
   getToken,
   setToken,
@@ -30,6 +31,7 @@ import {
   renderSettingsStatus,
   renderSettingsHistory,
   renderImportSummary,
+  renderHealthSyncStatus,
 } from "./views.js";
 import {
   drawLineChart,
@@ -497,9 +499,17 @@ function resetWizardGranularityDefault() {
     state.logNav.viewMode === "week" ? "weekly" : "daily";
 }
 
-function mostRecentRealLog() {
-  const realLogs = state.logs.filter((log) => log.source === "real");
-  return realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
+// Phase 7.4 (partial logs, see README): the most recent real log isn't
+// necessarily the most recent one with perimeters -- e.g. a synced,
+// steps-only day is "real" but has no waist/neck yet. Prefill from
+// whichever recent real log actually has them.
+function mostRecentLogWithPerimeters() {
+  const withPerimeters = state.logs.filter(
+    (log) => log.source === "real" && log.waist_cm != null && log.neck_cm != null
+  );
+  return withPerimeters.length
+    ? withPerimeters.reduce((a, b) => (b.date > a.date ? b : a))
+    : null;
 }
 
 // Most weeks a person's waist/neck barely change, so the wizard opens
@@ -508,7 +518,7 @@ function mostRecentRealLog() {
 // time, and intake/steps/cardio/macros stay blank too (today's actual
 // entry, not a carry-forward).
 function prefillWizardFromLastLog() {
-  const lastLog = mostRecentRealLog();
+  const lastLog = mostRecentLogWithPerimeters();
   const form = document.getElementById("log-form");
   form.waist_cm.value = lastLog ? lastLog.waist_cm : "";
   form.neck_cm.value = lastLog ? lastLog.neck_cm : "";
@@ -522,14 +532,19 @@ function resetWizardDefaults() {
   prefillWizardFromLastLog();
 }
 
+// Phase 7.4 (partial logs, see README): a log opened for editing can be
+// missing weight/waist/neck/intake/steps (e.g. a Health Connect sync
+// wrote steps/nutrition but nobody's added body measurements yet) -- each
+// falls back to an empty input, same as the macro fields already did,
+// rather than the literal string "null".
 function fillWizardFromLog(log) {
   const form = document.getElementById("log-form");
-  form.weight_kg.value = log.weight_kg;
-  form.waist_cm.value = log.waist_cm;
-  form.neck_cm.value = log.neck_cm;
-  form.intake_kcal.value = log.intake_kcal;
-  form.steps.value = log.steps;
-  form.cardio_kcal.value = log.cardio_kcal;
+  form.weight_kg.value = log.weight_kg == null ? "" : log.weight_kg;
+  form.waist_cm.value = log.waist_cm == null ? "" : log.waist_cm;
+  form.neck_cm.value = log.neck_cm == null ? "" : log.neck_cm;
+  form.intake_kcal.value = log.intake_kcal == null ? "" : log.intake_kcal;
+  form.steps.value = log.steps == null ? "" : log.steps;
+  form.cardio_kcal.value = log.cardio_kcal == null ? "" : log.cardio_kcal;
   form.carbs_g.value = log.carbs_g == null ? "" : log.carbs_g;
   form.fat_g.value = log.fat_g == null ? "" : log.fat_g;
   form.protein_g.value = log.protein_g == null ? "" : log.protein_g;
@@ -751,7 +766,73 @@ async function refreshSettings() {
   renderSettingsHistory(document.querySelector("#settings-history-table tbody"), history);
   setFormError("settings-form", "");
   document.getElementById("settings-show-projected-logs").checked = getShowProjectedLogs();
+  await refreshHealthSyncUI();
 }
+
+// Phase 7.5 (Health Connect sync, see README): Android app only -- a no-op
+// (section stays hidden) on the web build and any device where the native
+// plugin isn't available.
+const HEALTH_SYNC_WINDOW_DAYS = 14;
+const HEALTH_SYNC_LAST_SYNCED_KEY = "healthSyncLastSyncedAt";
+
+async function refreshHealthSyncUI() {
+  const section = document.getElementById("health-sync-section");
+  if (!healthSync.isSupported()) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const permissions = await healthSync.hasPermissions();
+  const lastSyncedAt = localStorage.getItem(HEALTH_SYNC_LAST_SYNCED_KEY);
+  renderHealthSyncStatus(document.getElementById("health-sync-status"), permissions, lastSyncedAt);
+}
+
+document.getElementById("health-connect-btn").addEventListener("click", async () => {
+  await healthSync.requestPermissions();
+  await refreshHealthSyncUI();
+});
+
+// Pressing "Sync now" calls PUT /api/logs/by-date once per source (steps,
+// nutrition), independently, for every returned day -- so Mi Fitness
+// failing/being disconnected never blocks Samsung Health's write, and vice
+// versa (README's Phase 7.4/7.5). Macros are only sent as a trio (never
+// partially), matching validate_log_input's all-or-nothing rule -- a day
+// with e.g. only carbs_g from Health Connect just doesn't send macros that
+// day, rather than getting rejected outright.
+document.getElementById("health-sync-now-btn").addEventListener("click", async () => {
+  const summaryEl = document.getElementById("health-sync-summary");
+  summaryEl.textContent = "Syncing…";
+  try {
+    const sinceDate = addDays(todayIso(), -HEALTH_SYNC_WINDOW_DAYS);
+    const { readings } = await healthSync.syncRecentReadings(sinceDate);
+    let stepsCount = 0;
+    let nutritionCount = 0;
+    for (const reading of readings) {
+      if (reading.steps != null) {
+        await api.upsertLogByDate(reading.date, { steps: reading.steps, granularity: "daily" });
+        stepsCount++;
+      }
+      const nutritionFields = {};
+      if (reading.intake_kcal != null) nutritionFields.intake_kcal = reading.intake_kcal;
+      if (reading.carbs_g != null && reading.fat_g != null && reading.protein_g != null) {
+        nutritionFields.carbs_g = reading.carbs_g;
+        nutritionFields.fat_g = reading.fat_g;
+        nutritionFields.protein_g = reading.protein_g;
+      }
+      if (Object.keys(nutritionFields).length > 0) {
+        nutritionFields.granularity = "daily";
+        await api.upsertLogByDate(reading.date, nutritionFields);
+        nutritionCount++;
+      }
+    }
+    localStorage.setItem(HEALTH_SYNC_LAST_SYNCED_KEY, new Date().toISOString());
+    summaryEl.textContent = `Synced ${stepsCount} day(s) of steps, ${nutritionCount} day(s) of nutrition.`;
+    await refreshHealthSyncUI();
+    await refreshLogs();
+  } catch (err) {
+    summaryEl.textContent = `Sync failed: ${err.message}`;
+  }
+});
 
 function formToJson(form) {
   return Object.fromEntries(new FormData(form).entries());
@@ -876,12 +957,18 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   // creating -- edit mode omits them so the server's partial-update
   // semantics (log_routes.py's update_log) leave them untouched, since
   // neither is editable here.
+  // Phase 7.4 (partial logs, see README): weight/waist/neck/intake/steps
+  // are all optional now, same treatment the macro trio already had --
+  // a blank field means "not logged," sent as null, not coerced to 0.
+  // cardio_kcal is the one exception: it stays a real 0-or-a-number
+  // field (the server column is still NOT NULL DEFAULT 0), matching its
+  // own input's "0" default.
   const measurements = {
-    weight_kg: Number(raw.weight_kg),
-    waist_cm: Number(raw.waist_cm),
-    neck_cm: Number(raw.neck_cm),
-    intake_kcal: Number(raw.intake_kcal),
-    steps: Number(raw.steps) || 0,
+    weight_kg: optionalNumber(raw.weight_kg),
+    waist_cm: optionalNumber(raw.waist_cm),
+    neck_cm: optionalNumber(raw.neck_cm),
+    intake_kcal: optionalNumber(raw.intake_kcal),
+    steps: optionalNumber(raw.steps),
     cardio_kcal: Number(raw.cardio_kcal) || 0,
     carbs_g: optionalNumber(raw.carbs_g),
     fat_g: optionalNumber(raw.fat_g),

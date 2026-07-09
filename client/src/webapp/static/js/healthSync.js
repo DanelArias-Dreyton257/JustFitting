@@ -28,10 +28,12 @@ export async function checkAvailability() {
   return plugin.isAvailable();
 }
 
-// {granted: boolean}
+// {steps: boolean, nutrition: boolean, granted: boolean} -- steps/nutrition
+// report each source independently (Health Connect's own permission
+// dialog lets the user grant one and deny the other); granted is both.
 export async function hasPermissions() {
   const plugin = nativePlugin();
-  if (!plugin) return { granted: false };
+  if (!plugin) return { steps: false, nutrition: false, granted: false };
   return plugin.hasPermissions();
 }
 

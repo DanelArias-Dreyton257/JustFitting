@@ -72,14 +72,19 @@ public class HealthSyncPlugin extends Plugin {
         });
     }
 
+    // Phase 7.5 (Settings UI, see README): reports Steps/Nutrition
+    // separately, not just one combined boolean -- Health Connect's own
+    // permission dialog lets the user grant one and deny the other.
     @PluginMethod
     public void hasPermissions(PluginCall call) {
         executor.execute(() -> {
-            boolean granted = HealthConnectBridge.hasAllPermissions(
-                getContext(), HealthConnectBridge.allPermissions()
-            );
+            Set<String> granted = HealthConnectBridge.grantedPermissions(getContext());
+            boolean steps = granted.contains(HealthConnectBridge.STEPS_PERMISSION);
+            boolean nutrition = granted.contains(HealthConnectBridge.NUTRITION_PERMISSION);
             JSObject ret = new JSObject();
-            ret.put("granted", granted);
+            ret.put("steps", steps);
+            ret.put("nutrition", nutrition);
+            ret.put("granted", steps && nutrition);
             call.resolve(ret);
         });
     }

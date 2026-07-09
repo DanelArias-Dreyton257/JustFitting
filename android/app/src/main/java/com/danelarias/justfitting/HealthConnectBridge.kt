@@ -65,11 +65,17 @@ object HealthConnectBridge {
         PermissionController.createRequestPermissionResultContract()
 
     @JvmStatic
-    fun hasAllPermissions(context: Context, permissions: Set<String>): Boolean = runBlocking {
-        HealthConnectClient.getOrCreate(context)
-            .permissionController
-            .getGrantedPermissions()
-            .containsAll(permissions)
+    fun hasAllPermissions(context: Context, permissions: Set<String>): Boolean =
+        grantedPermissions(context).containsAll(permissions)
+
+    // Phase 7.5 (Settings UI, see README): the raw granted set, not just a
+    // combined boolean -- Health Connect's own permission dialog lets the
+    // user grant Steps and deny Nutrition (or vice versa), so the Settings
+    // UI needs to show each source's status independently rather than one
+    // all-or-nothing "connected".
+    @JvmStatic
+    fun grantedPermissions(context: Context): Set<String> = runBlocking {
+        HealthConnectClient.getOrCreate(context).permissionController.getGrantedPermissions()
     }
 
     /**
