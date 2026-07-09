@@ -14,6 +14,7 @@ from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.models import ProfileParams
+from server.src.services.LogResampler import is_computable, resample_to_weekly
 
 plan_bp = Blueprint("plan", __name__, url_prefix="/api/plan")
 
@@ -35,6 +36,19 @@ def preview():
     if not real_logs:
         return jsonify({"error": "no logs yet"}), 404
 
+    # Same resample-then-filter pipeline MetricsSeriesService.
+    # compute_series_for_user uses, rather than the raw last log by date --
+    # a mixed daily/weekly account (README's Phase 7.3-7.5 Health Connect
+    # sync) can have its most recent raw row be a still-partial one (e.g. a
+    # weekly body-comp entry with no steps/intake of its own yet, completed
+    # by daily-synced rows in the same ISO week only once resampled), which
+    # would otherwise reach compute_row directly and 400 with "cannot
+    # compute a row missing required fields" despite the account's data for
+    # that week genuinely being complete once combined.
+    computable_logs = [log for log in resample_to_weekly(real_logs) if is_computable(log)]
+    if not computable_logs:
+        return jsonify({"error": "no computable logs yet"}), 404
+
     try:
         target_bf = float(request.args.get("target_bf", goal.target_bf))
         weekly_rate = float(request.args.get("weekly_rate", goal.weekly_rate))
@@ -49,7 +63,7 @@ def preview():
         weekly_rate=weekly_rate,
     )
 
-    engine_inputs = log_manager.to_engine_inputs(real_logs)
+    engine_inputs = log_manager.to_engine_inputs(computable_logs)
     prev_weight_kg = engine_inputs[-2].weight_kg if len(engine_inputs) > 1 else None
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(g.user_id)

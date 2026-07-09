@@ -947,6 +947,85 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_plan_preview_aggregates_a_weekly_log_with_same_week_daily_syncs(self):
+        """Reported bug: a Health Connect sync (README's Phase 7.3-7.5) that
+        only ever writes daily-granularity steps/nutrition rows, plus a
+        manually-entered weekly body-comp log for the same still-in-progress
+        ISO week (perimeters only, no intake/steps of its own), used to
+        leave both rows individually incomplete -- and, worse, preview/
+        projection read the raw last log directly rather than the resampled
+        series, so this 400'd with "cannot compute a row missing required
+        fields: intake_kcal, steps" even though the week's data was complete
+        once combined."""
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.post(
+            "/api/logs",
+            json={
+                "date": "2025-12-28",
+                "weight_kg": 97.0,
+                "waist_cm": 91.0,
+                "neck_cm": 38.5,
+                "intake_kcal": 2400.0,
+                "steps": 6000,
+            },
+            headers=headers,
+        )
+
+        # ISO week 2026-W02 (Mon 2026-01-05 .. Sun 2026-01-11): Health
+        # Connect syncs steps + nutrition daily, Mon-Wed only (today is
+        # Thursday, the daily week isn't complete yet).
+        for day, steps, intake in (
+            ("2026-01-05", 7000, 2200.0),
+            ("2026-01-06", 7200, 2250.0),
+            ("2026-01-07", 6800, 2100.0),
+        ):
+            self.client.put(
+                f"/api/logs/by-date/{day}",
+                json={"steps": steps, "granularity": "daily"},
+                headers=headers,
+            )
+            self.client.put(
+                f"/api/logs/by-date/{day}",
+                json={"intake_kcal": intake},
+                headers=headers,
+            )
+
+        # The user separately logs this week's body composition on
+        # Thursday, via the ordinary weekly wizard -- no intake/steps of its
+        # own, since those are expected to keep coming from the sync.
+        create_response = self.client.post(
+            "/api/logs",
+            json={
+                "date": "2026-01-08",
+                "weight_kg": 95.0,
+                "waist_cm": 89.0,
+                "neck_cm": 38.0,
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        self.assertIsNone(create_response.get_json()["intake_kcal"])
+
+        latest = self.client.get("/api/metrics/latest", headers=headers)
+        self.assertEqual(latest.status_code, 200)
+        latest_body = latest.get_json()
+        self.assertEqual(latest_body["date"], "2026-01-08")
+        # NEAT = 0.5 * weight_kg * (steps / 1000) -- confirms the mean of
+        # the three synced days' steps (7000.0) actually fed the row that
+        # carries the manually-logged weight (95.0), i.e. the two sources
+        # were genuinely combined into one computable week, not left as two
+        # separate incomplete rows.
+        self.assertAlmostEqual(latest_body["neat"], 0.5 * 95.0 * (7000.0 / 1000))
+        # intake_diff = intake_kcal - target_calories, so this recovers the
+        # intake_kcal the engine actually used -- the mean of the three
+        # synced days (2200, 2250, 2100).
+        used_intake_kcal = latest_body["intake_diff"] + latest_body["target_calories"]
+        self.assertAlmostEqual(used_intake_kcal, 2183.333333, places=3)
+
+        preview = self.client.get("/api/plan/preview", headers=headers)
+        self.assertEqual(preview.status_code, 200)
+
     def test_export_includes_goal_history_and_audit_log(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

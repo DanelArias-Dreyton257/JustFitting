@@ -12,6 +12,7 @@ from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProjectionDTO import ProjectionDTO
 from server.src.services.composition import Projection
+from server.src.services.LogResampler import is_computable, resample_to_weekly
 
 projection_bp = Blueprint("projection", __name__, url_prefix="/api")
 
@@ -45,7 +46,15 @@ def _forecast_inputs(user_id: int):
     period_start = goal_plan_manager.active_period_start(user_id)
     if period_start is not None:
         real_logs = [log for log in real_logs if log.date >= period_start]
-    engine_inputs = log_manager.to_engine_inputs(real_logs)
+    # Same resample-then-filter pipeline MetricsSeriesService.
+    # compute_series_for_user/plan_routes.preview use -- a mixed
+    # daily/weekly account (README's Phase 7.3-7.5 Health Connect sync) can
+    # have its most recent raw row be a still-partial one, completed only
+    # once daily-synced rows in the same ISO week are resampled in; feeding
+    # the engine raw, unresampled rows risks a spurious "cannot compute a
+    # row missing required fields" here too.
+    computable_logs = [log for log in resample_to_weekly(real_logs) if is_computable(log)]
+    engine_inputs = log_manager.to_engine_inputs(computable_logs)
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)
     )

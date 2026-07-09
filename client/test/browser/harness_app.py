@@ -36,4 +36,8 @@ def create_harness_app(api_base_url: str = "") -> Flask:
     def csv_harness():
         return render_template("csv_harness.html")
 
+    @app.get("/harness/health-sync")
+    def health_sync_harness():
+        return render_template("health_sync_harness.html")
+
     return app

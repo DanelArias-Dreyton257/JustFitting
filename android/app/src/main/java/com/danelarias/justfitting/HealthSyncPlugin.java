@@ -124,7 +124,7 @@ public class HealthSyncPlugin extends Plugin {
 
         executor.execute(() -> {
             try {
-                if (!HealthConnectBridge.hasAllPermissions(getContext(), HealthConnectBridge.allPermissions())) {
+                if (!HealthConnectBridge.hasAllPermissions(getContext(), HealthConnectBridge.requiredPermissions())) {
                     call.reject("Health Connect permissions not granted");
                     return;
                 }
