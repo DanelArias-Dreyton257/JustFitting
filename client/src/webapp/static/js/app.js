@@ -826,7 +826,9 @@ document.getElementById("health-connect-btn").addEventListener("click", async ()
 // versa (README's Phase 7.4/7.5). Macros are only sent as a trio (never
 // partially), matching validate_log_input's all-or-nothing rule -- a day
 // with e.g. only carbs_g from Health Connect just doesn't send macros that
-// day, rather than getting rejected outright.
+// day, rather than getting rejected outright. healthSync.syncRecentReadings
+// already rounds every numeric field to 1 decimal, so what's read here is
+// what gets stored.
 document.getElementById("health-sync-now-btn").addEventListener("click", async () => {
   const summaryEl = document.getElementById("health-sync-summary");
   summaryEl.textContent = "Syncing…";

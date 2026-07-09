@@ -1288,11 +1288,19 @@ settings, not a proprietary-API integration:
   `@capacitor/core`, since the client has no JS build step — see
   Architecture, above), so the rest of the client never needs an
   Android-specific branch beyond feature-detecting this one module.
-- `AndroidManifest.xml` gained the two read-only health permissions
+- `AndroidManifest.xml` gained three read-only health permissions
   (`android.permission.health.READ_STEPS`/`READ_NUTRITION` — no `WRITE_*`,
-  this app never writes to Health Connect), a `<queries>` entry for Health
-  Connect's own package (`com.google.android.apps.healthdata`, so
-  `isAvailable()` can distinguish "not installed" from "permission not
+  this app never writes to Health Connect — plus `READ_HEALTH_DATA_HISTORY`,
+  added after a real bug: without it, Health Connect silently clamps every
+  read to the last 30 days regardless of the requested range, which is
+  what a reported ">30-day sync only ever returns 30 days" bug turned out
+  to be. `HealthConnectBridge.allPermissions()` requests all three together
+  for one system dialog, but the actual sync gate
+  (`HealthSyncPlugin.readRecentReadings`) only requires the original two
+  — `requiredPermissions()` — so declining the history permission just
+  keeps the 30-day clamp instead of blocking sync entirely), a `<queries>`
+  entry for Health Connect's own package (`com.google.android.apps.healthdata`,
+  so `isAvailable()` can distinguish "not installed" from "permission not
   granted"), and two more intent-filters on `MainActivity` for Health
   Connect's required permissions-rationale handling (Android 14+'s
   `VIEW_PERMISSION_USAGE`/`HEALTH_PERMISSIONS` category, and Android
@@ -1360,17 +1368,16 @@ data-model foundation, not a client feature on its own -- it has no UI
 of its own and needs no phone to verify; Phase 7.5 below is what
 actually uses it.
 
-**Rejected**: full cross-day merging within an ISO week (an earlier
-round of this plan considered reconciling a weekly body-measurement
-entry on one day with that week's separate daily activity entries on
-other days into a single computed week). That's real new resampler
-algorithm -- more moving parts, more ways to regress the existing
-mixed-granularity behavior Phase 3.3 already ships and tests -- and it's
-not needed for the actual workflow described: completing a partial day
-means editing *that exact date's* row, which already exists (or gets
-created) from whichever source touched it first. `LogResampler`'s
-existing rule ("daily rows in an ISO week group together, weekly rows
-pass straight through unchanged") stays completely untouched.
+**Rejected at the time, later reconsidered (Phase 7.6)**: full cross-day
+merging within an ISO week (an earlier round of this plan considered
+reconciling a weekly body-measurement entry on one day with that week's
+separate daily activity entries on other days into a single computed
+week) was rejected here as unneeded complexity, on the assumption that
+completing a partial day always means editing *that exact date's* row.
+Real usage after Phase 7.5 shipped falsified that assumption -- see Phase
+7.6 below for the reported bug and why `LogResampler` gained exactly this
+merge after all, scoped narrowly enough not to disturb anything this
+phase's own tests cover.
 
 - **Schema**: `body_logs`'s `weight_kg`, `waist_cm`, `neck_cm`,
   `intake_kcal`, `steps` become individually nullable
@@ -1618,6 +1625,101 @@ and nutrition data, and those rows round-trip correctly through
   readings available" rather than erroring, but this specific path
   (revoke, then sync) wasn't walked through on the test device this
   round.
+
+#### Phase 7.6 — Three real-usage Health Connect sync bugs (done)
+
+Three bugs reported after real-world use of Phase 7.3-7.5's sync,
+`things-to-improve.txt`'s "FOUND BUGS" section:
+
+- **A >30-day "Sync last N days" value only ever returned 30 days.**
+  Distinct from the already-documented "Verified on a real device"
+  finding above (a source app having less than 30 days of its own history
+  in Health Connect) -- this is a hard platform ceiling: without the
+  `android.permission.health.READ_HEALTH_DATA_HISTORY` permission, Health
+  Connect silently clamps *every* read to the last 30 days regardless of
+  the requested `TimeRangeFilter`, which neither `HealthConnectBridge.kt`
+  nor `AndroidManifest.xml` requested before now. Added as a third
+  permission (`HealthConnectBridge.HISTORY_PERMISSION`, included in
+  `allPermissions()` so the "Connect" button's system dialog asks for all
+  three together) -- but kept out of the actual sync gate: a new
+  `HealthConnectBridge.requiredPermissions()` (Steps + Nutrition only) is
+  what `HealthSyncPlugin.readRecentReadings` actually checks, so a user
+  who declines the extra history grant still gets ordinary (30-day-
+  clamped) sync rather than none at all. Not exposed as a typed constant
+  on this project's pinned `1.1.0-alpha08` connect-client (confirmed by
+  decompiling both the pinned AAR and the current stable `1.1.0`'s -- see
+  Phase 7.3's own decompiling note -- the constant, and the permission
+  string it wraps, was only added in the stable 1.1.0 client), so it's
+  requested as a literal permission string, same as any Health Connect
+  provider-side permission works regardless of which client library
+  version compiled against it.
+- **A weekly log and same-week daily syncs never actually combined** --
+  the more serious of the three, and the one that directly falsifies
+  Phase 7.4's "Rejected" cross-day-merging call above. Reported as: a
+  daily-synced week that only ran Monday-Wednesday (today being
+  Thursday, and Health Connect's own "not today" exclusion means a synced
+  week is *never* complete until the week itself is over), plus a
+  manually-entered weekly log for that same week's body composition (the
+  ordinary Log-view flow, not a misuse of it), left both rows
+  individually incomplete -- and surfaced as a genuinely confusing error
+  ("cannot compute a row missing required fields: intake_kcal, steps")
+  the next time the user opened the Plan tab to preview a new goal.
+  Phase 7.4 assumed a user would always complete a synced day by editing
+  that exact date's row instead; in practice the natural flow is logging
+  *today's* body-comp reading, and today never has a synced row of its
+  own to edit into. `LogResampler.resample_to_weekly` now completes a
+  single weekly-tagged row sharing its ISO week with a daily-tagged group
+  in place -- filling only whichever of the weekly row's own fields
+  (steps, intake_kcal, and, in principle, weight/waist/neck/macros) are
+  still `None` from the daily group's existing mean/median aggregate,
+  never overwriting a field the weekly row already has -- rather than
+  appending a second, separately-incomplete representative row for the
+  same week. Two or more weekly rows sharing an ISO week are left
+  untouched exactly as before (which of them would "own" the merge is
+  ambiguous, and legitimately distinct weekly logs landing in the same
+  ISO week is exactly the case Phase 3.3's original design already had to
+  guard against). Separately -- and independent of the merge question --
+  `GET /api/plan/preview` and `GET`/`POST /api/projection`
+  (`plan_routes.py`, `projection_routes.py`'s `_forecast_inputs`) turned
+  out to build their engine input from the raw log list ordered by date,
+  unlike `MetricsSeriesService.compute_series_for_user`, which already
+  resamples and filters to computable rows -- so even a week that's
+  genuinely complete once resampled could still crash the *routes* if it
+  happened to be the most recent *raw* row (this is what actually threw
+  the "cannot compute a row" error the user saw; the resampler gap alone
+  would only have produced two incomplete rows for the routes to correctly
+  reject as unusable, not necessarily an unhandled exception at the API
+  layer). Both routes now build their engine input from the same
+  resample-then-filter-computable pipeline, and return a plain 404 ("no
+  computable logs yet") instead of a raw compute error when nothing
+  computable exists yet.
+- **Macros synced from Health Connect stored with excessive decimal
+  precision.** `NutritionRecord`'s `Energy`/`Mass` aggregates are
+  floating-point sums (e.g. `carbs_g: 210.00000000000003`), a
+  sum-of-floats artifact rather than meaningful extra precision.
+  `healthSync.js`'s `syncRecentReadings` now rounds every numeric field
+  (steps, intake_kcal, carbs_g, fat_g, protein_g) to 1 decimal place at
+  the boundary where a native reading enters the JS layer -- before it's
+  ever stored via `PUT /api/logs/by-date`, per the report ("just storing
+  1 is perfectly fine, not only showing one"), not just before display --
+  leaving a field the reading never had (no key at all) untouched rather
+  than introducing one.
+
+New coverage: `LogResampler_test.py` gained three cases for the weekly/
+daily same-ISO-week merge (completes in place, never overwrites the
+weekly row's own fields, two weekly rows in the same week stay
+untouched); `Api_test.py` gained an end-to-end regression reproducing the
+exact reported scenario (daily syncs Mon-Wed, a Thursday weekly log,
+`GET /api/plan/preview` now 200s and `GET /api/metrics/latest` reflects
+the combined steps/intake via NEAT/`intake_diff`); a new
+`client/test/browser/HealthSync_test.py` (Playwright, mocking the native
+Capacitor plugin) covers the rounding behavior end to end through
+`syncRecentReadings` itself. `gradlew :app:compileDebugJavaWithJavac
+:app:compileDebugKotlin` confirms the Kotlin/Java side builds; the
+30-day-cap fix specifically still needs a real-device Health Connect
+sync (a >30-day window, before/after granting the history permission) to
+confirm, since no emulator/unit test can exercise Health Connect's own
+clamping behavior.
 
 ## Android app
 

@@ -37,8 +37,26 @@ object HealthConnectBridge {
     @JvmField
     val NUTRITION_PERMISSION: String = HealthPermission.getReadPermission(NutritionRecord::class)
 
+    // Without this, Health Connect silently clamps every read to the last
+    // 30 days regardless of the requested range -- the real cause of a
+    // reported bug where a >30-day "Sync last N days" value only ever
+    // returned 30 days of readings. Not exposed as a typed constant on
+    // this project's pinned 1.1.0-alpha08 connect-client (it only ships in
+    // 1.1.0+), but it's a plain Health Connect provider-side permission
+    // string, so it works fine requested/checked as a literal here.
+    @JvmField
+    val HISTORY_PERMISSION: String = "android.permission.health.READ_HEALTH_DATA_HISTORY"
+
     @JvmStatic
-    fun allPermissions(): Set<String> = setOf(STEPS_PERMISSION, NUTRITION_PERMISSION)
+    fun allPermissions(): Set<String> = setOf(STEPS_PERMISSION, NUTRITION_PERMISSION, HISTORY_PERMISSION)
+
+    // The strict minimum a sync actually needs -- unlike allPermissions()
+    // (requested together for one system dialog), a user declining the
+    // optional history permission shouldn't block Steps/Nutrition sync
+    // entirely; Health Connect just keeps clamping reads to 30 days for
+    // them, same as before this permission existed.
+    @JvmStatic
+    fun requiredPermissions(): Set<String> = setOf(STEPS_PERMISSION, NUTRITION_PERMISSION)
 
     // Re-exported so HealthSyncPlugin.java never has to reference
     // HealthConnectClient's own Companion object directly (Kotlin

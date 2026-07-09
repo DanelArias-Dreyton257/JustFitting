@@ -39,21 +39,84 @@ def _median_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
     return median(logged) if logged else None
 
 
+def _fill_missing(
+    current: Optional[float], values: Sequence[Optional[float]], *, median: bool = False
+) -> Optional[float]:
+    """`current` if it's already logged, otherwise the daily group's own
+    graceful-degradation aggregate -- the same rule a lone daily group
+    already applies to itself, just deferring to a value a weekly row
+    already has instead of overwriting it."""
+    if current is not None:
+        return current
+    return _median_of_logged(values) if median else _mean_of_logged(values)
+
+
 def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
-    """One `BodyLog` per calendar week. Weekly-tagged rows pass through
-    untouched; daily-tagged rows in the same ISO week collapse into a
-    single representative row (median weight; mean of everything else;
-    intake_is_real only if every day's intake was real)."""
+    """One `BodyLog` per calendar week. Daily-tagged rows in the same ISO
+    week collapse into a single representative row (median weight; mean of
+    everything else; intake_is_real only if every day's intake was real).
+
+    A weekly-tagged row is normally passed through untouched, *except* when
+    exactly one such row shares its ISO week with daily-tagged rows (Phase
+    7.4/7.5: a weekly manual entry -- typically just weight/waist/neck --
+    coexisting with Health Connect's daily-synced steps/nutrition). In that
+    one case, the weekly row is completed in place from the daily group's
+    aggregate wherever the weekly row itself is missing a field, rather
+    than left stranded next to a second, separately-incomplete
+    representative row for the exact same week -- otherwise neither row
+    alone has everything `is_computable` needs, even though the account's
+    data for that week genuinely is complete once combined. Two or more
+    weekly rows sharing an ISO week are never merged into a daily group --
+    which of them would "own" the merge is ambiguous, so each is left
+    untouched and the daily group still gets its own representative row.
+    """
     weekly = [log for log in logs if log.granularity != "daily"]
     daily = [log for log in logs if log.granularity == "daily"]
+
+    weekly_by_iso_week: Dict[Tuple[int, int], List[BodyLog]] = defaultdict(list)
+    for log in weekly:
+        weekly_by_iso_week[log.date.isocalendar()[:2]].append(log)
 
     groups: Dict[Tuple[int, int], List[BodyLog]] = defaultdict(list)
     for log in daily:
         groups[log.date.isocalendar()[:2]].append(log)
 
     resampled = list(weekly)
-    for group in groups.values():
+    for iso_week, group in groups.items():
         group.sort(key=lambda log: log.date)
+        matching_weekly = weekly_by_iso_week.get(iso_week, [])
+
+        if len(matching_weekly) == 1:
+            weekly_log = matching_weekly[0]
+            resampled.remove(weekly_log)
+            resampled.append(
+                replace(
+                    weekly_log,
+                    weight_kg=_fill_missing(
+                        weekly_log.weight_kg, (log.weight_kg for log in group), median=True
+                    ),
+                    waist_cm=_fill_missing(weekly_log.waist_cm, (log.waist_cm for log in group)),
+                    neck_cm=_fill_missing(weekly_log.neck_cm, (log.neck_cm for log in group)),
+                    intake_kcal=_fill_missing(
+                        weekly_log.intake_kcal, (log.intake_kcal for log in group)
+                    ),
+                    intake_is_real=(
+                        weekly_log.intake_is_real
+                        if weekly_log.intake_kcal is not None
+                        else all(
+                            log.intake_is_real for log in group if log.intake_kcal is not None
+                        )
+                    ),
+                    steps=_fill_missing(weekly_log.steps, (log.steps for log in group)),
+                    carbs_g=_fill_missing(weekly_log.carbs_g, (log.carbs_g for log in group)),
+                    fat_g=_fill_missing(weekly_log.fat_g, (log.fat_g for log in group)),
+                    protein_g=_fill_missing(
+                        weekly_log.protein_g, (log.protein_g for log in group)
+                    ),
+                )
+            )
+            continue
+
         representative = group[-1]
         resampled.append(
             replace(

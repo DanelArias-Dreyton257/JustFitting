@@ -44,6 +44,26 @@ export async function requestPermissions() {
   return plugin.requestPermissions();
 }
 
+// Health Connect's aggregate readers return raw floating-point sums (e.g.
+// carbs_g: 210.00000000000003 -- a sum-of-grams float artifact, not a
+// meaningful extra 13 decimal places of precision). Rounded here, at the
+// boundary where a native reading enters the JS layer, so every caller
+// (today just app.js's "Sync now" handler) stores a clean value rather
+// than each having to remember to round before persisting.
+function roundToOneDecimal(value) {
+  return value == null ? value : Math.round(value * 10) / 10;
+}
+
+// Only rounds fields actually present -- mirrors HealthSyncPlugin.java's
+// own toJson, which omits a field entirely rather than sending it null.
+function roundReading(reading) {
+  const rounded = { ...reading };
+  for (const field of ["steps", "intake_kcal", "carbs_g", "fat_g", "protein_g"]) {
+    if (rounded[field] != null) rounded[field] = roundToOneDecimal(rounded[field]);
+  }
+  return rounded;
+}
+
 // {readings: [{date, steps?, intake_kcal?, carbs_g?, fat_g?, protein_g?}]}
 // sinceDate is an ISO "YYYY-MM-DD" string; the native side always excludes
 // today itself (the "not today" rule -- README's Phase 7.3), regardless of
@@ -51,5 +71,6 @@ export async function requestPermissions() {
 export async function syncRecentReadings(sinceDate) {
   const plugin = nativePlugin();
   if (!plugin) return { readings: [] };
-  return plugin.readRecentReadings({ sinceDate });
+  const { readings } = await plugin.readRecentReadings({ sinceDate });
+  return { readings: readings.map(roundReading) };
 }

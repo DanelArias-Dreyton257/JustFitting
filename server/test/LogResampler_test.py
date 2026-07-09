@@ -181,6 +181,80 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertEqual(result[1].weight_kg, 95.5)
         self.assertEqual(result[1].date, date(2026, 1, 7))
 
+    def test_a_weekly_log_sharing_its_iso_week_with_daily_syncs_is_completed_not_duplicated(self):
+        """Reported bug: a Health Connect sync (README's Phase 7.3-7.5) only
+        ever writes daily steps/nutrition rows; a manually-entered weekly
+        body-comp log for that same still-in-progress ISO week (perimeters
+        only) used to stay stranded next to a second, separately-incomplete
+        representative row for the exact same week, so neither was
+        computable even though the week's data was complete once combined.
+        ISO week 2026-W02: Mon 2026-01-05 .. Sun 2026-01-11; daily syncs
+        only cover Mon-Wed (today is Thursday), and the weekly log is dated
+        Thursday."""
+        weekly_log = make_log(
+            1,
+            date(2026, 1, 8),
+            granularity="weekly",
+            weight_kg=95.0,
+            waist_cm=89.0,
+            neck_cm=38.0,
+            intake_kcal=None,
+            steps=None,
+        )
+        daily_syncs = [
+            make_log(10, date(2026, 1, 5), granularity="daily", steps=7000.0, intake_kcal=2200.0,
+                     weight_kg=None, waist_cm=None, neck_cm=None),
+            make_log(11, date(2026, 1, 6), granularity="daily", steps=7200.0, intake_kcal=2250.0,
+                     weight_kg=None, waist_cm=None, neck_cm=None),
+            make_log(12, date(2026, 1, 7), granularity="daily", steps=6800.0, intake_kcal=2100.0,
+                     weight_kg=None, waist_cm=None, neck_cm=None),
+        ]
+        result = resample_to_weekly([weekly_log] + daily_syncs)
+
+        self.assertEqual(len(result), 1)  # one row for the week, not two
+        row = result[0]
+        self.assertEqual(row.date, date(2026, 1, 8))  # the weekly log's own date
+        self.assertEqual(row.log_id, 1)  # still the weekly row's own identity
+        self.assertEqual(row.weight_kg, 95.0)  # from the weekly log, untouched
+        self.assertEqual(row.waist_cm, 89.0)
+        self.assertEqual(row.neck_cm, 38.0)
+        self.assertAlmostEqual(row.steps, 7000.0)  # mean(7000, 7200, 6800)
+        self.assertAlmostEqual(row.intake_kcal, 2183.333333, places=3)
+        self.assertTrue(is_computable(row))
+
+    def test_weekly_logs_own_fields_are_never_overwritten_by_the_daily_average(self):
+        """A weekly log that already has intake/steps of its own (logged
+        manually, not left for the sync to fill) keeps its own values --
+        only fields the weekly row is missing get filled in."""
+        weekly_log = make_log(
+            1, date(2026, 1, 8), granularity="weekly",
+            weight_kg=95.0, waist_cm=89.0, neck_cm=38.0, intake_kcal=2500.0, steps=9000.0,
+        )
+        daily_syncs = [
+            make_log(10, date(2026, 1, 5), granularity="daily", steps=7000.0, intake_kcal=2200.0,
+                     weight_kg=None, waist_cm=None, neck_cm=None),
+        ]
+        result = resample_to_weekly([weekly_log] + daily_syncs)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].intake_kcal, 2500.0)
+        self.assertEqual(result[0].steps, 9000.0)
+
+    def test_two_weekly_logs_sharing_an_iso_week_are_left_untouched(self):
+        """Ambiguous which of two weekly rows in the same ISO week should
+        absorb a daily group's aggregate -- both are left as-is, and the
+        daily group still gets its own separate representative row, same
+        as the no-weekly-row case."""
+        weekly_a = make_log(1, date(2026, 1, 5), granularity="weekly", weight_kg=95.0)
+        weekly_b = make_log(2, date(2026, 1, 9), granularity="weekly", weight_kg=94.0)
+        daily_syncs = [
+            make_log(10, date(2026, 1, 6), granularity="daily", steps=7000.0,
+                     weight_kg=None, waist_cm=None, neck_cm=None, intake_kcal=None),
+        ]
+        result = resample_to_weekly([weekly_a, weekly_b] + daily_syncs)
+        self.assertEqual(len(result), 3)
+        self.assertIn(weekly_a, result)
+        self.assertIn(weekly_b, result)
+
 
 class IsComputableTest(unittest.TestCase):
     def test_complete_row_is_computable(self):
