@@ -1003,12 +1003,12 @@ four smaller UX items from a further beta-testing round, unrelated to
 this. Resolved below: this on-device-server work keeps the number 6;
 `things-to-improve.txt`'s leftover items are renumbered **Phase 8**.)
 
-### Phase 7 — Data portability & phone health-app sync (planned, targets v3.0.0)
+### Phase 7 — Data portability & phone health-app sync (done, v3.0.0)
 
 Two independent capabilities bundled into one release: richer manual
 data import (CSV alongside the existing JSON round-trip), and, Android
 app only, pulling step counts and calorie/macro logging on demand (a
-manual "Sync now" button, see 7.3/7.4 — not an automatic background
+manual "Sync now" button, see 7.3/7.5 — not an automatic background
 pull, at least for this first version) from the phone's own health apps
 via Android's Health Connect. This claims the "Phase 7" number left open
 above; `things-to-improve.txt`'s
@@ -1201,7 +1201,7 @@ numeric/boolean type coercion, blank-optional-columns omission, the
 the missing-required-column error. 57 client tests, 314 server tests
 green.
 
-#### Phase 7.3 — Android Health Connect bridge (built, pending on-device verification)
+#### Phase 7.3 — Android Health Connect bridge (done, verified on a real device)
 
 Formally schedules and extends the "Automatic steps import" idea Phase
 2.1 has listed as unscheduled since Phase 2, adding calorie/macro import
@@ -1333,22 +1333,17 @@ settings, not a proprietary-API integration:
   partial log possible; see that section for why direct writes are both
   safer and simpler than a client-side cache once partial rows exist.)
 
-**Verified so far, without a device**: `gradlew assembleDebug` succeeds
-end-to-end — Kotlin/Java compilation (including every connect-client
-class/method/property name above, confirmed against the real resolved
-dependency, not just assumed from docs), manifest merging (the new
-permissions/queries/intent-filters), resource processing, dexing, and
-packaging into a debug APK. **Not yet verified**: anything that needs
-Health Connect actually running on a device — permission grant/deny UX,
-whether `isAvailable()` correctly detects an uninstalled/outdated Health
-Connect, whether the real Mi Fitness/Samsung Health package names above
-are right (the single biggest open risk), and whether the aggregated
-readings match what those two apps actually show. That's exactly what
-this phase's on-device verification step (below) is for — Phase 6's own
-history is a reminder that this kind of native integration reliably
-surfaces at least one real bug only a real device catches (there, an
-`include()` pattern silently dropping a source file, and a splash-screen
-theme crash).
+**Verified**: `gradlew assembleDebug` succeeds end-to-end — Kotlin/Java
+compilation (including every connect-client class/method/property name
+above, confirmed against the real resolved dependency, not just assumed
+from docs), manifest merging (the permissions/queries/intent-filters),
+resource processing, dexing, and packaging into a debug APK — *and*, per
+the "Verified on a real device" section below (Phase 7.5), the real
+device pass this phase originally deferred: permission grant/deny UX,
+`isAvailable()`/package-name correctness, and matching Phase 6's own
+history, a real bug (`TimeRangeFilter` needing `LocalDateTime`, not
+`Instant`) that no amount of static analysis or `gradlew assembleDebug`
+could have caught, found and fixed there.
 
 #### Phase 7.4 — Partial logs & independent-source merging (done)
 
@@ -1462,7 +1457,7 @@ tests green. The local dev DB was reset and reseeded
 schema, per this project's no-migration-runner convention (`DB.py`'s own
 docstring).
 
-#### Phase 7.5 — Sync writes partial logs directly + unified data section (built, pending on-device verification)
+#### Phase 7.5 — Sync writes partial logs directly + unified data section (done, verified on a real device)
 
 Supersedes 7.3's original "client-side cache, prefill-only" plan for how
 a synced reading reaches an actual log, now that Phase 7.4 makes a real,
@@ -1542,8 +1537,9 @@ Installed and driven end-to-end on a real Xiaomi phone (MIUI) via `adb`
 (no `input tap`/`input text` injection available on this device's MIUI
 build without an extra Developer Options toggle, so UI steps were driven
 manually while verification -- API calls, logcat, screenshots -- ran
-through `adb`). Three real bugs surfaced, none of which any amount of
-`gradlew assembleDebug`/unit testing could have caught:
+through `adb`). Two real bugs surfaced and were fixed, neither catchable
+by any amount of `gradlew assembleDebug`/unit testing, plus one
+confirmation:
 
 - **`TimeRangeFilter` needs `LocalDateTime`, not `Instant`, for
   `aggregateGroupByPeriod`** -- `HealthConnectBridge.readDailyReadings`
@@ -1596,33 +1592,32 @@ and nutrition data, and those rows round-trip correctly through
 
 #### Open risks to validate before/while building Phase 7.3, 7.5
 
-- **Samsung Health nutrition completeness**: whether Samsung Health's own
-  food-logging writes full per-entry macros (protein/fat/carbs) into
-  `NutritionRecord`, or only aggregate calories with macros left blank,
-  needs on-device verification — if macros are inconsistently present,
-  7.4's macro prefill degrades to calories-only some days, which is fine
-  (prefill is always optional) but should be verified, not assumed.
-- **Samsung Health nutrition completeness**: whether Samsung Health's own
-  food-logging writes full per-entry macros (protein/fat/carbs) into
-  `NutritionRecord`, or only aggregate calories with macros left blank,
-  needs on-device verification — if macros are inconsistently present,
-  7.4's macro prefill degrades to calories-only some days, which is fine
-  (prefill is always optional) but should be verified, not assumed.
-- **Health Connect module availability**: built into the OS on Android
-  14+; on Android 9-13 (still in-range after the minSdk 26 bump) it's a
-  separate Play Store app the user may not have installed —
-  `HealthSyncPlugin.isAvailable()` must detect and report this distinctly
-  from "permission denied," so the Settings UI can point the user at
-  installing it rather than showing a confusing failure.
+- **Samsung Health nutrition completeness** — **partially verified**: a
+  real on-device sync did pull a real nutrition day through successfully
+  (see "Verified on a real device" below), confirming the basic path
+  works, but whether Samsung Health's food-logging always writes full
+  per-entry macros (protein/fat/carbs) into `NutritionRecord`, or
+  sometimes only aggregate calories with macros left blank, wasn't
+  specifically checked — if macros are inconsistently present, 7.4's
+  macro handling degrades to calories-only some days, which is fine
+  (macros are always optional) but not yet confirmed either way.
+- **Health Connect module availability** — **not exercised**: built into
+  the OS on Android 14+; on Android 9-13 (still in-range after the
+  minSdk 26 bump) it's a separate Play Store app the user may not have
+  installed. The test device already had Health Connect installed, so
+  `HealthSyncPlugin.isAvailable()`'s "not installed" branch (distinct
+  from "permission denied") was never actually exercised on a device
+  missing it.
 - **minSdk 24 -> 26**: drops Android 7.x devices, on top of Phase 6's
   already-applied 22 -> 24 drop — low real-world impact given the project
   has no installed user base yet, but worth noting alongside that
   precedent.
-- **Permission revocation**: the user can revoke Health Connect access
-  for JustFitting at any time from Android's own settings, outside the
-  app — every sync call must degrade to "no readings available" rather
-  than erroring, since this is exactly as likely as the user never having
-  granted it in the first place.
+- **Permission revocation** — **not exercised**: the user can revoke
+  Health Connect access for JustFitting at any time from Android's own
+  settings, outside the app — every sync call should degrade to "no
+  readings available" rather than erroring, but this specific path
+  (revoke, then sync) wasn't walked through on the test device this
+  round.
 
 ## Android app
 
@@ -1787,11 +1782,12 @@ the command-line SDK tools, and `npm run android:apk` — has been verified
 to produce a working debug APK, with no admin rights and no global
 environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
-tags (README's Versioning section) — `2.0.0`/`2`, reflecting Phase 6's
-intended v2.0.0 release, having never previously been bumped past their
-Phase-2-scaffold defaults (`1.0`/`1`). Not done: a release keystore/
-signed build, and an emulator system image (needs admin — use a real
-device instead, see above).
+tags (README's Versioning section), having never previously been bumped
+past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
+to `2.0.0`/`2`; currently `3.0.0`/`4`, reflecting Phase 7's intended
+v3.0.0 release. Not done: a release keystore/signed build, and an
+emulator system image (needs admin — use a real device instead, see
+above).
 
 ### Embedded on-device server (Phase 6, done)
 
