@@ -1003,7 +1003,7 @@ four smaller UX items from a further beta-testing round, unrelated to
 this. Resolved below: this on-device-server work keeps the number 6;
 `things-to-improve.txt`'s leftover items are renumbered **Phase 8**.)
 
-### Phase 7 — Data portability & phone health-app sync (done, v3.0.0)
+### Phase 7 — Data portability & phone health-app sync (done, v3.0)
 
 Two independent capabilities bundled into one release: richer manual
 data import (CSV alongside the existing JSON round-trip), and, Android
@@ -1784,10 +1784,12 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `3.0.0`/`4`, reflecting Phase 7's intended
-v3.0.0 release. Not done: a release keystore/signed build, and an
-emulator system image (needs admin — use a real device instead, see
-above).
+to `2.0.0`/`2`; currently `3.0.1`/`5` -- same story as Phase 6's own
+`2.0.0` -> `2.0.1` bump: `v3.0.0`'s own CI never passed either (a real
+`navigate()`/`refreshSettings()` race), so `v3.0.1` is Phase 7's first
+release that actually ships. Not done: a release keystore/signed build,
+and an emulator system image (needs admin — use a real device instead,
+see above).
 
 ### Embedded on-device server (Phase 6, done)
 
