@@ -449,7 +449,10 @@
       <div class="stacked-form">
         <h2>Data</h2>
         <button id="export-btn">Export JSON</button>
-        <label>Import JSON <input id="import-input" type="file" accept="application/json" /></label>
+        <label>Import JSON or CSV
+          <input id="import-input" type="file" accept="application/json,.json,text/csv,.csv" />
+        </label>
+        <a href="/static/justfitting-import-template.csv" download class="form-note">Download CSV template</a>
         <p class="form-note" id="import-summary" aria-live="polite"></p>
       </div>
 

@@ -1,5 +1,6 @@
 // Controller: holds all app state, wires DOM events to api.js and views.js.
 import { api } from "./api.js";
+import { parseCsvLogs } from "./csvImport.js";
 import {
   getToken,
   setToken,
@@ -1032,7 +1033,9 @@ document.getElementById("import-input").addEventListener("change", async (event)
   const summaryEl = document.getElementById("import-summary");
   try {
     const text = await file.text();
-    const payload = JSON.parse(text);
+    const payload = file.name.toLowerCase().endsWith(".csv")
+      ? parseCsvLogs(text)
+      : JSON.parse(text);
     const result = await api.importData(payload);
     renderImportSummary(summaryEl, result);
     await refreshLogs();

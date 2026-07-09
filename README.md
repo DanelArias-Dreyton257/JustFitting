@@ -1145,32 +1145,61 @@ constraint is the date-collision rule above): the fastest way to see the
 exact shape a real, fully-populated account produces is exporting one and
 reading its `logs` array.
 
-#### Phase 7.2 — CSV import (planned)
+#### Phase 7.2 — CSV import (done)
 
-Adds a second on-ramp into the same hardened pipeline from 7.1, rather
-than a parallel one:
+A second on-ramp into the same hardened pipeline from 7.1, not a
+parallel one -- the same file input now accepts either format:
 
 - A documented CSV column schema mirroring `BodyLogDTO`'s importable
   fields: `date,weight_kg,waist_cm,neck_cm,intake_kcal,steps,
   intake_is_real,cardio_kcal,granularity,carbs_g,fat_g,protein_g`
-  (header row required; `intake_is_real` accepts `true`/`false`/blank-
-  means-true; `carbs_g`/`fat_g`/`protein_g` blank means "not logged," the
-  same `None`-vs-`0.0` distinction the wizard already respects). `source`
-  is deliberately not a column — forced `real`, same as 7.1.
-- Parsing happens **client-side**, not a new server endpoint: a small
-  hand-rolled CSV parser (no new dependency — this project has never
-  taken on a JS library, see `charts.js`'s hand-rolled SVG) turns the
-  file into the exact same `{logs: [...]}` shape the JSON path already
-  sends to `POST /api/users/me/import`, so 7.1's hardened validation,
-  dedup, and per-row reporting serve both formats with zero duplicated
-  logic.
-- `#import-input`'s `accept` grows to `application/json,text/csv`; the
-  change handler branches on file extension (`.json` → `JSON.parse`,
-  `.csv` → the new parser) before calling the same `api.importData()`.
-- A downloadable CSV template (a static file under
-  `client/src/webapp/static/`, linked next to the Import control) gives
-  users the exact header row to fill in from a spreadsheet export of
-  their own historical tracking.
+  (header row required, columns may appear in any order; `intake_is_real`
+  accepts `true`/`false`/`1`/`0`/`yes`/`no`, case-insensitive, blank means
+  the server's own default `true`; `carbs_g`/`fat_g`/`protein_g` blank
+  means "not logged," the same `None`-vs-`0.0` distinction the wizard
+  already respects). `source` is deliberately not a documented column —
+  if present anyway it's carried through but ignored, forced `real`
+  either way, same as 7.1.
+- Parsing happens **client-side**, not a new server endpoint: a new
+  module, `client/src/webapp/static/js/csvImport.js`
+  (`parseCsvLogs(text)`), is a small hand-rolled RFC-4180-ish parser (no
+  new dependency — this project has never taken on a JS library, see
+  `charts.js`'s hand-rolled SVG; quoted fields and `""`-escaped quotes are
+  supported) that turns the file into the exact same `{logs: [...]}`
+  shape the JSON path already sends to `POST /api/users/me/import`, so
+  7.1's hardened validation, dedup, and per-row reporting serve both
+  formats with zero duplicated server logic. Every field is type-coerced
+  client-side (numbers become real JS numbers, booleans become real
+  booleans) rather than left as raw strings for the server to coerce —
+  Python's `bool("false")` is `True`, so leaving `intake_is_real` as a
+  string would have silently marked every imported row as real intake
+  regardless of what the CSV said. A blank/unparseable optional field is
+  omitted from the row entirely (falls back to the server's default); a
+  blank/unparseable *required* field is also omitted, which surfaces as
+  the same `KeyError`-based "missing field" skip reason 7.1 already
+  reports, rather than a client-side error aborting the whole file. A
+  missing required *column* in the header (not just a blank cell) throws
+  immediately with a message naming the missing column(s), so a malformed
+  file fails once, up front, instead of once per row.
+- `#import-input`'s `accept` is `application/json,.json,text/csv,.csv`;
+  the label reads "Import JSON or CSV". The change handler branches on
+  file extension (`.json` → `JSON.parse`, `.csv` → `parseCsvLogs`) before
+  calling the same `api.importData()`; a parse or request failure renders
+  into the same `#import-summary` element 7.1 added, instead of throwing
+  silently.
+- A downloadable CSV template,
+  `client/src/webapp/static/justfitting-import-template.csv` (just the
+  header row), is linked next to the Import control so users have the
+  exact column names to fill in from a spreadsheet export of their own
+  historical tracking.
+
+Covered by 9 new Playwright browser tests
+(`client/test/browser/CsvImport_test.py`, driven through a new
+`/harness/csv` fixture the same way `Views_test.py` drives `views.js`):
+numeric/boolean type coercion, blank-optional-columns omission, the
+`bool("false")`-trap guard above, quoted fields, blank-line skipping, and
+the missing-required-column error. 57 client tests, 314 server tests
+green.
 
 #### Phase 7.3 — Android Health Connect bridge (planned, Android app only)
 
