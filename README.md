@@ -1721,6 +1721,25 @@ sync (a >30-day window, before/after granting the history permission) to
 confirm, since no emulator/unit test can exercise Health Connect's own
 clamping behavior.
 
+#### Phase 7.7 — Detect history-read feature availability (unscheduled)
+
+Found via real usage after Phase 7.6 shipped: on one device the "Additional
+access" history toggle never appears in Health Connect's permission screen
+for JustFitting at all, even on the same APK that shows it fine elsewhere.
+Confirmed this is a genuine Health Connect *platform* rollout gap, not a
+JustFitting bug -- history reads depend on the installed Health Connect
+app/module version per device, and Google ships exactly this check for apps
+to use: `HealthConnectFeatures.getFeatureStatus(FEATURE_HEALTH_DATA_HISTORIC_READ)`
+(present, though `@ExperimentalFeatureAvailabilityApi`, in this project's
+pinned `connect-client:1.1.0-alpha08`). Planned: `HealthConnectBridge.kt`
+gains a check using that API; `HealthSyncPlugin.isAvailable()` reports it
+alongside its existing SDK-availability fields; `app.js` finally calls
+`healthSync.checkAvailability()` (exported since Phase 7.3 but never
+actually invoked) and threads the result into `renderHealthSyncStatus`
+(`views.js`) so the Account view tells the user directly when their
+device's Health Connect can't support history reads yet, instead of the
+toggle just silently being missing.
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static

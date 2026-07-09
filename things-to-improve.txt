@@ -18,9 +18,9 @@ Things to change (Beta-testing) Phase 5
 New things to add
 ---
 FOUND BUGS:
-1 - BUG: when syncing with Health connect even if number of asked dates is >30 it only asks for 30 days.
-2 - IMPORTANT BUG: when syncing with Health connect with no Logs, it saves the daily correctly, but then when adding the weekly log (where body comp data was put but other things let to empty) it does not update that data to the daily log. It appears as different logs, the dailies and the weekly (what is not wrong) but then it does not seem to "aggregate" or make it all work together, since when, for example, creating a new Goal Plan in "preview" it shows the error: "cannot compute a row missin required fields: intake_kcal, steps".
-3 - BUG: Macros when extracted from Health connect seem to show too many decimal places, just storing 1 is perfectly fine (not only showing one).
+(done) 1 - BUG: when syncing with Health connect even if number of asked dates is >30 it only asks for 30 days.
+(done) 2 - IMPORTANT BUG: when syncing with Health connect with no Logs, it saves the daily correctly, but then when adding the weekly log (where body comp data was put but other things let to empty) it does not update that data to the daily log. It appears as different logs, the dailies and the weekly (what is not wrong) but then it does not seem to "aggregate" or make it all work together, since when, for example, creating a new Goal Plan in "preview" it shows the error: "cannot compute a row missin required fields: intake_kcal, steps".
+(done) 3 - BUG: Macros when extracted from Health connect seem to show too many decimal places, just storing 1 is perfectly fine (not only showing one).
 Features:
 1 - Add a progress bar to the dashboard showing how far since the goal definition to the current date and the projected end date (weeks to goal). The dashboard is should show the progress bar just before the plots occupying in width the same as all page (respect margins)
 2 - Add min info of last log in the dashboard, just show when last log was done as info to the user.
