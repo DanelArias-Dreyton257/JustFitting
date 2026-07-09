@@ -186,6 +186,93 @@ class LogManagerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manager.update_log(log.log_id, granularity="monthly")
 
+    def test_create_log_allows_a_partial_row_missing_weight(self):
+        """Phase 7.4 (partial logs, see README): weight_kg/waist_cm/
+        neck_cm/intake_kcal/steps are individually optional now."""
+        log = self.manager.create_log(
+            user_id=self.user_id,
+            log_date=date(2026, 1, 1),
+            steps=7000,
+            intake_kcal=2200,
+        )
+        self.assertIsNone(log.weight_kg)
+        self.assertIsNone(log.waist_cm)
+        self.assertIsNone(log.neck_cm)
+        self.assertEqual(log.steps, 7000)
+        self.assertEqual(log.intake_kcal, 2200)
+
+    def test_create_log_still_rejects_a_negative_value_when_present(self):
+        with self.assertRaises(ValueError):
+            self.manager.create_log(
+                user_id=self.user_id,
+                log_date=date(2026, 1, 1),
+                steps=-100,
+            )
+
+    def test_upsert_fields_creates_a_new_partial_row(self):
+        log = self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"steps": 7000}, default_granularity="daily"
+        )
+        self.assertEqual(log.steps, 7000)
+        self.assertIsNone(log.weight_kg)
+        self.assertEqual(log.granularity, "daily")
+
+    def test_upsert_fields_merges_into_an_existing_row_without_touching_other_fields(self):
+        self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"steps": 7000}, default_granularity="daily"
+        )
+        merged = self.manager.upsert_fields(
+            self.user_id,
+            date(2026, 1, 1),
+            {"intake_kcal": 2200, "carbs_g": 250, "fat_g": 70, "protein_g": 150},
+        )
+        self.assertEqual(merged.steps, 7000)  # untouched by the second call
+        self.assertEqual(merged.intake_kcal, 2200)
+        self.assertIsNone(merged.weight_kg)
+
+    def test_upsert_fields_is_order_independent(self):
+        """Steps-then-nutrition-then-body, or body-then-steps-then-
+        nutrition -- either order converges on the same complete row
+        (Phase 7.4's "whichever source arrives first" requirement)."""
+        self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"steps": 7000}, default_granularity="daily"
+        )
+        self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"intake_kcal": 2200}
+        )
+        a = self.manager.upsert_fields(
+            self.user_id,
+            date(2026, 1, 1),
+            {"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+        )
+
+        self.manager.upsert_fields(
+            self.user_id,
+            date(2026, 1, 8),
+            {"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+            default_granularity="daily",
+        )
+        self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 8), {"intake_kcal": 2200}
+        )
+        b = self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 8), {"steps": 7000}
+        )
+
+        self.assertEqual(
+            (a.weight_kg, a.waist_cm, a.neck_cm, a.intake_kcal, a.steps),
+            (b.weight_kg, b.waist_cm, b.neck_cm, b.intake_kcal, b.steps),
+        )
+
+    def test_upsert_fields_only_sets_granularity_on_first_creation(self):
+        self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"weight_kg": 90.0}, default_granularity="weekly"
+        )
+        merged = self.manager.upsert_fields(
+            self.user_id, date(2026, 1, 1), {"steps": 7000}, default_granularity="daily"
+        )
+        self.assertEqual(merged.granularity, "weekly")
+
     def test_update_log_records_audit_entries_for_changed_fields(self):
         audit_log_dao = AuditLogDAO(self.db)
         manager = LogManager(BodyLogDAO(self.db), audit_log_dao=audit_log_dao)

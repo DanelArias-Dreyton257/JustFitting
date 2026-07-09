@@ -77,14 +77,22 @@ class ProfileParams:
 
 @dataclass(frozen=True)
 class LogInput:
-    """One weekly measurement row (real or projected)."""
+    """One weekly measurement row (real or projected).
+
+    Phase 7.4 (partial logs, see README): weight_kg/waist_cm/neck_cm/
+    intake_kcal/steps are individually optional at this type's level (a
+    `BodyLog` can be partial), but `compute_row` requires all five to be
+    present -- it raises a clear error otherwise rather than crashing
+    inside the formula chain. `LogResampler`/`MetricsSeriesService` are
+    what guarantee only complete `LogInput`s ever reach the engine.
+    """
 
     date: date
-    weight_kg: float
-    waist_cm: float
-    neck_cm: float
-    intake_kcal: float
-    steps: float
+    weight_kg: Optional[float]
+    waist_cm: Optional[float]
+    neck_cm: Optional[float]
+    intake_kcal: Optional[float]
+    steps: Optional[float]
     intake_is_real: bool = True
     cardio_kcal: float = 0.0  # EAT, Phase 3.1's F2 -- default 0 preserves Demo_cut exactly
 

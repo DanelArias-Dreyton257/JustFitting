@@ -119,6 +119,59 @@ class CompositionEngineGoldenTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             CompositionEngine.compute_row(PROFILE, log, prev_weight_kg=None)
 
+    def test_compute_row_raises_a_clear_error_on_a_partial_log(self):
+        """Phase 7.4 (partial logs, see README): compute_row is never
+        supposed to see an incomplete row in practice -- LogResampler/
+        MetricsSeriesService filter those out first -- but if it ever is,
+        it should fail with a clear message naming the missing fields,
+        not an opaque TypeError from deep inside the formula chain."""
+        log = LogInput(
+            date=date(2026, 1, 1),
+            weight_kg=None,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2000.0,
+            steps=None,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            CompositionEngine.compute_row(PROFILE, log, prev_weight_kg=None)
+        self.assertIn("weight_kg", str(ctx.exception))
+        self.assertIn("steps", str(ctx.exception))
+
+    def test_validate_log_input_accepts_a_partial_log(self):
+        log = LogInput(
+            date=date(2026, 1, 1),
+            weight_kg=None,
+            waist_cm=None,
+            neck_cm=None,
+            intake_kcal=2000.0,
+            steps=5000,
+        )
+        CompositionEngine.validate_log_input(log)  # does not raise
+
+    def test_validate_log_input_still_rejects_an_invalid_present_value(self):
+        log = LogInput(
+            date=date(2026, 1, 1),
+            weight_kg=-5.0,
+            waist_cm=None,
+            neck_cm=None,
+            intake_kcal=None,
+            steps=None,
+        )
+        with self.assertRaises(ValueError):
+            CompositionEngine.validate_log_input(log)
+
+    def test_validate_log_input_skips_the_waist_neck_check_when_either_is_missing(self):
+        log = LogInput(
+            date=date(2026, 1, 1),
+            weight_kg=90.0,
+            waist_cm=None,
+            neck_cm=35.0,
+            intake_kcal=2000.0,
+            steps=5000,
+        )
+        CompositionEngine.validate_log_input(log)  # does not raise
+
     def test_projection_advances_weekly_and_flags_assumed_intake(self):
         real_logs = [
             LogInput(

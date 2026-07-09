@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-09
+
+### Added
+
+- Phase 7.1 (data portability, see README): hardened `POST
+  /api/users/me/import`, which already existed but had three real gaps --
+  it silently dropped `granularity`/macro fields on re-import, crashed
+  with an unhandled `sqlite3.IntegrityError` on a duplicate date instead
+  of skipping that row, and trusted the imported file's own `source`
+  field, letting an import forge a `"projected"` row. All three are
+  fixed; the route now also reports which rows were skipped and why
+  (`skipped: [{row, reason}]`) instead of swallowing failures silently,
+  and the client renders an "Imported N, skipped M (reasons)" summary
+  instead of a blind refresh. New `LogManager.get_by_date`.
+- Phase 7.2: CSV import over the same hardened pipeline as JSON --
+  `client/src/webapp/static/js/csvImport.js`, a small hand-rolled
+  RFC-4180-ish parser (no new JS dependency), turns a CSV file into the
+  exact `{logs: [...]}` shape the JSON path already sends, so it gets
+  Phase 7.1's validation, dedup, and per-row reporting for free. Every
+  field is type-coerced client-side (real numbers, real booleans) rather
+  than left as raw strings, since Python's `bool("false")` is `True`. The
+  Import control now accepts `.json`/`.csv`; a downloadable CSV template
+  is linked next to it.
+- Phase 7.3 (Android app only): a Health Connect bridge reading Steps
+  (Mi Fitness) and Nutrition (Samsung Health) data those apps already
+  sync into Android Health Connect on-device -- confirmed both are
+  reachable through Health Connect alone, no proprietary Xiaomi/Samsung
+  API needed. Read-only, manual "Sync now" trigger only, no background
+  job. `androidx.health.connect:connect-client` needs minSdk 26
+  (`android/variables.gradle` bumped `24 -> 26`) and is pinned to
+  `1.1.0-alpha08`, not the current stable `1.1.0`, which needs compileSdk
+  36 + a much bigger AGP bump than this phase's scope justified. Its API
+  is entirely Kotlin-suspend-based with no supported Java interop path,
+  so `HealthConnectBridge.kt` -- the one Kotlin file in this app -- wraps
+  every call in `runBlocking` and exposes plain synchronous methods;
+  everything else, including the new `HealthSyncPlugin.java` Capacitor
+  plugin (`isAvailable`/`hasPermissions`/`requestPermissions`/
+  `readRecentReadings`) and `MainActivity.java`, stays plain Java.
+  `AndroidManifest.xml` gained the two read-only health permissions, a
+  `<queries>` entry for Health Connect's own package, and the
+  permissions-rationale intent-filters Health Connect requires. New
+  `client/src/webapp/static/js/healthSync.js` wraps the plugin with a
+  graceful fallback for the web build and any non-Android device.
+- Phase 7.4: partial logs and independent-source merging. Steps
+  (Mi Fitness), nutrition (Samsung Health), and body measurements are now
+  genuinely independent -- any one can arrive first, any can be missing
+  or fail, and completing a day is just filling in whatever's still
+  missing on the same row, in any order. `body_logs`'s `weight_kg`/
+  `waist_cm`/`neck_cm`/`intake_kcal`/`steps` become individually
+  nullable; `validate_log_input` now allows `None` (if present, still
+  must be positive); `CompositionEngine.compute_row` gains a
+  completeness guard (`require_complete_log_input`, a clear error naming
+  missing fields, defense-in-depth only -- `ENGINE_VERSION` does not
+  bump); `LogResampler`'s daily-group median/mean generalizes to skip
+  `None`s, and a new `is_computable` check excludes a still-incomplete
+  resampled week from the computed series, same as an unlogged week.
+  New `LogManager.upsert_fields`/`PUT /api/logs/by-date/<date>`: merges
+  given fields into an existing row for a date, or creates a new partial
+  row scoped to just those fields -- the order-/source-independent
+  primitive Phase 7.5's sync uses. `POST /api/logs` and the Phase 7.1
+  import route both relax from requiring all five fields to accepting
+  any subset; import keeps its skip-on-duplicate-date default unchanged.
+- Phase 7.5: "Sync now" writes synced readings directly as partial logs
+  via the new upsert-by-date endpoint, per source, instead of an earlier
+  client-side-cache-and-prefill design -- a synced day is a real row the
+  moment it's synced. Completing a day is exactly the existing log-edit
+  flow. The Account view's Export/Import section is retitled "Data
+  import, export & sync" and gains (Android only) a Connect button, a
+  "Sync last N days" field (default 7, capped at 90), a Sync now button,
+  a per-source connected status line, and a last-synced timestamp.
+  Fixed `HealthSyncPlugin.hasPermissions()` (Phase 7.3) to report
+  Steps/Nutrition independently instead of one combined boolean, needed
+  for the per-source status line. The log table and wizard now render a
+  partial row's missing fields as a dash/blank input instead of the
+  literal string `"null"`. Export/Import/Connect/Sync now buttons match
+  the app's existing blue button styling.
+
+### Fixed
+
+- Phase 7.3/7.5, found via real-device testing (see README's "Verified
+  on a real device"): `HealthConnectBridge.readDailyReadings` built its
+  query range from `Instant`s, which fails at runtime against
+  `aggregateGroupByPeriod` ("Either use TimeRangeFilter with
+  LocalDateTime or AggregateGroupByDurationRequest") -- a constraint
+  enforced at runtime, not encoded in `TimeRangeFilter`'s type, so no
+  amount of compiling or static analysis could have caught it. Fixed by
+  building the range from `LocalDate.atStartOfDay()` instead.
+- The Account-view health-sync section only appeared after visiting
+  Settings first -- `refreshHealthSyncUI()` was wired to `navigate()`'s
+  `"settings"` case, but its markup actually lives in the Account view,
+  not the engine-constants Settings view. Fixed by moving the call to
+  the `"account"` case.
+
 ## [2.0.1] - 2026-07-09
 
 ### Fixed

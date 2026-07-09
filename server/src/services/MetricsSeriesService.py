@@ -11,7 +11,7 @@ from flask import Flask
 
 from server.src.data.domain.BodyLog import BodyLog
 from server.src.services.composition.models import CompositionResult
-from server.src.services.LogResampler import resample_to_weekly
+from server.src.services.LogResampler import is_computable, resample_to_weekly
 
 
 def compute_series_for_user(
@@ -54,7 +54,14 @@ def compute_series_for_user(
     # representative row per ISO week before they reach the (inherently
     # weekly-cadence) engine; weekly-tagged rows pass through unchanged.
     resampled_logs = resample_to_weekly(ordered_logs)
-    engine_inputs = log_manager.to_engine_inputs(resampled_logs)
+    # Phase 7.4 (partial logs, see README): a resampled week can still be
+    # missing weight/waist/neck/intake/steps if no source (sync, manual
+    # entry, import) has supplied one of them for any day in it -- exclude
+    # it from the computed series the same way an unlogged week already
+    # is, rather than let it reach the engine at all. The raw rows still
+    # show up via GET /api/logs/export/the Log view regardless.
+    computable_logs = [log for log in resampled_logs if is_computable(log)]
+    engine_inputs = log_manager.to_engine_inputs(computable_logs)
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
     engine_constants = engine_settings_manager.to_engine_constants(
@@ -62,9 +69,9 @@ def compute_series_for_user(
     )
     results = metrics_cache.get_or_compute_series(
         profile_params,
-        resampled_logs,
+        computable_logs,
         engine_inputs,
         engine_constants,
         context_prev_weight_kg,
     )
-    return resampled_logs, results
+    return computable_logs, results

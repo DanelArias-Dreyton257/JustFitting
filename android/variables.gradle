@@ -1,8 +1,10 @@
 ext {
-    // 24, not 22: Chaquopy (Phase 6, embedded on-device server) requires
-    // minSdk >= 24 -- see README's "Android app -> Embedded on-device
-    // server" section. Drops support for Android 5.1/6.0 (API 22/23).
-    minSdkVersion = 24
+    // 26, not 24: androidx.health.connect:connect-client (Phase 7.3, the
+    // Health Connect bridge) requires minSdk >= 26 -- see README's
+    // "Android app -> Data portability & phone health-app sync" section.
+    // A second bump after Phase 6's 22 -> 24 (Chaquopy); drops support
+    // for Android 7.0/7.1 (API 24/25) on top of that one's 5.1/6.0 drop.
+    minSdkVersion = 26
     compileSdkVersion = 34
     targetSdkVersion = 34
     androidxActivityVersion = '1.8.0'
@@ -16,4 +18,17 @@ ext {
     androidxJunitVersion = '1.1.5'
     androidxEspressoCoreVersion = '3.5.1'
     cordovaAndroidVersion = '10.1.1'
+    // Phase 7.3 (Health Connect bridge, see README): the connect-client
+    // library's API is Kotlin-suspend-based -- calling a suspend function
+    // from Java requires a hand-built Continuation, which Kotlin doesn't
+    // expose as a supported Java-constructible type. The standard,
+    // documented way around this is a small Kotlin wrapper that blocks on
+    // the suspend call (runBlocking) and exposes an ordinary synchronous
+    // method Java can call directly -- see HealthConnectBridge.kt (and
+    // the root build.gradle's kotlin-gradle-plugin classpath entry). This
+    // is the one deliberate exception to "plain Java, no new bridge
+    // language" elsewhere in this app (MainActivity.java, Phase 6):
+    // scoped to that single bridge file, chosen because it's the only
+    // practical way to use this library at all, not a general
+    // language-choice reversal.
 }

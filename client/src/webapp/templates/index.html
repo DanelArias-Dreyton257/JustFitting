@@ -222,7 +222,7 @@
         <fieldset class="wizard-step" data-step="1">
           <p class="wizard-selected-date"><span id="log-wizard-date-prefix">Logging for</span> <strong id="log-wizard-date-label"></strong></p>
           <input type="hidden" name="date" id="log-wizard-date-input" />
-          <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" required /></label>
+          <label>Weight (kg) <input name="weight_kg" type="number" step="0.1" /></label>
           <label>Granularity
             <select name="granularity" id="log-wizard-granularity">
               <option value="weekly" selected>Weekly — one entry for the week</option>
@@ -232,13 +232,13 @@
         </fieldset>
 
         <fieldset class="wizard-step" data-step="2" hidden>
-          <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" required /></label>
-          <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" required /></label>
+          <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" /></label>
+          <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" /></label>
         </fieldset>
 
         <fieldset class="wizard-step" data-step="3" hidden>
-          <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" required /></label>
-          <label>Steps <input name="steps" type="number" step="1" value="0" /></label>
+          <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" /></label>
+          <label>Steps <input name="steps" type="number" step="1" /></label>
           <label>Cardio / exercise (kcal) <input name="cardio_kcal" type="number" step="1" value="0" /></label>
           <p class="disclaimer" id="log-macros-hint">
             Optional -- log carbs/fat/protein (mainly useful on daily logs) for
@@ -447,9 +447,35 @@
       </form>
 
       <div class="stacked-form">
-        <h2>Data</h2>
+        <h2>Data import, export &amp; sync</h2>
         <button id="export-btn">Export JSON</button>
-        <label>Import JSON <input id="import-input" type="file" accept="application/json" /></label>
+        <label>Import JSON or CSV
+          <input id="import-input" type="file" accept="application/json,.json,text/csv,.csv" />
+        </label>
+        <a href="/static/justfitting-import-template.csv" download class="form-note">Download CSV template</a>
+        <p class="form-note" id="import-summary" aria-live="polite"></p>
+
+        <!-- Phase 7.5 (Health Connect sync, see README): Android app
+             only -- app.js shows this only once healthSync.isSupported()
+             is true, so the identical dist/ client is a no-op here on
+             the web build. -->
+        <div id="health-sync-section" hidden>
+          <h3>Health &amp; fitness sync</h3>
+          <p class="form-note">
+            Steps from Mi Fitness and calories/macros from Samsung Health,
+            via Android Health Connect -- never today's data (still
+            accumulating), and never your weight/waist/neck, which stay a
+            manual or imported entry.
+          </p>
+          <p id="health-sync-status" class="form-note"></p>
+          <button id="health-connect-btn">Connect</button>
+          <label>Sync last
+            <input type="number" id="health-sync-days-input" min="1" max="90" value="7" step="1" />
+            days
+          </label>
+          <button id="health-sync-now-btn">Sync now</button>
+          <p id="health-sync-summary" class="form-note" aria-live="polite"></p>
+        </div>
       </div>
 
       <div class="stacked-form danger-zone">

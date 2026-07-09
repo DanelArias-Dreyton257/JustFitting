@@ -38,11 +38,14 @@ def create_log():
         log = _log_manager().create_log(
             user_id=g.user_id,
             log_date=date.fromisoformat(payload["date"]),
-            weight_kg=float(payload["weight_kg"]),
-            waist_cm=float(payload["waist_cm"]),
-            neck_cm=float(payload["neck_cm"]),
-            intake_kcal=float(payload["intake_kcal"]),
-            steps=float(payload["steps"]),
+            # Phase 7.4 (partial logs, see README): optional, not
+            # required -- `_optional_float` treats a missing key the same
+            # as an explicit `null`, "not logged yet by any source".
+            weight_kg=_optional_float(payload.get("weight_kg")),
+            waist_cm=_optional_float(payload.get("waist_cm")),
+            neck_cm=_optional_float(payload.get("neck_cm")),
+            intake_kcal=_optional_float(payload.get("intake_kcal")),
+            steps=_optional_float(payload.get("steps")),
             intake_is_real=bool(payload.get("intake_is_real", True)),
             cardio_kcal=float(payload.get("cardio_kcal", 0.0)),
             source=payload.get("source", "real"),
@@ -54,6 +57,53 @@ def create_log():
     except (KeyError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(asdict(BodyLogDTO.from_domain(log))), 201
+
+
+# Phase 7.4 (partial logs & independent-source merging, see README): unlike
+# POST /logs (a brand-new row) or PUT /logs/<id> (edit a row you already
+# know the id of), this upserts by date -- merging in only the given
+# fields, creating a new partial row if none exists yet for that date.
+# This is the order-/source-independent primitive Phase 7.5's per-source
+# "Sync now" calls; every field is optional, and any field not present in
+# the payload is left completely untouched (never reset to null).
+_UPSERT_FLOAT_FIELDS = (
+    "weight_kg",
+    "waist_cm",
+    "neck_cm",
+    "intake_kcal",
+    "steps",
+    "cardio_kcal",
+    "carbs_g",
+    "fat_g",
+    "protein_g",
+)
+
+
+@log_bp.put("/logs/by-date/<log_date>")
+@require_auth
+def upsert_log_by_date(log_date: str):
+    payload = request.get_json(force=True) or {}
+    try:
+        parsed_date = date.fromisoformat(log_date)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    fields = {}
+    for key in _UPSERT_FLOAT_FIELDS:
+        if key in payload:
+            fields[key] = _optional_float(payload[key])
+    for key in ("intake_is_real", "source"):
+        if key in payload:
+            fields[key] = payload[key]
+
+    default_granularity = payload.get("granularity", "weekly")
+    try:
+        log = _log_manager().upsert_fields(
+            g.user_id, parsed_date, fields, default_granularity=default_granularity
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(asdict(BodyLogDTO.from_domain(log)))
 
 
 @log_bp.put("/logs/<int:log_id>")

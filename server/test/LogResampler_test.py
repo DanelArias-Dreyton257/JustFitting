@@ -6,7 +6,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 
 from server.src.data.domain.BodyLog import BodyLog
-from server.src.services.LogResampler import daily_view, resample_to_weekly
+from server.src.services.LogResampler import daily_view, is_computable, resample_to_weekly
 
 CREATED_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -121,6 +121,54 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertIsNone(result[0].fat_g)
         self.assertIsNone(result[0].protein_g)
 
+    def test_partial_days_average_only_the_days_that_logged_each_field(self):
+        """Phase 7.4 (partial logs, see README): the same graceful-
+        degradation rule Phase 3.4 gave the macro trio now applies to
+        weight/waist/neck/intake/steps too -- e.g. a Mi Fitness-only sync
+        day (steps, no weight) alongside a Samsung Health-only day
+        (intake, no weight/steps) alongside a manually-completed day
+        (everything)."""
+        week = [
+            make_log(80, date(2026, 1, 5), granularity="daily", weight_kg=None, waist_cm=None,
+                     neck_cm=None, intake_kcal=None, steps=7000.0),  # Mi Fitness only
+            make_log(81, date(2026, 1, 6), granularity="daily", weight_kg=None, waist_cm=None,
+                     neck_cm=None, steps=None, intake_kcal=2100.0),  # Samsung Health only
+            make_log(82, date(2026, 1, 7), granularity="daily", weight_kg=90.0, waist_cm=80.0,
+                     neck_cm=35.0, intake_kcal=2200.0, steps=6500.0),  # completed manually
+        ]
+        result = resample_to_weekly(week)
+        self.assertEqual(len(result), 1)
+        row = result[0]
+        self.assertEqual(row.weight_kg, 90.0)  # median of the one day that has it
+        self.assertEqual(row.waist_cm, 80.0)
+        self.assertEqual(row.neck_cm, 35.0)
+        self.assertAlmostEqual(row.intake_kcal, 2150.0)  # mean of 2100/2200
+        self.assertAlmostEqual(row.steps, 6750.0)  # mean of 7000/6500
+        self.assertTrue(is_computable(row))
+
+    def test_field_is_none_when_no_day_in_the_week_ever_logged_it(self):
+        week = [
+            make_log(90, date(2026, 1, 5), granularity="daily", weight_kg=None, waist_cm=None,
+                     neck_cm=None, steps=7000.0),
+            make_log(91, date(2026, 1, 6), granularity="daily", weight_kg=None, waist_cm=None,
+                     neck_cm=None, steps=6800.0),
+        ]
+        result = resample_to_weekly(week)
+        row = result[0]
+        self.assertIsNone(row.weight_kg)
+        self.assertIsNone(row.waist_cm)
+        self.assertIsNone(row.neck_cm)
+        self.assertFalse(is_computable(row))
+
+    def test_intake_is_real_ignores_days_that_never_logged_intake(self):
+        week = [
+            make_log(100, date(2026, 1, 5), granularity="daily", intake_kcal=None),
+            make_log(101, date(2026, 1, 6), granularity="daily", intake_kcal=2200.0, intake_is_real=False),
+        ]
+        result = resample_to_weekly(week)
+        # Only day 101 actually logged intake, and it wasn't real.
+        self.assertFalse(result[0].intake_is_real)
+
     def test_mixed_account_resolves_each_week_independently(self):
         weekly_row = make_log(1, date(2025, 12, 28), granularity="weekly", weight_kg=97.0)
         daily_week = [
@@ -132,6 +180,17 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertEqual(result[0], weekly_row)
         self.assertEqual(result[1].weight_kg, 95.5)
         self.assertEqual(result[1].date, date(2026, 1, 7))
+
+
+class IsComputableTest(unittest.TestCase):
+    def test_complete_row_is_computable(self):
+        self.assertTrue(is_computable(make_log(1, date(2026, 1, 1))))
+
+    def test_missing_any_one_of_the_five_required_fields_is_not_computable(self):
+        for field in ("weight_kg", "waist_cm", "neck_cm", "intake_kcal", "steps"):
+            with self.subTest(field=field):
+                log = make_log(1, date(2026, 1, 1), **{field: None})
+                self.assertFalse(is_computable(log))
 
 
 class DailyViewTest(unittest.TestCase):

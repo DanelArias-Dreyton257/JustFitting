@@ -32,4 +32,8 @@ def create_harness_app(api_base_url: str = "") -> Flask:
     def api_harness():
         return render_template("api_harness.html", api_base_url=api_base_url)
 
+    @app.get("/harness/csv")
+    def csv_harness():
+        return render_template("csv_harness.html")
+
     return app

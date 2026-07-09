@@ -998,10 +998,626 @@ end-to-end on a real device: registration, logging, a real computed
 Dashboard, data surviving a force-close/reopen, and full functionality in
 Airplane Mode (proving it never touches Render).
 
-(`things-to-improve.txt` separately lists its own unscheduled "Phase 6"
-— four smaller UX items from a further beta-testing round, unrelated to
-this. Whichever lands in this README first keeps the number 6; the other
-becomes Phase 7. Not yet decided.)
+(`things-to-improve.txt` separately lists its own unscheduled "Phase 6" —
+four smaller UX items from a further beta-testing round, unrelated to
+this. Resolved below: this on-device-server work keeps the number 6;
+`things-to-improve.txt`'s leftover items are renumbered **Phase 8**.)
+
+### Phase 7 — Data portability & phone health-app sync (done, v3.0.0)
+
+Two independent capabilities bundled into one release: richer manual
+data import (CSV alongside the existing JSON round-trip), and, Android
+app only, pulling step counts and calorie/macro logging on demand (a
+manual "Sync now" button, see 7.3/7.5 — not an automatic background
+pull, at least for this first version) from the phone's own health apps
+via Android's Health Connect. This claims the "Phase 7" number left open
+above; `things-to-improve.txt`'s
+own leftover four items (a goal progress bar, a "last logged" info line,
+a missing-log alert, and a >1%/week cut-rate alert) move to **Phase 8**,
+unscheduled for now.
+
+#### Phase 7.1 — Harden the existing JSON import (done)
+
+`POST /api/users/me/import` and the Import-JSON file input
+(`#import-input`, `client/src/webapp/static/js/app.js`) already existed
+and round-tripped the exact shape `GET /api/users/me/export` produces —
+this phase didn't invent import from scratch, it fixed four real gaps
+found while planning Phase 7:
+
+- **Silent field loss (fixed)**: `import_data`
+  (`server/src/api/user_routes.py`) called `_log_manager().create_log(...)`
+  without `granularity`, `carbs_g`, `fat_g`, `protein_g` — re-importing an
+  export of a Phase 3.3/3.4 mixed-granularity, macro-logging account
+  (e.g. `admin_bulk`) silently dropped those fields on every row,
+  defaulting to `weekly` and no macros. Every `BodyLogDTO` field is now
+  passed through, same as `create_log`'s own `POST /api/logs` route
+  already does.
+- **Unhandled duplicate-date crash (fixed)**: `body_logs` has
+  `UNIQUE(user_id, date)` (`server/src/data/db/DB.py`); importing a file
+  that overlapped an existing log's date raised an uncaught
+  `sqlite3.IntegrityError` — a 500, not a graceful skip. The route now
+  checks `LogManager.get_by_date` (a new method, wrapping
+  `BodyLogDAO.get_by_user_and_date`) before inserting and records the row
+  as skipped with reason `"duplicate date"` instead, so the rest of the
+  file still imports.
+- **Forged `source` (fixed)**: `entry.get("source", "real")` used to
+  trust the imported file's own `source` field, so a hand-edited (or
+  buggy) import could inject a `source="projected"` row indistinguishable
+  from an engine-generated forecast row, corrupting `LogResampler`/chart
+  logic that assumes `projected` rows are never real data. Imports now
+  always force `source="real"`, regardless of what the file says.
+- **No feedback (fixed)**: the route used to return only a count and the
+  created rows, with anything skipped vanishing unexplained, and the
+  client did a blind `refreshLogs()`. The response now carries a
+  `skipped: [{row: <index>, reason: <string>}]` array alongside
+  `imported`; `views.js`'s new `renderImportSummary` renders an "Imported
+  N, skipped M (reasons)" line (`#import-summary`, next to the Import
+  control) instead of a silent refresh.
+
+No schema/migration change — this was a route-logic and client-feedback
+fix over the existing `logs: [...]` contract, not a new one. Covered by
+four new `Api_test.py` cases (granularity/macro round-trip, duplicate-date
+skip leaving the original row untouched, forced `source`, and a
+missing-required-field skip reason) alongside the existing
+`test_export_and_import_roundtrip` — 314 server tests green.
+
+##### Import JSON format reference (for hand-written import files)
+
+`POST /api/users/me/import` (and, once 7.2 lands, the CSV path feeding
+the same pipeline) only ever reads one top-level key:
+
+```json
+{ "logs": [ { "...": "row" }, { "...": "row" } ] }
+```
+
+Everything else `GET /api/users/me/export` produces —
+`profile`/`goal_history`/`audit_log` and every Wave 2 read-side section
+(`gain_quality`, `energy_balance`, `tef`, etc.) — is informational only
+and silently ignored on import; a hand-written import file can omit all
+of it and just supply `{"logs": [...]}`. Profile and goal setup always
+happen through registration/the Plan tab, never through import.
+
+Each entry in `logs` is one `BodyLog` row, validated by the same
+`validate_log_input` (`services/composition/CompositionEngine.py`) every
+manual wizard save goes through:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `date` | `"YYYY-MM-DD"` | yes | Must be unique per account — a date colliding with an existing log is skipped with reason `"duplicate date"`, the rest of the file still imports. |
+| `weight_kg` | number > 0 | yes | |
+| `waist_cm` | number > 0 | yes | Must be strictly greater than `neck_cm`. |
+| `neck_cm` | number > 0 | yes | |
+| `intake_kcal` | number > 0 | yes | |
+| `steps` | number > 0 | yes | |
+| `intake_is_real` | boolean | no (default `true`) | `false` marks intake as assumed/estimated rather than actually logged — affects the Adherence figure (`docs/composition_spec.md`), not the engine's own math. |
+| `cardio_kcal` | number ≥ 0 | no (default `0`) | Phase 3.1's EAT term. |
+| `granularity` | `"daily"` \| `"weekly"` | no (default `"weekly"`) | `"daily"` rows in the same ISO week get resampled together (`LogResampler`, Phase 3.3). |
+| `carbs_g`, `fat_g`, `protein_g` | number ≥ 0 | no | All three or none — a partial trio is rejected (whole row skipped). Omit all three (or `null`) for the flat-TEF fallback. |
+| `source` | — | ignored | Always forced to `"real"` regardless of what's supplied — `"projected"` rows only ever come from the engine's own forecast, never a hand-written import. |
+
+A row missing a required field, or failing `validate_log_input` (e.g.
+`waist_cm <= neck_cm`, a non-positive measurement), is skipped with a
+reported reason (`skipped: [{row, reason}]` in the response) — never a
+partial save.
+
+Example — two weekly rows plus one daily row with macros:
+
+```json
+{
+  "logs": [
+    {
+      "date": "2026-01-05",
+      "weight_kg": 91.4,
+      "waist_cm": 89.0,
+      "neck_cm": 37.5,
+      "intake_kcal": 2300,
+      "steps": 6200
+    },
+    {
+      "date": "2026-01-12",
+      "weight_kg": 90.9,
+      "waist_cm": 88.2,
+      "neck_cm": 37.4,
+      "intake_kcal": 2250,
+      "steps": 6400,
+      "cardio_kcal": 150,
+      "intake_is_real": true
+    },
+    {
+      "date": "2026-01-13",
+      "weight_kg": 90.8,
+      "waist_cm": 88.1,
+      "neck_cm": 37.4,
+      "intake_kcal": 2280,
+      "steps": 7100,
+      "granularity": "daily",
+      "carbs_g": 250,
+      "fat_g": 70,
+      "protein_g": 160
+    }
+  ]
+}
+```
+
+`GET /api/users/me/export`'s own output is always a valid import file
+(for the same account, or a different one — the only per-account
+constraint is the date-collision rule above): the fastest way to see the
+exact shape a real, fully-populated account produces is exporting one and
+reading its `logs` array.
+
+#### Phase 7.2 — CSV import (done)
+
+A second on-ramp into the same hardened pipeline from 7.1, not a
+parallel one -- the same file input now accepts either format:
+
+- A documented CSV column schema mirroring `BodyLogDTO`'s importable
+  fields: `date,weight_kg,waist_cm,neck_cm,intake_kcal,steps,
+  intake_is_real,cardio_kcal,granularity,carbs_g,fat_g,protein_g`
+  (header row required, columns may appear in any order; `intake_is_real`
+  accepts `true`/`false`/`1`/`0`/`yes`/`no`, case-insensitive, blank means
+  the server's own default `true`; `carbs_g`/`fat_g`/`protein_g` blank
+  means "not logged," the same `None`-vs-`0.0` distinction the wizard
+  already respects). `source` is deliberately not a documented column —
+  if present anyway it's carried through but ignored, forced `real`
+  either way, same as 7.1.
+- Parsing happens **client-side**, not a new server endpoint: a new
+  module, `client/src/webapp/static/js/csvImport.js`
+  (`parseCsvLogs(text)`), is a small hand-rolled RFC-4180-ish parser (no
+  new dependency — this project has never taken on a JS library, see
+  `charts.js`'s hand-rolled SVG; quoted fields and `""`-escaped quotes are
+  supported) that turns the file into the exact same `{logs: [...]}`
+  shape the JSON path already sends to `POST /api/users/me/import`, so
+  7.1's hardened validation, dedup, and per-row reporting serve both
+  formats with zero duplicated server logic. Every field is type-coerced
+  client-side (numbers become real JS numbers, booleans become real
+  booleans) rather than left as raw strings for the server to coerce —
+  Python's `bool("false")` is `True`, so leaving `intake_is_real` as a
+  string would have silently marked every imported row as real intake
+  regardless of what the CSV said. A blank/unparseable optional field is
+  omitted from the row entirely (falls back to the server's default); a
+  blank/unparseable *required* field is also omitted, which surfaces as
+  the same `KeyError`-based "missing field" skip reason 7.1 already
+  reports, rather than a client-side error aborting the whole file. A
+  missing required *column* in the header (not just a blank cell) throws
+  immediately with a message naming the missing column(s), so a malformed
+  file fails once, up front, instead of once per row.
+- `#import-input`'s `accept` is `application/json,.json,text/csv,.csv`;
+  the label reads "Import JSON or CSV". The change handler branches on
+  file extension (`.json` → `JSON.parse`, `.csv` → `parseCsvLogs`) before
+  calling the same `api.importData()`; a parse or request failure renders
+  into the same `#import-summary` element 7.1 added, instead of throwing
+  silently.
+- A downloadable CSV template,
+  `client/src/webapp/static/justfitting-import-template.csv` (just the
+  header row), is linked next to the Import control so users have the
+  exact column names to fill in from a spreadsheet export of their own
+  historical tracking.
+
+Covered by 9 new Playwright browser tests
+(`client/test/browser/CsvImport_test.py`, driven through a new
+`/harness/csv` fixture the same way `Views_test.py` drives `views.js`):
+numeric/boolean type coercion, blank-optional-columns omission, the
+`bool("false")`-trap guard above, quoted fields, blank-line skipping, and
+the missing-required-column error. 57 client tests, 314 server tests
+green.
+
+#### Phase 7.3 — Android Health Connect bridge (done, verified on a real device)
+
+Formally schedules and extends the "Automatic steps import" idea Phase
+2.1 has listed as unscheduled since Phase 2, adding calorie/macro import
+alongside it. Confirmed technically feasible via both target apps' own
+settings, not a proprietary-API integration:
+
+- **Samsung Health** has synced with [Health Connect](https://developer.android.com/health-and-fitness/health-connect)
+  since app version 6.22.5 (Oct 2022) — Settings → Health Connect → share
+  Nutrition (and Steps, Active/Total calories) data, entirely opt-in on
+  the user's phone, no Samsung developer account or partner API needed.
+- **Mi Fitness** (Xiaomi) has its own Settings → Health Connect toggle for
+  Steps (and body/heart-rate data) — confirmed via Xiaomi's own in-app
+  sync settings, not a public Xiaomi Open API (Xiaomi's developer APIs
+  are the Mi Account/OAuth "Open API," unrelated to fitness data, and
+  there's no public partner program for Mi Fitness health data
+  specifically). This resolves the open question in the original ask:
+  Health Connect alone is sufficient for the steps requirement, no direct
+  Xiaomi API integration needed or realistically available to an indie
+  app.
+- Both are read through the same Android Health Connect API
+  (`androidx.health.connect:connect-client`), a Jetpack library over a
+  system-level (Android 14+) or Play-Store-installed (Android 9-13) data
+  store — JustFitting never talks to Samsung's or Xiaomi's own
+  servers/SDKs directly, only to Health Connect, which those two apps
+  already populate on the user's own device.
+- **Build changes**: `androidx.health.connect:connect-client` needs
+  **minSdk 26** (Android 8.0) at any version — `android/variables.gradle`'s
+  `minSdkVersion` bumps `24 -> 26` (a second bump after Phase 6's
+  `22 -> 24`), dropping Android 7.x. The dependency itself is pinned to
+  `1.1.0-alpha08`, not the current stable `1.1.0` — confirmed empirically
+  (`gradlew :app:checkDebugAarMetadata`) that `1.1.0` needs compileSdk 36 +
+  AGP 8.9.1+ and even `1.1.0-alpha09`/`-alpha10` already need compileSdk
+  35, while `alpha08` is the newest release still compatible with this
+  project's compileSdk 34 / AGP 8.2.1; bumping those further to chase a
+  newer client is a much bigger, riskier change than this phase's own
+  scoped minSdk bump, untested against the existing Chaquopy 17/Capacitor
+  6 stack, so it's deferred (`android/app/build.gradle`'s comment has the
+  full version history tried).
+- **One deliberate exception to "plain Java, no new bridge language"**:
+  connect-client's API is entirely Kotlin-suspend-function-based, and
+  Kotlin doesn't expose a supported way to build the `Continuation` a Java
+  caller would need to invoke a suspend function directly — the standard,
+  documented way around this is a small Kotlin wrapper using `runBlocking`
+  that exposes ordinary synchronous methods. That wrapper is
+  `android/app/src/main/java/com/danelarias/justfitting/HealthConnectBridge.kt`
+  — the *only* Kotlin file in this app, scoped to exactly the connect-client
+  calls (`sdkStatus`, `hasAllPermissions`, `createPermissionRequestContract`,
+  `readDailyReadings`) and nothing else; every other file, including the
+  plugin and `MainActivity.java` itself, stays plain Java, matching Phase
+  6's precedent. `android/build.gradle` gained the
+  `kotlin-gradle-plugin:1.9.22` classpath entry (pairs with AGP 8.2.1) and
+  `app/build.gradle` gained `apply plugin: 'kotlin-android'` plus
+  `kotlinx-coroutines-core` for `runBlocking`.
+- `HealthConnectBridge.readDailyReadings` uses Health Connect's own
+  per-day aggregation (`aggregateGroupByPeriod` with a 1-day
+  `timeRangeSlicer`, `StepsRecord.COUNT_TOTAL` /
+  `NutritionRecord.{ENERGY,TOTAL_CARBOHYDRATE,TOTAL_FAT,PROTEIN}_TOTAL`)
+  rather than reading and summing raw records by hand, so a record
+  spanning midnight is attributed the same way Health Connect's own UI
+  would, and `dataOriginFilter` does the per-app filtering server-side.
+  Every exact class/property name here (`AggregationResultGroupedByPeriod
+  .result[metric]`, `Mass.inGrams`, `Energy.inKilocalories`, etc.) was
+  confirmed by decompiling the resolved AAR (`javap` on the Gradle cache's
+  copy) rather than assumed, after several genuinely differ from what
+  the public docs' prose implies (e.g. the real field name is
+  `NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL`, not `CARBOHYDRATES_TOTAL`).
+- `android/app/src/main/java/com/danelarias/justfitting/HealthSyncPlugin.java`
+  (plain Java, registered via `registerPlugin(HealthSyncPlugin.class)`
+  before `super.onCreate()` in `MainActivity.java`) exposes `isAvailable()`,
+  `hasPermissions()`, `requestPermissions()`, and
+  `readRecentReadings({sinceDate})` to the client JS, dispatching the
+  blocking `HealthConnectBridge` calls onto its own `ExecutorService`
+  rather than relying on Capacitor's own call-handling thread already not
+  being the UI thread. `requestPermissions()` delegates to a new
+  `MainActivity.requestHealthPermissions(...)` method, since
+  `registerForActivityResult` (needed for
+  `PermissionController.createRequestPermissionResultContract()`) has to
+  be called during `onCreate()`, long before any plugin call could exist
+  — the plugin can't register its own launcher. A new
+  `client/src/webapp/static/js/healthSync.js` module wraps all four with a
+  graceful `{available: false}`/`{granted: false}`/`{readings: []}`
+  fallback for the web build and any non-Android/pre-26 device (checking
+  for `window.Capacitor.Plugins.HealthSync` rather than importing
+  `@capacitor/core`, since the client has no JS build step — see
+  Architecture, above), so the rest of the client never needs an
+  Android-specific branch beyond feature-detecting this one module.
+- `AndroidManifest.xml` gained the two read-only health permissions
+  (`android.permission.health.READ_STEPS`/`READ_NUTRITION` — no `WRITE_*`,
+  this app never writes to Health Connect), a `<queries>` entry for Health
+  Connect's own package (`com.google.android.apps.healthdata`, so
+  `isAvailable()` can distinguish "not installed" from "permission not
+  granted"), and two more intent-filters on `MainActivity` for Health
+  Connect's required permissions-rationale handling (Android 14+'s
+  `VIEW_PERMISSION_USAGE`/`HEALTH_PERMISSIONS` category, and Android
+  13-and-below's `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE`) —
+  both point at the same single Activity this app already has, which is
+  where the Phase 7.5 Account-view section lives.
+- **Permission model**: Health Connect permissions are scoped by *data
+  type* (`StepsRecord`, `NutritionRecord`), not by which app wrote them —
+  if a phone has more than one app writing steps (e.g. both Mi Fitness and
+  Google Fit), JustFitting's read would see all of them. Records carry
+  `Metadata.dataOrigin.packageName`, so `HealthConnectBridge` filters to
+  known package names for the two target apps specifically (Samsung
+  Health: `com.sec.android.app.shealth`; Mi Fitness: a small alias list —
+  `com.xiaomi.wearable`, `com.mi.health`, `com.xiaomi.hm.health` — since
+  it's varied by region/firmware, see Open risks below) rather than
+  importing every contributing app's data, matching the ask ("steps from
+  Mi Fitness," "calories/macros from Samsung Health," not "whichever
+  app").
+- **"Not today" rule**: `readRecentReadings` always computes `untilDate`
+  as `LocalDate.now()` natively inside `HealthSyncPlugin`, never trusting
+  a value from the JS caller, and Health Connect's own per-day aggregation
+  excludes it (an exclusive upper bound) — today's step count is still
+  accumulating and would look like a shortfall if read mid-day, exactly
+  the concern the ask raised.
+- **Manual sync only, for now**: reading Health Connect is triggered
+  *only* by the user pressing a "Sync now" button (below) — there is no
+  automatic pull on app open/foreground and no `WorkManager`/background
+  job in this first version, deliberately the simplest possible trigger
+  to ship, and consistent with Phase 6's "no background execution after
+  the app is swiped away" posture. A later phase can revisit
+  automatic/periodic sync once manual sync is proven on-device; not
+  scoped here. What happens to the result once `readRecentReadings`
+  returns it to the client is Phase 7.5's job, below — this plugin's own
+  job stops at handing back `{readings: [...]}`; nothing here writes to
+  the server. (An earlier version of this plan cached the result in
+  `localStorage` as a wizard-prefill-only suggestion, never touching
+  `body_logs` — superseded once Phase 7.4 made a *real*, persisted
+  partial log possible; see that section for why direct writes are both
+  safer and simpler than a client-side cache once partial rows exist.)
+
+**Verified**: `gradlew assembleDebug` succeeds end-to-end — Kotlin/Java
+compilation (including every connect-client class/method/property name
+above, confirmed against the real resolved dependency, not just assumed
+from docs), manifest merging (the permissions/queries/intent-filters),
+resource processing, dexing, and packaging into a debug APK — *and*, per
+the "Verified on a real device" section below (Phase 7.5), the real
+device pass this phase originally deferred: permission grant/deny UX,
+`isAvailable()`/package-name correctness, and matching Phase 6's own
+history, a real bug (`TimeRangeFilter` needing `LocalDateTime`, not
+`Instant`) that no amount of static analysis or `gradlew assembleDebug`
+could have caught, found and fixed there.
+
+#### Phase 7.4 — Partial logs & independent-source merging (done)
+
+Prompted directly by the sync workflow: Health Connect exposes Steps (Mi
+Fitness) and Nutrition (Samsung Health) as two independent data types
+that can each succeed, fail, or simply not be connected on any given
+sync, and neither one ever provides body measurements (weight/waist/
+neck) at all -- those stay a manual or imported input. The goal: whether
+the user syncs first and adds body measurements later, logs body
+measurements first and syncs afterward, or only ever gets one of the two
+automatic sources working, they should always converge on one complete
+log for that date, not several separate, conflicting entries. This is a
+data-model foundation, not a client feature on its own -- it has no UI
+of its own and needs no phone to verify; Phase 7.5 below is what
+actually uses it.
+
+**Rejected**: full cross-day merging within an ISO week (an earlier
+round of this plan considered reconciling a weekly body-measurement
+entry on one day with that week's separate daily activity entries on
+other days into a single computed week). That's real new resampler
+algorithm -- more moving parts, more ways to regress the existing
+mixed-granularity behavior Phase 3.3 already ships and tests -- and it's
+not needed for the actual workflow described: completing a partial day
+means editing *that exact date's* row, which already exists (or gets
+created) from whichever source touched it first. `LogResampler`'s
+existing rule ("daily rows in an ISO week group together, weekly rows
+pass straight through unchanged") stays completely untouched.
+
+- **Schema**: `body_logs`'s `weight_kg`, `waist_cm`, `neck_cm`,
+  `intake_kcal`, `steps` become individually nullable
+  (`server/src/data/db/DB.py`) -- `NULL` means "not logged yet by any
+  source," not zero. `cardio_kcal` and `intake_is_real` are unaffected
+  (they stay `NOT NULL DEFAULT`, meaningful only once `intake_kcal`
+  itself is set). This project has no migration runner (`DB.py`'s own
+  docstring) -- this is a direct edit to `SCHEMA`, picked up the same way
+  every prior schema change has been (`scripts/reset_db.sh` + reseed for
+  an existing local DB).
+- `BodyLog` (domain), `BodyLogDTO`, and `LogInput`
+  (`services/composition/models.py`) all mark those five fields
+  `Optional[float]`.
+- `validate_log_input` (`services/composition/CompositionEngine.py`)
+  changes from "must be present and positive" to "if present, must be
+  positive" for those five -- `None` is now a valid value, the same
+  treatment the macro trio has had since Phase 3.4. The `waist_cm >
+  neck_cm` check only runs when both are present. Used by both the
+  persistence layer (`LogManager.create_log`/`update_log`, now genuinely
+  allowing a partial save) and, unchanged, by `compute_row`.
+- **Engine safety net, not a behavior change**: `compute_row` gains a
+  completeness check (all five present) *before* its existing
+  `validate_log_input` call, raising a clear `ValueError` naming the
+  missing fields instead of an opaque `TypeError` from deep inside the
+  formula chain if it's ever handed a partial row. In practice it never
+  should be -- see the resampler/series filtering below -- so this is
+  defense-in-depth, not a new code path any existing test exercises
+  differently. `ENGINE_VERSION` does **not** bump: the formulas
+  themselves, and every value they produce for a complete row, are
+  byte-for-byte unchanged; the only thing that changed is which rows are
+  allowed to reach them.
+- **`LogResampler.resample_to_weekly`**: the existing daily-granularity
+  grouping (median weight, mean of everything else) generalizes to skip
+  `None`s within the group instead of crashing on them -- the same
+  "average whatever days logged this" rule Phase 3.4 already applies to
+  the macro trio now applies to weight/waist/neck/intake/steps too. A
+  field is only `None` in the resampled row if *no* day in that week's
+  group ever logged it. Weekly-tagged rows still pass straight through
+  untouched, exactly as today.
+- **`MetricsSeriesService.compute_series_for_user`**: after resampling,
+  a week that's still missing any of the five fields (no day ever
+  supplied it) is excluded from the computed series before it reaches
+  `to_engine_inputs`/the engine -- the same outcome as a week with no log
+  at all, just reachable now by "logged, but never completed" as well as
+  "never logged." The raw week still shows up in `GET /api/logs`/export/
+  the Log view table, just contributes nothing to charts/metrics/alerts
+  until it's complete.
+- **Order- and source-independent merging**: a new
+  `LogManager.upsert_fields(user_id, date, fields)` finds the existing
+  row for that date, if any, and merges in only the given fields
+  (delegating to the existing `update_log`, which already only touches
+  submitted keys) -- or creates a new row scoped to just those fields
+  (delegating to `create_log`, now that its required fields are optional)
+  if none exists yet. `granularity` is set only when a row is first
+  created and never overwritten by a later merge, so it doesn't matter
+  which of the three sources (steps, nutrition, body measurements)
+  happens to arrive first. Exposed as a new route, `PUT
+  /api/logs/by-date/<date>`, every body field optional -- this is what
+  Phase 7.5's "Sync now" calls once per source (steps, nutrition),
+  independently, so Mi Fitness failing or being disconnected never blocks
+  Samsung Health's write, and vice versa; it's also usable directly for a
+  future "log just my weight today" shortcut, or by import.
+- `POST /api/logs` and `POST /api/users/me/import` (Phase 7.1) both relax
+  from requiring all five fields to accepting any subset -- a manual
+  wizard save or an imported row can now be partial too, not just a
+  synced one. Import keeps its existing skip-on-duplicate-date behavior
+  (Phase 7.1) unchanged -- it's a distinct, safer default for a
+  whole-file restore than a per-field merge; `upsert_fields`/`PUT
+  /api/logs/by-date` is the new, narrower primitive for the "independent
+  sources converging" case specifically, not a replacement for it.
+
+Covered by new tests at every layer touched -- `CompositionEngine_test.py`
+(`require_complete_log_input`'s clear error, `validate_log_input`
+accepting partial/rejecting invalid-when-present values),
+`LogResampler_test.py` (null-tolerant grouping across partial days,
+`is_computable`), `MetricsSeriesService_test.py` (an incomplete week
+excluded from the series, then appearing once completed by an edit),
+`LogManager_test.py` (`upsert_fields` create/merge/order-independence/
+granularity-only-set-once), and `Api_test.py` (`PUT
+/api/logs/by-date/<date>` end to end, plus the existing import test suite
+updated for a no-longer-required field). 335 server tests, 57 client
+tests green. The local dev DB was reset and reseeded
+(`scripts/reset_db.sh` + `scripts/seed_demo_data.sh`) against the new
+schema, per this project's no-migration-runner convention (`DB.py`'s own
+docstring).
+
+#### Phase 7.5 — Sync writes partial logs directly + unified data section (done, verified on a real device)
+
+Supersedes 7.3's original "client-side cache, prefill-only" plan for how
+a synced reading reaches an actual log, now that Phase 7.4 makes a real,
+persisted partial row possible:
+
+- Pressing "Sync now" calls the new `PUT /api/logs/by-date/<date>`
+  (Phase 7.4, via `api.upsertLogByDate`) once per successfully-read day,
+  per source -- Mi Fitness's steps and Samsung Health's nutrition/macros
+  each merge independently into that date's row, creating it as a
+  `granularity="daily"` partial row if nothing exists there yet. A day
+  that already has a complete or partial log (however it got there) just
+  gets whichever fields that source owns refreshed -- never touching
+  weight/waist/neck, which no synced source ever provides. Macros are
+  only ever sent as a complete trio, matching `validate_log_input`'s
+  all-or-nothing rule -- a day where Health Connect only had e.g. carbs
+  just sends `intake_kcal` that day and skips carbs/fat/protein, rather
+  than getting the whole call rejected. `healthSync.js`'s
+  `syncRecentReadings()` result (`{readings: [...]}`) drives this loop
+  directly; a reading is a real row the moment it's synced, not a
+  suggestion waiting to be typed in -- the `localStorage`-cache/
+  `prefillWizardFromExternalReadings` idea from the original plan was
+  dropped entirely (see 7.3's "Manual sync only" note). The sync window
+  is a fixed rolling 14 days on every press; re-syncing an overlapping
+  day is harmless (upsert, not create) since it just refreshes that
+  source's own fields to their latest values.
+- **Completing a day** is exactly Phase 5.7's existing edit flow,
+  unchanged: a synced day is already a normal (partial) row, so open that
+  date in the Log view, edit, add weight/waist/neck, save. No new wizard
+  mode or "complete" action needed. `renderLogTable` now wraps
+  weight/waist/neck in the same `dash()` fallback `intake_kcal`/`steps`/
+  `cardio_kcal` already used, and `fillWizardFromLog`/
+  `prefillWizardFromLastLog` fall back to an empty input instead of the
+  literal string `"null"` for any missing field -- the latter also now
+  searches for the most recent log that actually *has* perimeters, not
+  just the most recent log period, since that could now be a
+  steps-only synced day. The wizard's weight/waist/neck/intake `required`
+  HTML attributes are removed (`steps` already had none) so a genuinely
+  partial manual save, or an incremental edit that only touches one
+  field, isn't blocked by browser-native validation -- the server is the
+  source of truth for what's valid (Phase 7.4).
+- **One unified data section, not a separate page/section**: the
+  Account view's existing Export JSON button and Import file input
+  (`#export-btn`/`#import-input`, both already present) gain the Phase
+  7.2 CSV option in place, retitled "Data import, export & sync", and --
+  Android app only, appended into that *same* section rather than a new
+  one -- a single "Connect" button (`healthSync.requestPermissions()`,
+  requesting Steps and Nutrition together in one Health Connect
+  permission dialog -- that dialog itself already lets the user grant/
+  deny each data type individually, so a combined request doesn't force
+  an all-or-nothing choice), a "Sync last N days" field (number input,
+  default 7, capped at 90 client-side), and a "Sync now" button running
+  the loop above for that window, with a per-source (Mi Fitness /
+  Samsung Health) connected/not-connected status line and a last-synced
+  timestamp (`localStorage`, the one piece of sync-related client state
+  that's still appropriate there -- unlike the rejected reading-data
+  cache, this is just "when did I last press the button"). Getting the
+  per-source status line required fixing `HealthSyncPlugin.hasPermissions()` (Phase 7.3): it originally
+  returned one combined `granted` boolean, not enough to show "steps
+  connected, nutrition not" independently -- it and
+  `HealthConnectBridge.grantedPermissions` now expose the raw granted set
+  so the UI can report each source on its own. On the web build (and any
+  Android device where `healthSync.isSupported()` is false), the section
+  is just Export/Import as it is today -- same `dist/` output, no
+  build-time branch.
+
+Covered by a new Playwright test (`Views_test.py`, `renderLogTable`
+showing dashes not `"null"` for a partial row) plus the full existing
+suite proving nothing regressed; `gradlew assembleDebug` (after
+`npm run android:sync` to actually rebuild the bundled client -- a plain
+native-code build doesn't pick up client changes on its own) succeeds
+end to end against the real client this phase shipped. 335 server tests,
+58 client tests green.
+
+#### Verified on a real device (done)
+
+Installed and driven end-to-end on a real Xiaomi phone (MIUI) via `adb`
+(no `input tap`/`input text` injection available on this device's MIUI
+build without an extra Developer Options toggle, so UI steps were driven
+manually while verification -- API calls, logcat, screenshots -- ran
+through `adb`). Two real bugs surfaced and were fixed, neither catchable
+by any amount of `gradlew assembleDebug`/unit testing, plus one
+confirmation:
+
+- **`TimeRangeFilter` needs `LocalDateTime`, not `Instant`, for
+  `aggregateGroupByPeriod`** -- `HealthConnectBridge.readDailyReadings`
+  built its range from `Instant`s (matching a fixed-`Duration` request
+  shape), which fails at runtime with "Either use TimeRangeFilter with
+  LocalDateTime or AggregateGroupByDurationRequest" -- a constraint
+  `aggregateGroupByPeriod` enforces itself, not encoded in `TimeRangeFilter`'s
+  type, so nothing before a real call could have caught it. Fixed by
+  building the range from `LocalDate.atStartOfDay()` (no zone conversion)
+  instead.
+- **The Account-view health-sync section only appeared after visiting
+  Settings first** -- `refreshHealthSyncUI()` was wired to `navigate()`'s
+  `"settings"` case, but the actual markup (Export/Import/health sync)
+  lives in the Account view's HTML, not the engine-constants Settings
+  view's. A first-ever Account visit left the section in its default
+  `hidden` state; it only appeared once some other navigation (a Settings
+  visit) happened to unhide the shared DOM node out from under the
+  already-open Account view. Fixed by moving the call to the `"account"`
+  case, where it belongs.
+- **Xiaomi/Samsung package names, confirmed correct** -- `dumpsys package`
+  on-device confirmed `com.xiaomi.wearable` (Mi Fitness) declares and has
+  `android.permission.health.WRITE_STEPS` granted, and
+  `com.sec.android.app.shealth` (Samsung Health) has
+  `android.permission.health.WRITE_NUTRITION` granted -- both already
+  actively writing to Health Connect on the test device, no alias-list
+  changes needed.
+
+One more real finding worth recording so it's never mistaken for a
+JustFitting bug later: a 30-day sync window (confirmed correct via
+logcat's `sinceDate`) still only returned 5 days of step readings. A
+temporary raw-record diagnostic (removed once confirmed) showed Health
+Connect itself only had 5 calendar days of `StepsRecord` entries stored
+for Mi Fitness's package, regardless of the query window. On the test
+device, both Samsung Health and Mi Fitness only start writing their
+logged data into Health Connect *from the moment each app itself is
+granted permission to write there* -- not retroactively for whatever
+they'd already logged before that grant -- so a source app connected to
+Health Connect only recently will genuinely have nothing older to hand
+over, independent of anything this app requests. A limitation of those
+data sources (and squarely outside this app's code to influence -- it's
+governed by when the user connects each source app to Health Connect in
+that app's own settings, not JustFitting's), not a bug in this app's
+query.
+
+The full loop was verified working: register/login against the embedded
+on-device server (Phase 6), Connect grants both permissions, Sync now
+creates partial `daily` rows via `PUT /api/logs/by-date` for real steps
+and nutrition data, and those rows round-trip correctly through
+`GET /api/logs`.
+
+#### Open risks to validate before/while building Phase 7.3, 7.5
+
+- **Samsung Health nutrition completeness** — **partially verified**: a
+  real on-device sync did pull a real nutrition day through successfully
+  (see "Verified on a real device" below), confirming the basic path
+  works, but whether Samsung Health's food-logging always writes full
+  per-entry macros (protein/fat/carbs) into `NutritionRecord`, or
+  sometimes only aggregate calories with macros left blank, wasn't
+  specifically checked — if macros are inconsistently present, 7.4's
+  macro handling degrades to calories-only some days, which is fine
+  (macros are always optional) but not yet confirmed either way.
+- **Health Connect module availability** — **not exercised**: built into
+  the OS on Android 14+; on Android 9-13 (still in-range after the
+  minSdk 26 bump) it's a separate Play Store app the user may not have
+  installed. The test device already had Health Connect installed, so
+  `HealthSyncPlugin.isAvailable()`'s "not installed" branch (distinct
+  from "permission denied") was never actually exercised on a device
+  missing it.
+- **minSdk 24 -> 26**: drops Android 7.x devices, on top of Phase 6's
+  already-applied 22 -> 24 drop — low real-world impact given the project
+  has no installed user base yet, but worth noting alongside that
+  precedent.
+- **Permission revocation** — **not exercised**: the user can revoke
+  Health Connect access for JustFitting at any time from Android's own
+  settings, outside the app — every sync call should degrade to "no
+  readings available" rather than erroring, but this specific path
+  (revoke, then sync) wasn't walked through on the test device this
+  round.
 
 ## Android app
 
@@ -1166,11 +1782,12 @@ the command-line SDK tools, and `npm run android:apk` — has been verified
 to produce a working debug APK, with no admin rights and no global
 environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
-tags (README's Versioning section) — `2.0.0`/`2`, reflecting Phase 6's
-intended v2.0.0 release, having never previously been bumped past their
-Phase-2-scaffold defaults (`1.0`/`1`). Not done: a release keystore/
-signed build, and an emulator system image (needs admin — use a real
-device instead, see above).
+tags (README's Versioning section), having never previously been bumped
+past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
+to `2.0.0`/`2`; currently `3.0.0`/`4`, reflecting Phase 7's intended
+v3.0.0 release. Not done: a release keystore/signed build, and an
+emulator system image (needs admin — use a real device instead, see
+above).
 
 ### Embedded on-device server (Phase 6, done)
 

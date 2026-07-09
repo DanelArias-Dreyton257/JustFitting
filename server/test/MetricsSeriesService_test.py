@@ -89,6 +89,34 @@ class MetricsSeriesServiceTest(unittest.TestCase):
         self.assertEqual(logs, [])
         self.assertEqual(results, [])
 
+    def test_a_partial_log_is_excluded_from_the_computed_series(self):
+        """Phase 7.4 (partial logs, see README): a row missing weight (or
+        any of the other four required fields) is logged, but not yet
+        computable -- it's excluded from the series exactly like an
+        unlogged week, not just silently given garbage numbers."""
+        self._log(date(2026, 1, 1))  # complete
+        self.log_manager.create_log(
+            user_id=self.user_id, log_date=date(2026, 1, 8), steps=6500, intake_kcal=2100.0
+        )  # partial: no weight/waist/neck
+
+        logs, results = compute_series_for_user(self.app, self.user_id)
+        self.assertEqual([log.date for log in logs], [date(2026, 1, 1)])
+        self.assertEqual(len(results), 1)
+
+    def test_completing_a_partial_log_makes_it_appear_in_the_series(self):
+        partial = self.log_manager.create_log(
+            user_id=self.user_id, log_date=date(2026, 1, 1), steps=6500, intake_kcal=2100.0
+        )
+        logs, results = compute_series_for_user(self.app, self.user_id)
+        self.assertEqual(logs, [])
+
+        self.log_manager.update_log(
+            partial.log_id, weight_kg=90.0, waist_cm=90.0, neck_cm=38.0
+        )
+        logs, results = compute_series_for_user(self.app, self.user_id)
+        self.assertEqual([log.date for log in logs], [date(2026, 1, 1)])
+        self.assertEqual(len(results), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

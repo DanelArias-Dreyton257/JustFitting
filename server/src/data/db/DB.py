@@ -43,12 +43,22 @@ CREATE TABLE IF NOT EXISTS body_logs (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     date TEXT NOT NULL,
-    weight_kg REAL NOT NULL,
-    waist_cm REAL NOT NULL,
-    neck_cm REAL NOT NULL,
-    intake_kcal REAL NOT NULL,
+    -- Phase 7.4 (partial logs & independent-source merging, see README):
+    -- nullable, not NOT NULL -- NULL means "not logged yet by any
+    -- source" (sync, manual entry, or import), not zero. A row can be
+    -- partial (e.g. steps-only from a Mi Fitness sync, or
+    -- weight/waist/neck-only from a manual body-composition entry) and
+    -- gets completed later by merging in whatever's still missing
+    -- (LogManager.upsert_fields / PUT /api/logs/by-date, or an ordinary
+    -- edit). The engine only ever computes a row once all five of these
+    -- are present -- see CompositionEngine.compute_row's completeness
+    -- guard and MetricsSeriesService's incomplete-week filtering.
+    weight_kg REAL,
+    waist_cm REAL,
+    neck_cm REAL,
+    intake_kcal REAL,
     intake_is_real INTEGER NOT NULL DEFAULT 1,
-    steps REAL NOT NULL,
+    steps REAL,
     cardio_kcal REAL NOT NULL DEFAULT 0,
     source TEXT NOT NULL DEFAULT 'real' CHECK (source IN ('real', 'projected')),
     granularity TEXT NOT NULL DEFAULT 'weekly' CHECK (granularity IN ('daily', 'weekly')),
