@@ -1,7 +1,7 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    
+
     repositories {
         google()
         mavenCentral()
@@ -14,6 +14,15 @@ buildscript {
         // of this version. See README's "Android app -> Embedded
         // on-device server" section.
         classpath 'com.chaquo.python:gradle:17.0.0'
+        // Phase 7.3 (Health Connect bridge) -- the one Kotlin source file
+        // in this app, HealthConnectBridge.kt; see variables.gradle's
+        // "plain Java, no new bridge language" note for why. 1.9.22 pairs
+        // with AGP 8.2.1 per JetBrains' own compatibility table.
+        // Hardcoded here, not read from variables.gradle's `ext`, because
+        // Gradle evaluates `buildscript {}` before any `apply from:` runs
+        // -- same reason the AGP/Chaquopy versions above are also literals,
+        // not variables.gradle references.
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

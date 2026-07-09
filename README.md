@@ -1201,7 +1201,7 @@ numeric/boolean type coercion, blank-optional-columns omission, the
 the missing-required-column error. 57 client tests, 314 server tests
 green.
 
-#### Phase 7.3 — Android Health Connect bridge (planned, Android app only)
+#### Phase 7.3 — Android Health Connect bridge (built, pending on-device verification)
 
 Formally schedules and extends the "Automatic steps import" idea Phase
 2.1 has listed as unscheduled since Phase 2, adding calorie/macro import
@@ -1227,38 +1227,96 @@ settings, not a proprietary-API integration:
   store — JustFitting never talks to Samsung's or Xiaomi's own
   servers/SDKs directly, only to Health Connect, which those two apps
   already populate on the user's own device.
-- **Build changes**: `androidx.health.connect:connect-client` requires
-  **minSdk 26** (Android 8.0) — `android/variables.gradle`'s
+- **Build changes**: `androidx.health.connect:connect-client` needs
+  **minSdk 26** (Android 8.0) at any version — `android/variables.gradle`'s
   `minSdkVersion` bumps `24 -> 26` (a second bump after Phase 6's
-  `22 -> 24`), dropping Android 7.x. A new Capacitor-style native plugin,
-  `android/app/src/main/java/com/danelarias/justfitting/HealthSyncPlugin.java`
-  (plain Java, matching `MainActivity.java`'s existing precedent from
-  Phase 6 — no new bridge language), registered via
-  `registerPlugin(HealthSyncPlugin.class)` before `super.onCreate()`,
-  exposes `isAvailable()`, `requestPermissions()`, and
-  `readRecentReadings(sinceDate)` to the client JS. A new
-  `client/src/webapp/static/js/healthSync.js` module wraps the plugin
-  call with a graceful `{available: false}` fallback for the web build
-  and any non-Android/pre-26 device, so the rest of the client never
-  needs an Android-specific branch beyond feature-detecting this one
-  module.
+  `22 -> 24`), dropping Android 7.x. The dependency itself is pinned to
+  `1.1.0-alpha08`, not the current stable `1.1.0` — confirmed empirically
+  (`gradlew :app:checkDebugAarMetadata`) that `1.1.0` needs compileSdk 36 +
+  AGP 8.9.1+ and even `1.1.0-alpha09`/`-alpha10` already need compileSdk
+  35, while `alpha08` is the newest release still compatible with this
+  project's compileSdk 34 / AGP 8.2.1; bumping those further to chase a
+  newer client is a much bigger, riskier change than this phase's own
+  scoped minSdk bump, untested against the existing Chaquopy 17/Capacitor
+  6 stack, so it's deferred (`android/app/build.gradle`'s comment has the
+  full version history tried).
+- **One deliberate exception to "plain Java, no new bridge language"**:
+  connect-client's API is entirely Kotlin-suspend-function-based, and
+  Kotlin doesn't expose a supported way to build the `Continuation` a Java
+  caller would need to invoke a suspend function directly — the standard,
+  documented way around this is a small Kotlin wrapper using `runBlocking`
+  that exposes ordinary synchronous methods. That wrapper is
+  `android/app/src/main/java/com/danelarias/justfitting/HealthConnectBridge.kt`
+  — the *only* Kotlin file in this app, scoped to exactly the connect-client
+  calls (`sdkStatus`, `hasAllPermissions`, `createPermissionRequestContract`,
+  `readDailyReadings`) and nothing else; every other file, including the
+  plugin and `MainActivity.java` itself, stays plain Java, matching Phase
+  6's precedent. `android/build.gradle` gained the
+  `kotlin-gradle-plugin:1.9.22` classpath entry (pairs with AGP 8.2.1) and
+  `app/build.gradle` gained `apply plugin: 'kotlin-android'` plus
+  `kotlinx-coroutines-core` for `runBlocking`.
+- `HealthConnectBridge.readDailyReadings` uses Health Connect's own
+  per-day aggregation (`aggregateGroupByPeriod` with a 1-day
+  `timeRangeSlicer`, `StepsRecord.COUNT_TOTAL` /
+  `NutritionRecord.{ENERGY,TOTAL_CARBOHYDRATE,TOTAL_FAT,PROTEIN}_TOTAL`)
+  rather than reading and summing raw records by hand, so a record
+  spanning midnight is attributed the same way Health Connect's own UI
+  would, and `dataOriginFilter` does the per-app filtering server-side.
+  Every exact class/property name here (`AggregationResultGroupedByPeriod
+  .result[metric]`, `Mass.inGrams`, `Energy.inKilocalories`, etc.) was
+  confirmed by decompiling the resolved AAR (`javap` on the Gradle cache's
+  copy) rather than assumed, after several genuinely differ from what
+  the public docs' prose implies (e.g. the real field name is
+  `NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL`, not `CARBOHYDRATES_TOTAL`).
+- `android/app/src/main/java/com/danelarias/justfitting/HealthSyncPlugin.java`
+  (plain Java, registered via `registerPlugin(HealthSyncPlugin.class)`
+  before `super.onCreate()` in `MainActivity.java`) exposes `isAvailable()`,
+  `hasPermissions()`, `requestPermissions()`, and
+  `readRecentReadings({sinceDate})` to the client JS, dispatching the
+  blocking `HealthConnectBridge` calls onto its own `ExecutorService`
+  rather than relying on Capacitor's own call-handling thread already not
+  being the UI thread. `requestPermissions()` delegates to a new
+  `MainActivity.requestHealthPermissions(...)` method, since
+  `registerForActivityResult` (needed for
+  `PermissionController.createRequestPermissionResultContract()`) has to
+  be called during `onCreate()`, long before any plugin call could exist
+  — the plugin can't register its own launcher. A new
+  `client/src/webapp/static/js/healthSync.js` module wraps all four with a
+  graceful `{available: false}`/`{granted: false}`/`{readings: []}`
+  fallback for the web build and any non-Android/pre-26 device (checking
+  for `window.Capacitor.Plugins.HealthSync` rather than importing
+  `@capacitor/core`, since the client has no JS build step — see
+  Architecture, above), so the rest of the client never needs an
+  Android-specific branch beyond feature-detecting this one module.
+- `AndroidManifest.xml` gained the two read-only health permissions
+  (`android.permission.health.READ_STEPS`/`READ_NUTRITION` — no `WRITE_*`,
+  this app never writes to Health Connect), a `<queries>` entry for Health
+  Connect's own package (`com.google.android.apps.healthdata`, so
+  `isAvailable()` can distinguish "not installed" from "permission not
+  granted"), and two more intent-filters on `MainActivity` for Health
+  Connect's required permissions-rationale handling (Android 14+'s
+  `VIEW_PERMISSION_USAGE`/`HEALTH_PERMISSIONS` category, and Android
+  13-and-below's `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE`) —
+  both point at the same single Activity this app already has, which is
+  where the Phase 7.4 Settings section lives.
 - **Permission model**: Health Connect permissions are scoped by *data
-  type* (`StepsRecord`, `NutritionRecord`, `TotalCaloriesBurnedRecord`),
-  not by which app wrote them — if a phone has more than one app writing
-  steps (e.g. both Mi Fitness and Google Fit), JustFitting's read would
-  see all of them. Records carry `Metadata.dataOrigin.packageName`, so
-  `HealthSyncPlugin` filters to known package names for the two target
-  apps specifically (Samsung Health: `com.sec.android.app.shealth`; Mi
-  Fitness: `com.xiaomi.wearable`/`com.mi.health`, which have varied by
-  region/firmware — see Open risks below) rather than importing every
-  contributing app's data, matching the ask ("steps from Mi Fitness,"
-  "calories/macros from Samsung Health," not "whichever app").
-- **"Not today" rule**: `readRecentReadings` aggregates Health Connect
-  records into daily totals (steps summed per calendar day; nutrition's
-  calories/carbs/fat/protein summed per calendar day) and drops the
-  current day's bucket entirely before returning — today's step count is
-  still accumulating and would look like a shortfall if read mid-day,
-  exactly the concern the ask raised.
+  type* (`StepsRecord`, `NutritionRecord`), not by which app wrote them —
+  if a phone has more than one app writing steps (e.g. both Mi Fitness and
+  Google Fit), JustFitting's read would see all of them. Records carry
+  `Metadata.dataOrigin.packageName`, so `HealthConnectBridge` filters to
+  known package names for the two target apps specifically (Samsung
+  Health: `com.sec.android.app.shealth`; Mi Fitness: a small alias list —
+  `com.xiaomi.wearable`, `com.mi.health`, `com.xiaomi.hm.health` — since
+  it's varied by region/firmware, see Open risks below) rather than
+  importing every contributing app's data, matching the ask ("steps from
+  Mi Fitness," "calories/macros from Samsung Health," not "whichever
+  app").
+- **"Not today" rule**: `readRecentReadings` always computes `untilDate`
+  as `LocalDate.now()` natively inside `HealthSyncPlugin`, never trusting
+  a value from the JS caller, and Health Connect's own per-day aggregation
+  excludes it (an exclusive upper bound) — today's step count is still
+  accumulating and would look like a shortfall if read mid-day, exactly
+  the concern the ask raised.
 - **Manual sync only, for now**: reading Health Connect is triggered
   *only* by the user pressing a "Sync now" button (below) — there is no
   automatic pull on app open/foreground and no `WorkManager`/background
@@ -1266,17 +1324,34 @@ settings, not a proprietary-API integration:
   to ship, and consistent with Phase 6's "no background execution after
   the app is swiped away" posture. A later phase can revisit
   automatic/periodic sync once manual sync is proven on-device; not
-  scoped here. Once pressed, `readRecentReadings(sinceDate)` runs and its
-  result is cached client-side (`localStorage`, keyed by ISO date) so the
-  wizard has something to prefill from until the next manual sync —
-  nothing is written into `body_logs` or any new server table. A synced
-  reading is a *prefill suggestion* the next phase surfaces in the log
-  wizard, never an auto-created log row — `weight_kg`/`waist_cm`/
-  `neck_cm` have no phone-sensor source at all and stay mandatory manual
-  entries (`body_logs`'s `NOT NULL` columns are unchanged), so a "log"
-  can't be synthesized from Health Connect data alone; this keeps the
-  entire feature additive and reversible, the same posture every other
-  read-side feature in this README takes.
+  scoped here. Once pressed, the result is cached client-side
+  (`localStorage`, keyed by ISO date) so the wizard has something to
+  prefill from until the next manual sync — nothing is written into
+  `body_logs` or any new server table (no schema/migration change for
+  this whole phase). A synced reading is a *prefill suggestion* the next
+  phase surfaces in the log wizard, never an auto-created log row —
+  `weight_kg`/`waist_cm`/`neck_cm` have no phone-sensor source at all and
+  stay mandatory manual entries (`body_logs`'s `NOT NULL` columns are
+  unchanged), so a "log" can't be synthesized from Health Connect data
+  alone; this keeps the entire feature additive and reversible, the same
+  posture every other read-side feature in this README takes.
+
+**Verified so far, without a device**: `gradlew assembleDebug` succeeds
+end-to-end — Kotlin/Java compilation (including every connect-client
+class/method/property name above, confirmed against the real resolved
+dependency, not just assumed from docs), manifest merging (the new
+permissions/queries/intent-filters), resource processing, dexing, and
+packaging into a debug APK. **Not yet verified**: anything that needs
+Health Connect actually running on a device — permission grant/deny UX,
+whether `isAvailable()` correctly detects an uninstalled/outdated Health
+Connect, whether the real Mi Fitness/Samsung Health package names above
+are right (the single biggest open risk), and whether the aggregated
+readings match what those two apps actually show. That's exactly what
+this phase's on-device verification step (below) is for — Phase 6's own
+history is a reminder that this kind of native integration reliably
+surfaces at least one real bug only a real device catches (there, an
+`include()` pattern silently dropping a source file, and a splash-screen
+theme crash).
 
 #### Phase 7.4 — Wizard prefill from synced readings + unified data section (planned, Android app only)
 
@@ -1297,26 +1372,30 @@ settings, not a proprietary-API integration:
   Settings view's existing Export JSON button and Import file input
   (`#export-btn`/`#import-input`, both already present) gain the Phase
   7.2 CSV option in place, and — Android app only, appended into that
-  *same* section rather than a new one — a "Connect" control per source
-  (Mi Fitness / Samsung Health, each driving
-  `HealthSyncPlugin.requestPermissions()` for just that source's data
-  types) plus a single manual "Sync now" button that runs
-  `readRecentReadings()` for both connected sources at once, with a
-  last-synced timestamp shown next to it. The section is retitled "Data
-  import, export & sync"; on the web build (and any Android device where
-  `healthSync.js` reports unavailable), the Connect/Sync controls simply
+  *same* section rather than a new one — a single "Connect" button
+  (`healthSync.requestPermissions()`, which requests Steps and Nutrition
+  together in one Health Connect permission dialog — that dialog itself
+  already lets the user grant/deny each data type individually, so a
+  combined request doesn't force an all-or-nothing choice) plus a
+  "Sync now" button that runs `syncRecentReadings()`, with a per-source
+  (Mi Fitness / Samsung Health) connected/not-connected status line
+  driven by `hasPermissions()`'s own per-type result and a last-synced
+  timestamp next to the button. The section is retitled "Data import,
+  export & sync"; on the web build (and any Android device where
+  `healthSync.isSupported()` is false), the Connect/Sync controls simply
   don't render, and the section is just Export/Import as it is today —
   same `dist/` output, no build-time branch.
 
 #### Open risks to validate before/while building Phase 7.3–7.4
 
 - **Xiaomi package name drift**: Mi Fitness's Health-Connect-visible
-  package name has changed across regions and app versions
-  (`com.xiaomi.wearable`, `com.mi.health`, and the older Mi Fit's
-  `com.xiaomi.hm.health` all show up in different sources) — needs
-  confirming on a real device before shipping the origin filter, and
-  probably needs a small known-alias list rather than one hardcoded
-  string.
+  package name has changed across regions and app versions, so
+  `HealthSyncPlugin`'s `MI_FITNESS_PACKAGES` is already a small
+  known-alias list (`com.xiaomi.wearable`, `com.mi.health`, the older Mi
+  Fit's `com.xiaomi.hm.health`) rather than one hardcoded string — still
+  needs confirming against whichever one a real device's Mi Fitness
+  install actually uses, and the list may need another alias added once
+  that's known.
 - **Samsung Health nutrition completeness**: whether Samsung Health's own
   food-logging writes full per-entry macros (protein/fat/carbs) into
   `NutritionRecord`, or only aggregate calories with macros left blank,

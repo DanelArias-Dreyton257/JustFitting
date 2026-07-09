@@ -23,6 +23,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Phase 7.3 (Health Connect bridge, see README): Health
+                 Connect requires every app requesting health permissions to
+                 handle a "why does this app want this data" rationale,
+                 Android 14+ via VIEW_PERMISSION_USAGE, Android 13 and below
+                 via the androidx.health rationale action. Both point at
+                 this same MainActivity (single-activity app, no separate
+                 privacy-policy screen); opening it shows the Settings
+                 view's "Health & fitness sync" section (Phase 7.4), which
+                 is the actual in-app explanation. -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -39,4 +56,19 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Phase 7.3 (Health Connect bridge, see README): read-only, this
+         app only ever consumes Steps (Mi Fitness)/Nutrition (Samsung
+         Health) data those apps already synced into Health Connect, never
+         writes its own, so there's no corresponding WRITE_* permission. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_NUTRITION" />
+
+    <!-- Package-visibility (Android 11+, API 30+): lets HealthSyncPlugin
+         detect whether the Health Connect app itself is installed, to
+         distinguish "not installed" from "permission not granted yet"
+         (README's Phase 7.3 "Open risks" note). -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 </manifest>
