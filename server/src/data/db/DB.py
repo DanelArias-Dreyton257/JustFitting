@@ -1,15 +1,24 @@
 """SQLite connection wrapper.
 
-The schema is a set of idempotent ``CREATE TABLE IF NOT EXISTS`` /
-``CREATE INDEX IF NOT EXISTS`` statements applied on every connect, rather
-than a versioned migration runner: this project keeps no real user data
-that a migration history would need to carry forward through schema
-changes (see the README/CHANGELOG for how the schema evolved during
-development), so there's nothing a linear migration list protects here
-that a fresh, current ``CREATE TABLE`` doesn't already give for free. A
-schema change is just an edit to ``SCHEMA`` below, applied on the next
-boot -- if a database predates a given column, delete it and let it be
-recreated (``scripts/reset_db.sh`` + ``scripts/seed_demo_data.sh``).
+``SCHEMA`` below is the idempotent ``CREATE TABLE IF NOT EXISTS``/
+``CREATE INDEX IF NOT EXISTS`` baseline every DB gets on every connect --
+it's frozen at the shape ``server/src/data/db/migrations/m0001_baseline.py``
+represents and is no longer where a schema change goes (Phase 10.1, see
+README). Real accounts now have real on-device data (Android's embedded
+server, Phase 6) that a schema change must carry forward correctly, not
+just recreate -- so from this phase on, a schema change is a new numbered
+module in ``data/db/migrations/`` (``upgrade(conn) -> None``), applied by
+``_apply_migrations`` below via SQLite's own ``PRAGMA user_version``, never
+a further edit to ``SCHEMA`` itself. This applies to purely-additive
+changes too (a new table), not just destructive ones (a column drop) --
+see ``migrations/__init__.py``'s own docstring for why one linear list is
+better than two divergent code paths.
+
+Local dev may still delete-and-recreate for convenience
+(``scripts/reset_db.sh`` + ``scripts/seed_demo_data.sh``) -- that's just a
+fresh DB starting at ``user_version=0`` and running every migration in
+order, same as a first-ever install. A real device's DB always migrates in
+place; it's never reset.
 """
 
 from __future__ import annotations
@@ -17,6 +26,8 @@ from __future__ import annotations
 import sqlite3
 import threading
 from typing import List
+
+from server.src.data.db.migrations import MIGRATIONS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -240,10 +251,49 @@ class DB:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._conn.commit()
+            self._apply_migrations()
+            self._conn.execute("PRAGMA foreign_keys = ON")
+            self._conn.commit()
+
+    def _apply_migrations(self) -> None:
+        """Applies every migration numbered above the DB's current
+        ``PRAGMA user_version`` (see ``migrations/__init__.py``), inside one
+        transaction so a failure never leaves a half-migrated file -- either
+        every pending migration lands and ``user_version`` advances to the
+        highest one applied, or none of them do and the DB is left exactly
+        as it was.
+
+        Foreign-key enforcement is switched off for the duration: SQLite's
+        own recommended procedure for a schema change ``ALTER TABLE`` can't
+        express directly (e.g. m0002's column drop, a create-copy-drop-
+        rename sequence) needs it off, and ``PRAGMA foreign_keys`` is a
+        documented no-op once a transaction is already open -- so this must
+        happen before ``BEGIN``, not inside a migration's own ``upgrade()``.
+        """
+        current_version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        pending = [m for m in MIGRATIONS if m.version > current_version]
+        if not pending:
+            return
+
+        self._conn.execute("PRAGMA foreign_keys = OFF")
+        self._conn.execute("BEGIN")
+        try:
+            for migration in pending:
+                migration.upgrade(self._conn)
+                self._conn.execute(f"PRAGMA user_version = {migration.version}")
+            violations = self._conn.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise RuntimeError(
+                    f"migration(s) {[m.name for m in pending]} left dangling "
+                    f"foreign keys: {[tuple(row) for row in violations]}"
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     @property
     def connection(self) -> sqlite3.Connection:

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Delete the SQLite database. Confirms unless FORCE=1.
 # Usage: scripts/reset_db.sh [path]
+#
+# Local dev convenience only (Phase 10.1, see README): a fresh DB just
+# starts at user_version=0 and runs every migration in
+# server/src/data/db/migrations/ in order, same as a first-ever install --
+# faster than writing/testing a migration while iterating. A real device's
+# DB is never reset this way; it always migrates in place on next boot.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
