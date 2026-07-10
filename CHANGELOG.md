@@ -83,6 +83,22 @@ in-progress entry (the same navigate()-races-an-unawaited-refresh shape
 already fixed for the Log/Account/Settings views in earlier releases).
 376 server tests, 66 client tests green.
 
+### Fixed
+
+- **A real, pre-existing `navigate()`/`refreshLogs()` race**, caught by
+  CI (two Playwright timeouts that never reproduced locally): `refreshLogs()`
+  ran `goToLogStep(1)` *after* its `await api.listLogs()`, and
+  `navigate("log")` has always called it unawaited -- a fetch that
+  resolved late (slow network/CI) could silently reset an in-progress
+  wizard back to step 1, hiding `#log-save` right as something tried to
+  click it. Predates Phase 9 entirely; narrowed to actually land by the
+  Log wizard shrinking to 3 steps and the new Body-tab round trip adding
+  more real network time before reaching it. Fixed the same way as the
+  Account/Settings/Body races before it: the resets don't depend on the
+  fetched data, so they're hoisted into `refreshLogs()`'s synchronous
+  head instead of its async tail. Reproduced locally by throttling the
+  API before the fix, confirmed gone after it.
+
 ## [3.1.0] - 2026-07-10
 
 ### Added

@@ -1533,14 +1533,29 @@ This sub-phase is pure plumbing — no new UI, foundational for 9.2:
   removed (that Phase 5.4 behavior no longer exists once perimeters left
   the Log wizard); `renderLogTable`'s shifted column indices; two new
   `Views_test.py` cases for `renderBodyMeasurementTable`'s carry-forward
-  behavior and `fillBodyMeasurementForm`. Also caught and fixed a real
-  bug along the way: navigating to the Body view fired an unawaited
-  `refreshBody()` whose form-defaults reset (including the date input)
-  could land *after* a fast-typing user had already started filling the
-  form, silently clobbering it — the same navigate()-races-an-unawaited-
-  refresh shape already fixed for the Log/Account/Settings views (see
-  their own notes above and v2.0.1's CHANGELOG entry); fixed the same way,
-  by reordering `refreshBody()` to reset synchronously before its fetch.
+  behavior and `fillBodyMeasurementForm`. Also caught and fixed two real
+  bugs along the way, both the same navigate()-races-an-unawaited-refresh
+  shape already fixed for the Account/Settings views (see their own
+  notes above and v2.0.1's CHANGELOG entry) — fixed the same way in both
+  cases, by reordering the local, no-network-dependency reset to run
+  synchronously before the async fetch instead of after it:
+  - Navigating to the Body view fired an unawaited `refreshBody()` whose
+    form-defaults reset (including the date input) could land *after* a
+    fast-typing user had already started filling the form, silently
+    clobbering it.
+  - `refreshLogs()` — called unawaited from `navigate("log")` since
+    before Phase 9 existed — ran `goToLogStep(1)` *after* its own fetch,
+    so a late-resolving fetch could reset an in-progress wizard back to
+    step 1 mid-entry, hiding `#log-save` right as something tried to
+    click it. This one wasn't caught locally at all — it only surfaced
+    as two Playwright timeouts on CI (a slower/more loaded runner than
+    local dev), reproduced afterward by throttling the API locally to
+    confirm the fix. Narrowed into actually landing by this same phase's
+    own changes: the Log wizard shrinking to 3 steps, and the new Body-
+    tab round trip most tests now need before logging a computable week,
+    both meaningfully shrink the real time available before the race
+    window closes on its own.
+
   376 server tests, 66 client tests green.
 
 #### Phase 9.3 — Expanded body measurements (Small Feature 5) (done)
