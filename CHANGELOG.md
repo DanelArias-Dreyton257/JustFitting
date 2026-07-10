@@ -22,14 +22,16 @@ Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
   app's own client-side "Sync last N days" input (`max="90"`,
   `index.html`) and its JS clamp (`Math.min(raw, 90)`,
   `healthSyncWindowDays()` in `app.js`), both leftover from before that
-  permission existed and never raised once it was added. Both now cap at
-  365 days instead; a device that still declines history access continues
-  to degrade to Health Connect's own real 30-day platform clamp
-  regardless of what's requested, as before. `AndroidManifest.xml`'s
+  permission existed and never raised once it was added. Both are now
+  removed entirely -- the request always matches exactly what's typed, no
+  matter how large; a device that still declines history access
+  continues to degrade to Health Connect's own real 30-day platform
+  clamp regardless of what's requested, as before. `AndroidManifest.xml`'s
   explanatory comment and the README's Phase 7.5 description updated to
   match. Covered by a new `Account_test.py` case mocking the native
-  plugin and asserting the exact requested `sinceDate` for a 200-day
-  window, rather than just the old 90-day ceiling.
+  plugin and asserting the exact requested `sinceDate` for a 500-day
+  window (well past both this app's former 90- and 365-day ceilings),
+  and that the input carries no `max` attribute at all.
 - **The Plan tab's "Weekly rate (%)" field wouldn't accept a typed `-` on
   Android**, forcing a copy-paste workaround for every cut goal.
   `type="number"` inputs get a numeric virtual keyboard on Android that,

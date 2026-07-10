@@ -151,9 +151,10 @@ class AccountTest(unittest.TestCase):
         # Mirrors HealthSync_test.py's own mock, but also records the
         # sinceDate a "Sync now" press actually requests, so this test can
         # confirm the requested window isn't silently clamped -- the real
-        # regression: a stale 90-day ceiling (things-to-improve.txt) left
-        # over from before READ_HEALTH_DATA_HISTORY existed (README's Phase
-        # 7.6) meant a >90-day request never reached the native plugin at
+        # regression: a stale 90-day (then 365-day) ceiling
+        # (things-to-improve.txt) left over from before
+        # READ_HEALTH_DATA_HISTORY existed (README's Phase 7.6) meant a
+        # request past that ceiling never reached the native plugin at
         # all, regardless of what the user typed.
         self.page.evaluate(
             """() => {
@@ -174,15 +175,18 @@ class AccountTest(unittest.TestCase):
             }"""
         )
 
-    def test_health_sync_window_input_allows_more_than_90_days(self):
+    def test_health_sync_window_input_has_no_upper_cap(self):
         self._mock_health_sync_plugin()
         self._navigate("account")
         self.page.wait_for_selector("#health-sync-section:not([hidden])")
-        self.assertEqual(
-            self.page.get_attribute("#health-sync-days-input", "max"), "365"
-        )
+        # No `max` attribute at all -- neither the old 90-day nor the
+        # since-superseded 365-day ceiling.
+        self.assertIsNone(self.page.get_attribute("#health-sync-days-input", "max"))
 
-        self.page.fill("#health-sync-days-input", "200")
+        # Well past both of this app's former ceilings (90, then 365), to
+        # prove the request itself is genuinely uncapped, not just raised.
+        requested_days = 500
+        self.page.fill("#health-sync-days-input", str(requested_days))
         self.page.click("#health-sync-now-btn")
         self.page.wait_for_function("window.__syncCalls && window.__syncCalls.length === 1")
         requested_since_date = self.page.evaluate("window.__syncCalls[0]")
@@ -193,11 +197,10 @@ class AccountTest(unittest.TestCase):
             "${String(d.getDate()).padStart(2, '0')}`; }"
         )
         expected_since_date = (
-            datetime.date.fromisoformat(today) - datetime.timedelta(days=200)
+            datetime.date.fromisoformat(today) - datetime.timedelta(days=requested_days)
         ).isoformat()
-        # A pre-fix 90-day clamp would have requested a since-date only 90
-        # days back, well after this expectation -- asserting equality (not
-        # just "further back than 90 days") pins the exact requested window.
+        # Asserting exact equality (not just "further back than N days")
+        # pins the exact requested window -- any clamp would fail this.
         self.assertEqual(requested_since_date, expected_since_date)
 
 

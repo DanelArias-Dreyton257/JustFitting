@@ -1183,9 +1183,9 @@ that Phase 7.4 makes a real persisted partial row possible:
   are only ever sent as a complete trio, matching `validate_log_input`'s
   all-or-nothing rule. A reading is a real row the moment it's synced —
   the original `localStorage`-cache/prefill idea was dropped entirely.
-  The sync window is a fixed rolling window (default 7 days, capped at
-  365) on every press; re-syncing an overlapping day is harmless (upsert,
-  not create).
+  The sync window is a fixed rolling window (default 7 days, no upper
+  cap -- see Phase 11.5) on every press; re-syncing an overlapping day
+  is harmless (upsert, not create).
 - **Completing a day** is exactly Phase 5.7's existing edit flow — a
   synced day is already a normal partial row, so open it in the Log view
   and add weight/waist/neck. `renderLogTable`/the wizard now render
@@ -1528,9 +1528,11 @@ Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
   history permission.** Health Connect itself imposes no additional
   clamp once `READ_HEALTH_DATA_HISTORY` (Phase 7.6) is granted — the
   real ceiling was this app's own "Sync last N days" input and JS clamp,
-  both leftover from before that permission existed. Both now cap at 365
-  days; declining history access still degrades to Health Connect's own
-  real 30-day platform clamp, as before.
+  both leftover from before that permission existed. Both are now
+  removed entirely — the "Sync last N days" field has no upper bound at
+  all, so the request always matches exactly what's asked for; declining
+  history access still degrades to Health Connect's own real 30-day
+  platform clamp, as before.
 - **The Plan tab's "Weekly rate (%)" field wouldn't accept a typed `-` on
   Android.** `type="number"` gets a numeric virtual keyboard that,
   depending on device/IME, omits the minus key — a known Chromium/WebView
