@@ -9,16 +9,30 @@
   <div id="alerts-container" hidden></div>
   <dl id="log-review"></dl>
   <table><tbody id="log-table-body"></tbody></table>
+  <table><tbody id="body-table-body"></tbody></table>
+
+  <form id="body-form">
+    <input name="date" type="date" />
+    <input name="waist_cm" type="number" />
+    <input name="neck_cm" type="number" />
+    <input name="shoulder_cm" type="number" />
+    <input name="chest_cm" type="number" />
+    <input name="hips_cm" type="number" />
+    <input name="biceps_r_cm" type="number" />
+    <input name="biceps_l_cm" type="number" />
+    <input name="thigh_r_cm" type="number" />
+    <input name="thigh_l_cm" type="number" />
+    <input name="calf_r_cm" type="number" />
+    <input name="calf_l_cm" type="number" />
+  </form>
 
   <form id="log-form">
     <div class="wizard-step" data-step="1"></div>
     <div class="wizard-step" data-step="2" hidden></div>
     <div class="wizard-step" data-step="3" hidden></div>
-    <div class="wizard-step" data-step="4" hidden></div>
     <span class="wizard-step-label" data-step="1"></span>
     <span class="wizard-step-label" data-step="2"></span>
     <span class="wizard-step-label" data-step="3"></span>
-    <span class="wizard-step-label" data-step="4"></span>
     <button type="button" id="log-back"></button>
     <button type="button" id="log-next"></button>
     <button type="submit" id="log-save"></button>

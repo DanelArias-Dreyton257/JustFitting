@@ -79,7 +79,7 @@ class ViewsTest(unittest.TestCase):
 
     def test_show_wizard_step_toggles_the_active_step_and_nav_buttons(self):
         self.page.evaluate(
-            "() => window.__views.showWizardStep(document.getElementById('log-form'), 2, 4)"
+            "() => window.__views.showWizardStep(document.getElementById('log-form'), 2, 3)"
         )
         self.assertFalse(self._hidden('.wizard-step[data-step="2"]'))
         self.assertTrue(self._hidden('.wizard-step[data-step="1"]'))
@@ -89,22 +89,20 @@ class ViewsTest(unittest.TestCase):
 
     def test_show_wizard_step_on_the_last_step_reveals_save_and_hides_next(self):
         self.page.evaluate(
-            "() => window.__views.showWizardStep(document.getElementById('log-form'), 4, 4)"
+            "() => window.__views.showWizardStep(document.getElementById('log-form'), 3, 3)"
         )
         self.assertTrue(self._hidden("#log-next"))
         self.assertFalse(self._hidden("#log-save"))
 
     def test_render_log_table_shows_dashes_for_a_partial_row(self):
         """Phase 7.4 (partial logs, see README): a synced, steps-only row
-        has no weight/waist/neck yet -- the table shows a dash, not the
+        has no weight/macros yet -- the table shows a dash, not the
         literal string "null"."""
         logs = [
             {
                 "log_id": 1,
                 "date": "2026-01-05",
                 "weight_kg": None,
-                "waist_cm": None,
-                "neck_cm": None,
                 "intake_kcal": 2200,
                 "steps": 7000,
                 "cardio_kcal": 0,
@@ -123,8 +121,7 @@ class ViewsTest(unittest.TestCase):
             "#log-table-body tr td", "els => els.map(el => el.textContent)"
         )
         self.assertEqual(cells[1], "—")  # weight
-        self.assertEqual(cells[2], "—")  # waist
-        self.assertEqual(cells[3], "—")  # neck
+        self.assertEqual(cells[5], "—")  # macros (carbs/fat/protein all null)
         self.assertNotIn("null", "".join(cells))
 
     def test_render_log_review_lists_the_given_values(self):
@@ -133,8 +130,6 @@ class ViewsTest(unittest.TestCase):
             {
                 "date": "2026-07-01",
                 "weight_kg": 90.5,
-                "waist_cm": 80,
-                "neck_cm": 35,
                 "intake_kcal": 2000,
                 "steps": 5000,
             },
@@ -142,6 +137,87 @@ class ViewsTest(unittest.TestCase):
         content = self.page.inner_html("#log-review")
         self.assertIn("90.5 kg", content)
         self.assertIn("5000", content)
+
+    def test_render_body_measurement_table_carries_forward_unset_fields(self):
+        # Phase 9.3: a Quick (waist/neck-only) entry shouldn't make Chest/
+        # Hips/etc. appear to reset to blank -- each field independently
+        # carries forward its own most recent non-null value.
+        measurements = [
+            {
+                "measurement_id": 1,
+                "date": "2026-01-01",
+                "waist_cm": 90,
+                "neck_cm": 38,
+                "shoulder_cm": 45,
+                "chest_cm": None,
+                "hips_cm": None,
+                "biceps_r_cm": None,
+                "biceps_l_cm": None,
+                "thigh_r_cm": None,
+                "thigh_l_cm": None,
+                "calf_r_cm": None,
+                "calf_l_cm": None,
+            },
+            {
+                "measurement_id": 2,
+                "date": "2026-01-08",
+                "waist_cm": 89,
+                "neck_cm": 38,
+                "shoulder_cm": None,
+                "chest_cm": None,
+                "hips_cm": None,
+                "biceps_r_cm": None,
+                "biceps_l_cm": None,
+                "thigh_r_cm": None,
+                "thigh_l_cm": None,
+                "calf_r_cm": None,
+                "calf_l_cm": None,
+            },
+        ]
+        self.page.evaluate(
+            "(measurements) => window.__views.renderBodyMeasurementTable("
+            "document.getElementById('body-table-body'), measurements)",
+            measurements,
+        )
+        rows = self.page.locator("#body-table-body tr")
+        self.assertEqual(rows.count(), 2)
+        second_row_cells = rows.nth(1).locator("td").all_inner_texts()
+        # Date, waist, neck, shoulder, ... -- shoulder (index 3) carries
+        # forward the 45 from the first (Full) entry, not a dash.
+        self.assertEqual(second_row_cells[0], "2026-01-08")
+        self.assertEqual(second_row_cells[1], "89")
+        self.assertEqual(second_row_cells[3], "45")
+
+    def test_fill_body_measurement_form_populates_named_fields(self):
+        measurement = {
+            "date": "2026-02-01",
+            "waist_cm": 91.5,
+            "neck_cm": 39,
+            "shoulder_cm": None,
+            "chest_cm": None,
+            "hips_cm": None,
+            "biceps_r_cm": None,
+            "biceps_l_cm": None,
+            "thigh_r_cm": None,
+            "thigh_l_cm": None,
+            "calf_r_cm": None,
+            "calf_l_cm": None,
+        }
+        self.page.evaluate(
+            "(measurement) => window.__views.fillBodyMeasurementForm("
+            "document.getElementById('body-form'), measurement)",
+            measurement,
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#body-form [name="date"]', "el => el.value"),
+            "2026-02-01",
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#body-form [name="waist_cm"]', "el => el.value"), "91.5"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#body-form [name="chest_cm"]', "el => el.value"), ""
+        )
 
 
 if __name__ == "__main__":

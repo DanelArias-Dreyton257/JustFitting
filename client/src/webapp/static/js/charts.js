@@ -265,6 +265,76 @@ export function drawMultiLineChart(svg, series, lines, { isProjected = () => fal
   );
 }
 
+// Like drawMultiLineChart, but each line is a held/step line (flat segments
+// between consecutive real points, jumping at the next one) instead of a
+// diagonal interpolation -- Phase 9.2's Body view perimeters are genuinely
+// sporadic ("static until the next update"), so a diagonal line between two
+// distant readings would visually imply a gradual glide that never actually
+// happened; a step communicates "this value didn't change, we just haven't
+// measured again yet."
+export function drawStepLineChart(svg, series, lines, { isProjected = () => false, markers = [] } = {}) {
+  svg.innerHTML = "";
+  if (!series.length) {
+    attachHoverTooltip(svg, [], () => "");
+    return;
+  }
+
+  const width = svg.clientWidth || 320;
+  const height = svg.clientHeight || 180;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const allValues = lines.flatMap((line) => series.map((row) => line.accessor(row)));
+  const yDomain = [Math.min(...allValues), Math.max(...allValues) || 1];
+  const xScale = buildDateXScale(series, width);
+  const yScale = scaleLinear(yDomain, [height - LAYOUT.bottom, LAYOUT.top]);
+  const xPositions = series.map((row) => xScale(toEpoch(row.date)));
+
+  drawAxes(svg, { series, xPositions, yScale, yDomain, width, height });
+
+  lines.forEach((line) => {
+    const points = series.map((row, i) => [xPositions[i], yScale(line.accessor(row))]);
+    const segments = [`M${points[0][0]},${points[0][1]}`];
+    for (let i = 1; i < points.length; i++) {
+      const [x, y] = points[i];
+      const [, prevY] = points[i - 1];
+      // Hold the previous value flat until this point's x, then jump.
+      segments.push(`L${x},${prevY}`, `L${x},${y}`);
+    }
+
+    svg.appendChild(
+      svgEl("path", {
+        d: segments.join(" "),
+        fill: "none",
+        stroke: line.color,
+        "stroke-width": "2",
+        ...(line.dashed ? { "stroke-dasharray": "5,4" } : {}),
+      })
+    );
+
+    points.forEach(([x, y], i) => {
+      drawPointMarker(svg, x, y, line.color, isProjected(series[i]));
+    });
+  });
+
+  drawMarkerLines(svg, markers, xScale, width, height);
+
+  attachHoverTooltip(
+    svg,
+    series.map((row, i) => ({ x: xPositions[i], datum: row })),
+    (row) => {
+      const linesHtml = lines
+        .map(
+          (line) =>
+            `<span style="color:${line.color}">●</span> ${line.label || ""}: ${line
+              .accessor(row)
+              .toFixed(1)}`
+        )
+        .join("<br>");
+      return `<strong>${formatDateTick(row.date)}</strong><br>${linesHtml}`;
+    }
+  );
+}
+
 // Two 100%-comparable columns ("Target" vs "Actual"), each stacked by
 // macronutrient (protein/fat/carbs kcal) -- a 2px surface-color gap
 // separates touching segments, same convention as any other stacked mark.

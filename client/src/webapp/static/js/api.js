@@ -45,6 +45,16 @@ export const api = {
   exportData: () => request("GET", "/api/users/me/export"),
   importData: (payload) => request("POST", "/api/users/me/import", { body: payload }),
 
+  // Phase 9.1/9.2 (body composition logging separation, see README):
+  // sporadic waist/neck (plus, since Phase 9.3, nine more record-only
+  // perimeters) -- deliberately separate from /api/logs.
+  listBodyMeasurements: () => request("GET", "/api/body-measurements"),
+  saveBodyMeasurement: (payload) => request("POST", "/api/body-measurements", { body: payload }),
+  updateBodyMeasurement: (measurementId, payload) =>
+    request("PUT", `/api/body-measurements/${measurementId}`, { body: payload }),
+  deleteBodyMeasurement: (measurementId) =>
+    request("DELETE", `/api/body-measurements/${measurementId}`),
+
   listLogs: () => request("GET", "/api/logs"),
   createLog: (payload) => request("POST", "/api/logs", { body: payload }),
   updateLog: (logId, payload) => request("PUT", `/api/logs/${logId}`, { body: payload }),

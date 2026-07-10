@@ -32,11 +32,15 @@ import {
   renderSettingsHistory,
   renderImportSummary,
   renderHealthSyncStatus,
+  renderBodyMeasurementTable,
+  fillBodyMeasurementForm,
+  BODY_MEASUREMENT_FIELDS,
 } from "./views.js";
 import {
   drawLineChart,
   drawStackedBars,
   drawMultiLineChart,
+  drawStepLineChart,
   drawDivergingBars,
   drawMacroSplitBars,
 } from "./charts.js";
@@ -110,9 +114,11 @@ const state = {
   projectionCache: {},
   logNav: { selectedDate: todayIso(), viewMode: "day" },
   editingLogId: null,
+  bodyMeasurements: [],
+  editingMeasurementId: null,
 };
 
-const LOG_WIZARD_STEPS = 4;
+const LOG_WIZARD_STEPS = 3;
 let logWizardStep = 1;
 
 const navButtons = document.querySelectorAll(".nav-link");
@@ -180,6 +186,7 @@ async function enterApp() {
   state.projectionCache = {};
   state.logNav = { selectedDate: todayIso(), viewMode: "day" };
   state.editingLogId = null;
+  state.editingMeasurementId = null;
   const dashboardDetails = document.getElementById("dashboard-details");
   if (dashboardDetails) dashboardDetails.open = false;
   const projectionToggle = document.getElementById("dashboard-projection-toggle");
@@ -203,6 +210,7 @@ function navigate(viewName) {
     renderFilteredLogList();
     refreshLogs();
   }
+  if (viewName === "body") refreshBody();
   if (viewName === "plan") refreshPlan();
   if (viewName === "account") {
     // Render synchronously from already-known state -- state.profile is
@@ -282,15 +290,25 @@ async function refreshDashboardSummary() {
 }
 
 async function refreshDashboardCharts() {
-  const [logs, goals, energyBalance, incrementAnalytics, tef, macroTargets] = await Promise.all([
-    api.listLogs().catch(() => []),
-    api.goals().catch(() => []),
-    api.energyBalance().catch(() => []),
-    api.incrementAnalytics().catch(() => []),
-    api.tef().catch(() => []),
-    api.macroTargets().catch(() => []),
-  ]);
-  state.dashboardData = { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets };
+  const [logs, bodyMeasurements, goals, energyBalance, incrementAnalytics, tef, macroTargets] =
+    await Promise.all([
+      api.listLogs().catch(() => []),
+      api.listBodyMeasurements().catch(() => []),
+      api.goals().catch(() => []),
+      api.energyBalance().catch(() => []),
+      api.incrementAnalytics().catch(() => []),
+      api.tef().catch(() => []),
+      api.macroTargets().catch(() => []),
+    ]);
+  state.dashboardData = {
+    logs,
+    bodyMeasurements,
+    goals,
+    energyBalance,
+    incrementAnalytics,
+    tef,
+    macroTargets,
+  };
   await renderDashboardCharts();
 }
 
@@ -310,7 +328,8 @@ async function fetchProjectionWeeks(weeks) {
 
 async function renderDashboardCharts() {
   if (!state.dashboardData) return;
-  const { logs, goals, energyBalance, incrementAnalytics, tef, macroTargets } = state.dashboardData;
+  const { logs, bodyMeasurements, goals, energyBalance, incrementAnalytics, tef, macroTargets } =
+    state.dashboardData;
   const series = state.series;
   const gainQuality = state.gainQuality;
 
@@ -365,28 +384,35 @@ async function renderDashboardCharts() {
     })),
     { label: "Target calories", markers: forecastMarkers }
   );
-  drawMultiLineChart(
+  // Phase 9.2 (body composition logging separation, see README): perimeters
+  // are no longer resampled/weekly at all -- this chart is fed directly
+  // from GET /api/body-measurements' own genuinely-sporadic dates, rendered
+  // as a held/step line (drawStepLineChart) rather than the diagonal
+  // interpolation every other chart above uses, so it visually reads as
+  // "this value didn't change, we just haven't measured again yet." The
+  // forecast toggle still overlays (estimated_waist/estimated_neck, sourced
+  // from body_measurements' own trend-fit since Phase 9.1) as trailing
+  // projected points appended after the last real measurement.
+  const perimeterPoints = bodyMeasurements.map((m) => ({
+    date: m.date,
+    waist_cm: m.waist_cm,
+    neck_cm: m.neck_cm,
+    projected: false,
+  }));
+  const forecastPerimeterPoints = forecastRows.map((row) => ({
+    date: row.date,
+    waist_cm: row.estimated_waist,
+    neck_cm: row.estimated_neck,
+    projected: true,
+  }));
+  drawStepLineChart(
     document.getElementById("chart-perimeters"),
-    forecastSeries,
+    perimeterPoints.concat(forecastPerimeterPoints),
     [
-      {
-        accessor: (row) => {
-          const log = logsById.get(row.log_id);
-          return log ? log.waist_cm : row.estimated_waist || 0;
-        },
-        color: "#5eb3ff",
-        label: "Waist",
-      },
-      {
-        accessor: (row) => {
-          const log = logsById.get(row.log_id);
-          return log ? log.neck_cm : row.estimated_neck || 0;
-        },
-        color: "#f0b94d",
-        label: "Neck",
-      },
+      { accessor: (row) => row.waist_cm, color: "#5eb3ff", label: "Waist" },
+      { accessor: (row) => row.neck_cm, color: "#f0b94d", label: "Neck" },
     ],
-    { isProjected, markers: forecastMarkers }
+    { isProjected: (row) => row.projected, markers: forecastMarkers }
   );
   drawLineChart(
     document.getElementById("chart-steps"),
@@ -520,49 +546,23 @@ function resetWizardGranularityDefault() {
     state.logNav.viewMode === "week" ? "weekly" : "daily";
 }
 
-// Phase 7.4 (partial logs, see README): the most recent real log isn't
-// necessarily the most recent one with perimeters -- e.g. a synced,
-// steps-only day is "real" but has no waist/neck yet. Prefill from
-// whichever recent real log actually has them.
-function mostRecentLogWithPerimeters() {
-  const withPerimeters = state.logs.filter(
-    (log) => log.source === "real" && log.waist_cm != null && log.neck_cm != null
-  );
-  return withPerimeters.length
-    ? withPerimeters.reduce((a, b) => (b.date > a.date ? b : a))
-    : null;
-}
-
-// Most weeks a person's waist/neck barely change, so the wizard opens
-// pre-filled from the account's last real log -- weight stays blank since
-// it's the one number that's supposed to change and get re-measured every
-// time, and intake/steps/cardio/macros stay blank too (today's actual
-// entry, not a carry-forward).
-function prefillWizardFromLastLog() {
-  const lastLog = mostRecentLogWithPerimeters();
-  const form = document.getElementById("log-form");
-  form.waist_cm.value = lastLog ? lastLog.waist_cm : "";
-  form.neck_cm.value = lastLog ? lastLog.neck_cm : "";
-}
-
-// Every "fresh wizard" reset point (entering the Log view, switching
-// day/week) resets both the granularity default and the perimeter prefill
-// together.
+// Phase 9.2: perimeters no longer live in the Log wizard at all (see the
+// Body view below) -- resetting the wizard's defaults is just the
+// granularity default now. Kept as its own function (rather than inlining
+// resetWizardGranularityDefault at each call site) since Phase 9.3+ ideas
+// may want to hang more "fresh wizard" resets off it later.
 function resetWizardDefaults() {
   resetWizardGranularityDefault();
-  prefillWizardFromLastLog();
 }
 
 // Phase 7.4 (partial logs, see README): a log opened for editing can be
-// missing weight/waist/neck/intake/steps (e.g. a Health Connect sync
-// wrote steps/nutrition but nobody's added body measurements yet) -- each
-// falls back to an empty input, same as the macro fields already did,
-// rather than the literal string "null".
+// missing weight/intake/steps (e.g. a Health Connect sync wrote steps/
+// nutrition but nobody's added weight yet) -- each falls back to an empty
+// input, same as the macro fields already did, rather than the literal
+// string "null".
 function fillWizardFromLog(log) {
   const form = document.getElementById("log-form");
   form.weight_kg.value = log.weight_kg == null ? "" : log.weight_kg;
-  form.waist_cm.value = log.waist_cm == null ? "" : log.waist_cm;
-  form.neck_cm.value = log.neck_cm == null ? "" : log.neck_cm;
   form.intake_kcal.value = log.intake_kcal == null ? "" : log.intake_kcal;
   form.steps.value = log.steps == null ? "" : log.steps;
   form.cardio_kcal.value = log.cardio_kcal == null ? "" : log.cardio_kcal;
@@ -693,8 +693,6 @@ function projectedLogRow(row) {
     log_id: null,
     date: row.date,
     weight_kg: round1(row.estimated_weight),
-    waist_cm: round1(row.estimated_waist),
-    neck_cm: round1(row.estimated_neck),
     intake_kcal: null,
     steps: null,
     cardio_kcal: null,
@@ -750,6 +748,59 @@ function currentLogStepIsValid() {
   return Array.from(fieldset.querySelectorAll("input")).every((input) =>
     input.reportValidity()
   );
+}
+
+// Phase 9.1/9.2 (body composition logging separation, see README): waist/
+// neck (plus, since Phase 9.3, nine more record-only perimeters) are their
+// own sporadically-logged record, separate from the Log view's wizard.
+function isBodyFullMode() {
+  return document.getElementById("body-mode-full").checked;
+}
+
+function setBodyFullFieldsVisible(visible) {
+  document.getElementById("body-full-fields").hidden = !visible;
+}
+
+function resetBodyFormDefaults() {
+  state.editingMeasurementId = null;
+  const form = document.getElementById("body-form");
+  form.reset();
+  document.getElementById("body-mode-quick").checked = true;
+  setBodyFullFieldsVisible(false);
+  document.getElementById("body-date-input").value = todayIso();
+  document.getElementById("body-date-input").readOnly = false;
+  document.getElementById("body-save").textContent = "Save measurement";
+  document.getElementById("body-cancel-edit").hidden = true;
+}
+
+async function refreshBody() {
+  // Reset synchronously, before the fetch below even starts -- the same
+  // navigate()-races-an-unawaited-refresh shape already fixed for the Log,
+  // Account, and Settings views (see their own comments/CHANGELOG entries):
+  // calling this after the `await` let a user who started filling the form
+  // right after opening the Body tab have it silently clobbered back to
+  // blank/today once the fetch resolved.
+  resetBodyFormDefaults();
+  state.bodyMeasurements = await api.listBodyMeasurements();
+  renderBodyMeasurementTable(document.querySelector("#body-table tbody"), state.bodyMeasurements);
+  document.getElementById("body-table").hidden = state.bodyMeasurements.length === 0;
+  document.getElementById("body-list-empty").hidden = state.bodyMeasurements.length !== 0;
+}
+
+// A Full entry needs every field visible so an edit round-trips already-
+// recorded values instead of blanking anything the user doesn't touch --
+// see the Body form's own "never resets an already-recorded measurement to
+// blank" note. The date is pinned to the row's own date (PUT
+// /api/body-measurements/<id> never changes it), same convention as the
+// Log wizard's edit mode.
+function enterBodyEditMode(measurement) {
+  state.editingMeasurementId = measurement.measurement_id;
+  document.getElementById("body-mode-full").checked = true;
+  setBodyFullFieldsVisible(true);
+  fillBodyMeasurementForm(document.getElementById("body-form"), measurement);
+  document.getElementById("body-date-input").readOnly = true;
+  document.getElementById("body-save").textContent = "Save changes";
+  document.getElementById("body-cancel-edit").hidden = false;
 }
 
 async function refreshPlan() {
@@ -1004,16 +1055,14 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
   // creating -- edit mode omits them so the server's partial-update
   // semantics (log_routes.py's update_log) leave them untouched, since
   // neither is editable here.
-  // Phase 7.4 (partial logs, see README): weight/waist/neck/intake/steps
-  // are all optional now, same treatment the macro trio already had --
-  // a blank field means "not logged," sent as null, not coerced to 0.
-  // cardio_kcal is the one exception: it stays a real 0-or-a-number
-  // field (the server column is still NOT NULL DEFAULT 0), matching its
-  // own input's "0" default.
+  // Phase 7.4 (partial logs, see README): weight/intake/steps are all
+  // optional now, same treatment the macro trio already had -- a blank
+  // field means "not logged," sent as null, not coerced to 0. cardio_kcal
+  // is the one exception: it stays a real 0-or-a-number field (the server
+  // column is still NOT NULL DEFAULT 0), matching its own input's "0"
+  // default.
   const measurements = {
     weight_kg: optionalNumber(raw.weight_kg),
-    waist_cm: optionalNumber(raw.waist_cm),
-    neck_cm: optionalNumber(raw.neck_cm),
     intake_kcal: optionalNumber(raw.intake_kcal),
     steps: optionalNumber(raw.steps),
     cardio_kcal: Number(raw.cardio_kcal) || 0,
@@ -1058,6 +1107,61 @@ document.querySelector("#log-table tbody").addEventListener("click", async (even
   if (editBtn) {
     const log = state.logs.find((l) => l.log_id === Number(editBtn.dataset.logId));
     if (log) enterEditMode(log);
+  }
+});
+
+document.getElementById("body-mode-quick").addEventListener("change", () => {
+  setBodyFullFieldsVisible(false);
+});
+
+document.getElementById("body-mode-full").addEventListener("change", () => {
+  setBodyFullFieldsVisible(true);
+});
+
+document.getElementById("body-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("body-form", "");
+  const raw = formToJson(event.target);
+  // Quick mode only ever considers waist/neck; Full considers all eleven.
+  // Either way, a *blank* field is omitted from the payload entirely
+  // (rather than sent as null) -- the server only touches keys actually
+  // present, so this is what leaves an already-recorded measurement's
+  // other fields untouched instead of blanking them.
+  const payload = { date: raw.date };
+  const consideredFields = isBodyFullMode() ? BODY_MEASUREMENT_FIELDS : ["waist_cm", "neck_cm"];
+  for (const field of consideredFields) {
+    const value = optionalNumber(raw[field]);
+    if (value !== null) payload[field] = value;
+  }
+  try {
+    if (state.editingMeasurementId != null) {
+      await api.updateBodyMeasurement(state.editingMeasurementId, payload);
+    } else {
+      await api.saveBodyMeasurement(payload);
+    }
+    await refreshBody();
+  } catch (err) {
+    setFormError("body-form", err.message);
+  }
+});
+
+document.getElementById("body-cancel-edit").addEventListener("click", () => {
+  resetBodyFormDefaults();
+});
+
+document.querySelector("#body-table tbody").addEventListener("click", async (event) => {
+  const deleteBtn = event.target.closest(".delete-measurement-btn");
+  if (deleteBtn) {
+    await api.deleteBodyMeasurement(deleteBtn.dataset.measurementId);
+    await refreshBody();
+    return;
+  }
+  const editBtn = event.target.closest(".edit-measurement-btn");
+  if (editBtn) {
+    const measurement = state.bodyMeasurements.find(
+      (m) => m.measurement_id === Number(editBtn.dataset.measurementId)
+    );
+    if (measurement) enterBodyEditMode(measurement);
   }
 });
 
