@@ -39,6 +39,7 @@
     <nav class="nav-menu" id="nav" role="menu" hidden>
       <button class="nav-link" role="menuitem" data-view="dashboard">Dashboard</button>
       <button class="nav-link" role="menuitem" data-view="log">Log</button>
+      <button class="nav-link" role="menuitem" data-view="body">Body</button>
       <button class="nav-link" role="menuitem" data-view="plan">Plan</button>
       <button class="nav-link" role="menuitem" data-view="alert-history">Alerts</button>
       <button class="nav-link" role="menuitem" data-view="report">Report</button>
@@ -214,9 +215,8 @@
       <form id="log-form" class="wizard-form">
         <div class="wizard-progress" id="log-wizard-progress">
           <span class="wizard-step-label" data-step="1">1. Date &amp; weight</span>
-          <span class="wizard-step-label" data-step="2">2. Perimeters</span>
-          <span class="wizard-step-label" data-step="3">3. Energy</span>
-          <span class="wizard-step-label" data-step="4">4. Review</span>
+          <span class="wizard-step-label" data-step="2">2. Energy</span>
+          <span class="wizard-step-label" data-step="3">3. Review</span>
         </div>
 
         <fieldset class="wizard-step" data-step="1">
@@ -232,11 +232,6 @@
         </fieldset>
 
         <fieldset class="wizard-step" data-step="2" hidden>
-          <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" /></label>
-          <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" /></label>
-        </fieldset>
-
-        <fieldset class="wizard-step" data-step="3" hidden>
           <label>Intake (kcal) <input name="intake_kcal" type="number" step="1" /></label>
           <label>Steps <input name="steps" type="number" step="1" /></label>
           <label>Cardio / exercise (kcal) <input name="cardio_kcal" type="number" step="1" value="0" /></label>
@@ -250,7 +245,7 @@
           <label>Protein (g) <input name="protein_g" type="number" step="1" min="0" /></label>
         </fieldset>
 
-        <fieldset class="wizard-step" data-step="4" hidden>
+        <fieldset class="wizard-step" data-step="3" hidden>
           <p>Review before saving:</p>
           <dl class="wizard-review" id="log-review"></dl>
         </fieldset>
@@ -268,10 +263,70 @@
       <p class="disclaimer" id="log-list-empty" hidden>No logs for this day/week yet.</p>
       <table class="data-table" id="log-table">
         <thead>
-          <tr><th>Date</th><th>Weight</th><th>Waist</th><th>Neck</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Macros (C/F/P)</th><th>Source</th><th>Granularity</th><th></th></tr>
+          <tr><th>Date</th><th>Weight</th><th>Intake</th><th>Steps</th><th>Cardio</th><th>Macros (C/F/P)</th><th>Source</th><th>Granularity</th><th></th></tr>
         </thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section id="view-body" class="view" hidden>
+      <h1>Body measurements</h1>
+      <p class="disclaimer">
+        Waist and neck feed every body-fat calculation, held "static" from
+        one measurement to the next -- log them as often or as rarely as
+        you actually take them, independently of your weight/nutrition/steps
+        cadence.
+      </p>
+
+      <form id="body-form" class="stacked-form">
+        <label>Date <input type="date" name="date" id="body-date-input" required /></label>
+        <div class="inline-form" id="body-mode-toggle">
+          <label class="checkbox-label">
+            <input type="radio" name="mode" value="quick" id="body-mode-quick" checked />
+            Quick (waist &amp; neck)
+          </label>
+          <label class="checkbox-label">
+            <input type="radio" name="mode" value="full" id="body-mode-full" />
+            Full (all measurements)
+          </label>
+        </div>
+        <label>Waist (cm) <input name="waist_cm" type="number" step="0.1" /></label>
+        <label>Neck (cm) <input name="neck_cm" type="number" step="0.1" /></label>
+        <div id="body-full-fields" hidden>
+          <label>Shoulder width (cm) <input name="shoulder_cm" type="number" step="0.1" /></label>
+          <label>Chest (cm) <input name="chest_cm" type="number" step="0.1" /></label>
+          <label>Hips (cm) <input name="hips_cm" type="number" step="0.1" /></label>
+          <label>Right biceps (cm) <input name="biceps_r_cm" type="number" step="0.1" /></label>
+          <label>Left biceps (cm) <input name="biceps_l_cm" type="number" step="0.1" /></label>
+          <label>Right thigh (cm) <input name="thigh_r_cm" type="number" step="0.1" /></label>
+          <label>Left thigh (cm) <input name="thigh_l_cm" type="number" step="0.1" /></label>
+          <label>Right calf (cm) <input name="calf_r_cm" type="number" step="0.1" /></label>
+          <label>Left calf (cm) <input name="calf_l_cm" type="number" step="0.1" /></label>
+        </div>
+        <p class="disclaimer">
+          Quick only ever touches waist/neck -- every other measurement stays
+          whatever it last was. Full leaves any field you skip unchanged too;
+          it never resets an already-recorded measurement to blank.
+        </p>
+        <button type="submit" id="body-save">Save measurement</button>
+        <button type="button" id="body-cancel-edit" hidden>Cancel</button>
+        <p class="form-error" data-for="body-form"></p>
+      </form>
+
+      <h2>History</h2>
+      <p class="disclaimer" id="body-list-empty" hidden>No measurements logged yet.</p>
+      <div class="table-scroll">
+        <table class="data-table" id="body-table">
+          <thead>
+            <tr>
+              <th>Date</th><th>Waist</th><th>Neck</th><th>Shoulder</th><th>Chest</th>
+              <th>Hips</th><th>R Biceps</th><th>L Biceps</th><th>R Thigh</th><th>L Thigh</th>
+              <th>R Calf</th><th>L Calf</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="view-plan" class="view" hidden>

@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-07-10
+
+### Added
+
+Phase 9 (README), GAME CHANGER (1) from `things-to-improve.txt`'s "Big
+Remaining Features" plus Small Feature 5 — the largest data-model change
+since Phase 3.3's daily/weekly coexistence: **body composition logging
+separation**. Perimeters (waist, neck, and nine more record-only
+measurements) stop being a value required on the same row as
+weight/intake/steps and become their own sporadically-logged record, held
+"static" from one measurement to the next for every computation in
+between.
+
+- **`body_measurements` table and the "static until next update"
+  resolution layer** (Phase 9.1). A new table (`measurement_id, user_id,
+  date, waist_cm, neck_cm, created_at`, `UNIQUE(user_id, date)`) replaces
+  `body_logs.waist_cm`/`neck_cm`, which are dropped entirely. A new
+  resolution step (`BodyMeasurementManager.get_effective`) supplies
+  `waist_cm`/`neck_cm` from the most recent measurement on or before a
+  given date, called by every engine-input builder
+  (`MetricsSeriesService`, `plan_routes.py`, `projection_routes.py`) ahead
+  of the completeness check — a week with weight/intake/steps but no
+  measurement yet stays not-computable, same "not enough data" outcome as
+  before, just gated on a different table. No `ENGINE_VERSION` bump: every
+  formula and value is byte-for-byte identical for a given
+  `(weight, waist, neck, intake, steps)` tuple. `GET /api/users/me/export`
+  gains a `body_measurements` array; `POST /api/users/me/import` accepts
+  it, and — for backward compatibility with a pre-Phase-9 export file —
+  still detects inline `waist_cm`/`neck_cm` on a `logs[]` entry and
+  synthesizes a `body_measurements` row from it rather than discarding
+  them. `Projection.py`'s waist/neck trend-fit source moves from
+  `body_logs` to `body_measurements`' own sparser, irregularly-dated
+  history, falling back to holding the last resolved value constant when
+  fewer than two measurements exist to fit a trend against.
+- **Separate "Body" tab; Log wizard drops perimeters** (Phase 9.2). A new
+  nav destination, "Body," backed by a new `GET`/`POST /api/body-measurements`
+  + `PUT`/`DELETE /api/body-measurements/<id>` route set — a simple
+  date-picker plus form and history table, no wizard needed. The Log
+  wizard drops from 4 steps to 3 (Date & weight → Energy → Review);
+  `weight_kg` now sits alongside intake/steps/cardio/macros on the same
+  cadence. The Dashboard's Waist/neck chart is repointed from the old
+  `GET /api/logs` + `GET /api/metrics/series` merge to
+  `GET /api/body-measurements` directly, rendered as a new **held/step
+  line** (`charts.js`'s `drawStepLineChart`) instead of the diagonal
+  interpolation every other chart uses, visually communicating "this
+  value didn't change, we just haven't measured again yet." The Dashboard
+  forecast toggle's waist/neck overlay is unaffected in shape.
+- **Expanded body measurements** (Phase 9.3, Small Feature 5). Nine more
+  nullable, record-only columns on `body_measurements` — `shoulder_cm,
+  chest_cm, hips_cm, biceps_r_cm, biceps_l_cm, thigh_r_cm, thigh_l_cm,
+  calf_r_cm, calf_l_cm` — never read by `CompositionEngine`. The Body
+  view's form gains a Quick (waist/neck only) / Full (all eleven) toggle;
+  a blank field on a Full save leaves that field's most recent value
+  untouched rather than resetting it to blank, and the history table
+  resolves a blank cell the same "most recent non-null value as of this
+  date" way waist/neck already do. `BodyMeasurementDTO` and the JSON
+  export/import contract extend to the full column set; deliberately not
+  extended to CSV (no case for a second CSV pipeline over a record-only,
+  low-volume field set the JSON path already covers).
+
+New coverage: a new `BodyMeasurementManager_test.py`; `DB_test.py`,
+`LogManager_test.py`, `LogResampler_test.py` (a new
+`ResolveMeasurementsTest`), `MetricsCache_test.py`,
+`MetricsSeriesService_test.py`, and `DemoSeeder_test.py` all updated for
+the schema split; `Api_test.py` updated across ~30 tests (`waist_cm`/
+`neck_cm` removed from every `/api/logs` payload, `POST
+/api/body-measurements` seeding added wherever a test needs a computable
+week); `Log_test.py`/`Dashboard_test.py`/`Plan_test.py`/`Views_test.py`
+(Playwright) updated for the 3-step wizard and the new Body view, with
+the retired Phase 5.4 perimeter-prefill test removed. Also fixed a real
+bug caught along the way: navigating to the new Body view fired an
+unawaited fetch-and-reset that could clobber a fast-typing user's
+in-progress entry (the same navigate()-races-an-unawaited-refresh shape
+already fixed for the Log/Account/Settings views in earlier releases).
+376 server tests, 66 client tests green.
+
+### Fixed
+
+- **A real, pre-existing `navigate()`/`refreshLogs()` race**, caught by
+  CI (two Playwright timeouts that never reproduced locally): `refreshLogs()`
+  ran `goToLogStep(1)` *after* its `await api.listLogs()`, and
+  `navigate("log")` has always called it unawaited -- a fetch that
+  resolved late (slow network/CI) could silently reset an in-progress
+  wizard back to step 1, hiding `#log-save` right as something tried to
+  click it. Predates Phase 9 entirely; narrowed to actually land by the
+  Log wizard shrinking to 3 steps and the new Body-tab round trip adding
+  more real network time before reaching it. Fixed the same way as the
+  Account/Settings/Body races before it: the resets don't depend on the
+  fetched data, so they're hoisted into `refreshLogs()`'s synchronous
+  head instead of its async tail. Reproduced locally by throttling the
+  API before the fix, confirmed gone after it.
+
 ## [3.1.0] - 2026-07-10
 
 ### Added

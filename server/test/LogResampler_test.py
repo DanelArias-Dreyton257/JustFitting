@@ -6,7 +6,15 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 
 from server.src.data.domain.BodyLog import BodyLog
-from server.src.services.LogResampler import daily_view, is_computable, resample_to_weekly
+from server.src.data.domain.BodyMeasurement import BodyMeasurement
+from server.src.services.composition.models import LogInput
+from server.src.services.LogResampler import (
+    daily_view,
+    is_computable,
+    is_input_computable,
+    resample_to_weekly,
+    resolve_measurements,
+)
 
 CREATED_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -17,8 +25,6 @@ def make_log(log_id, log_date, granularity="weekly", **overrides) -> BodyLog:
         user_id=1,
         date=log_date,
         weight_kg=90.0,
-        waist_cm=90.0,
-        neck_cm=38.0,
         intake_kcal=2200.0,
         intake_is_real=True,
         steps=6000.0,
@@ -51,8 +57,6 @@ class ResampleToWeeklyTest(unittest.TestCase):
                 weight_kg=90.0 + i,  # 90..96, median = 93.0
                 steps=5000.0 + i * 100,  # mean = 5000+300=5300
                 cardio_kcal=100.0 + i * 10,  # mean = 100+30=130
-                waist_cm=88.0 + i,  # mean = 91.0
-                neck_cm=37.0 + i,  # mean = 40.0
                 intake_kcal=2000.0 + i * 10,  # mean = 2000+30=2030
             )
             for i in range(7)
@@ -63,8 +67,6 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertEqual(row.weight_kg, 93.0)
         self.assertAlmostEqual(row.steps, 5300.0)
         self.assertAlmostEqual(row.cardio_kcal, 130.0)
-        self.assertAlmostEqual(row.waist_cm, 91.0)
-        self.assertAlmostEqual(row.neck_cm, 40.0)
         self.assertAlmostEqual(row.intake_kcal, 2030.0)
         self.assertEqual(row.date, date(2026, 1, 11))
         self.assertEqual(row.log_id, week[-1].log_id)
@@ -124,40 +126,33 @@ class ResampleToWeeklyTest(unittest.TestCase):
     def test_partial_days_average_only_the_days_that_logged_each_field(self):
         """Phase 7.4 (partial logs, see README): the same graceful-
         degradation rule Phase 3.4 gave the macro trio now applies to
-        weight/waist/neck/intake/steps too -- e.g. a Mi Fitness-only sync
-        day (steps, no weight) alongside a Samsung Health-only day
-        (intake, no weight/steps) alongside a manually-completed day
-        (everything)."""
+        weight/intake/steps too -- e.g. a Mi Fitness-only sync day (steps,
+        no weight) alongside a Samsung Health-only day (intake, no
+        weight/steps) alongside a manually-completed day (everything)."""
         week = [
-            make_log(80, date(2026, 1, 5), granularity="daily", weight_kg=None, waist_cm=None,
-                     neck_cm=None, intake_kcal=None, steps=7000.0),  # Mi Fitness only
-            make_log(81, date(2026, 1, 6), granularity="daily", weight_kg=None, waist_cm=None,
-                     neck_cm=None, steps=None, intake_kcal=2100.0),  # Samsung Health only
-            make_log(82, date(2026, 1, 7), granularity="daily", weight_kg=90.0, waist_cm=80.0,
-                     neck_cm=35.0, intake_kcal=2200.0, steps=6500.0),  # completed manually
+            make_log(80, date(2026, 1, 5), granularity="daily", weight_kg=None,
+                     intake_kcal=None, steps=7000.0),  # Mi Fitness only
+            make_log(81, date(2026, 1, 6), granularity="daily", weight_kg=None,
+                     steps=None, intake_kcal=2100.0),  # Samsung Health only
+            make_log(82, date(2026, 1, 7), granularity="daily", weight_kg=90.0,
+                     intake_kcal=2200.0, steps=6500.0),  # completed manually
         ]
         result = resample_to_weekly(week)
         self.assertEqual(len(result), 1)
         row = result[0]
         self.assertEqual(row.weight_kg, 90.0)  # median of the one day that has it
-        self.assertEqual(row.waist_cm, 80.0)
-        self.assertEqual(row.neck_cm, 35.0)
         self.assertAlmostEqual(row.intake_kcal, 2150.0)  # mean of 2100/2200
         self.assertAlmostEqual(row.steps, 6750.0)  # mean of 7000/6500
         self.assertTrue(is_computable(row))
 
     def test_field_is_none_when_no_day_in_the_week_ever_logged_it(self):
         week = [
-            make_log(90, date(2026, 1, 5), granularity="daily", weight_kg=None, waist_cm=None,
-                     neck_cm=None, steps=7000.0),
-            make_log(91, date(2026, 1, 6), granularity="daily", weight_kg=None, waist_cm=None,
-                     neck_cm=None, steps=6800.0),
+            make_log(90, date(2026, 1, 5), granularity="daily", weight_kg=None, steps=7000.0),
+            make_log(91, date(2026, 1, 6), granularity="daily", weight_kg=None, steps=6800.0),
         ]
         result = resample_to_weekly(week)
         row = result[0]
         self.assertIsNone(row.weight_kg)
-        self.assertIsNone(row.waist_cm)
-        self.assertIsNone(row.neck_cm)
         self.assertFalse(is_computable(row))
 
     def test_intake_is_real_ignores_days_that_never_logged_intake(self):
@@ -196,18 +191,16 @@ class ResampleToWeeklyTest(unittest.TestCase):
             date(2026, 1, 8),
             granularity="weekly",
             weight_kg=95.0,
-            waist_cm=89.0,
-            neck_cm=38.0,
             intake_kcal=None,
             steps=None,
         )
         daily_syncs = [
             make_log(10, date(2026, 1, 5), granularity="daily", steps=7000.0, intake_kcal=2200.0,
-                     weight_kg=None, waist_cm=None, neck_cm=None),
+                     weight_kg=None),
             make_log(11, date(2026, 1, 6), granularity="daily", steps=7200.0, intake_kcal=2250.0,
-                     weight_kg=None, waist_cm=None, neck_cm=None),
+                     weight_kg=None),
             make_log(12, date(2026, 1, 7), granularity="daily", steps=6800.0, intake_kcal=2100.0,
-                     weight_kg=None, waist_cm=None, neck_cm=None),
+                     weight_kg=None),
         ]
         result = resample_to_weekly([weekly_log] + daily_syncs)
 
@@ -216,8 +209,6 @@ class ResampleToWeeklyTest(unittest.TestCase):
         self.assertEqual(row.date, date(2026, 1, 8))  # the weekly log's own date
         self.assertEqual(row.log_id, 1)  # still the weekly row's own identity
         self.assertEqual(row.weight_kg, 95.0)  # from the weekly log, untouched
-        self.assertEqual(row.waist_cm, 89.0)
-        self.assertEqual(row.neck_cm, 38.0)
         self.assertAlmostEqual(row.steps, 7000.0)  # mean(7000, 7200, 6800)
         self.assertAlmostEqual(row.intake_kcal, 2183.333333, places=3)
         self.assertTrue(is_computable(row))
@@ -228,11 +219,11 @@ class ResampleToWeeklyTest(unittest.TestCase):
         only fields the weekly row is missing get filled in."""
         weekly_log = make_log(
             1, date(2026, 1, 8), granularity="weekly",
-            weight_kg=95.0, waist_cm=89.0, neck_cm=38.0, intake_kcal=2500.0, steps=9000.0,
+            weight_kg=95.0, intake_kcal=2500.0, steps=9000.0,
         )
         daily_syncs = [
             make_log(10, date(2026, 1, 5), granularity="daily", steps=7000.0, intake_kcal=2200.0,
-                     weight_kg=None, waist_cm=None, neck_cm=None),
+                     weight_kg=None),
         ]
         result = resample_to_weekly([weekly_log] + daily_syncs)
         self.assertEqual(len(result), 1)
@@ -248,7 +239,7 @@ class ResampleToWeeklyTest(unittest.TestCase):
         weekly_b = make_log(2, date(2026, 1, 9), granularity="weekly", weight_kg=94.0)
         daily_syncs = [
             make_log(10, date(2026, 1, 6), granularity="daily", steps=7000.0,
-                     weight_kg=None, waist_cm=None, neck_cm=None, intake_kcal=None),
+                     weight_kg=None, intake_kcal=None),
         ]
         result = resample_to_weekly([weekly_a, weekly_b] + daily_syncs)
         self.assertEqual(len(result), 3)
@@ -260,8 +251,8 @@ class IsComputableTest(unittest.TestCase):
     def test_complete_row_is_computable(self):
         self.assertTrue(is_computable(make_log(1, date(2026, 1, 1))))
 
-    def test_missing_any_one_of_the_five_required_fields_is_not_computable(self):
-        for field in ("weight_kg", "waist_cm", "neck_cm", "intake_kcal", "steps"):
+    def test_missing_any_one_of_the_three_required_fields_is_not_computable(self):
+        for field in ("weight_kg", "intake_kcal", "steps"):
             with self.subTest(field=field):
                 log = make_log(1, date(2026, 1, 1), **{field: None})
                 self.assertFalse(is_computable(log))
@@ -290,6 +281,62 @@ class DailyViewTest(unittest.TestCase):
         self.assertEqual(len(points), 1)
         self.assertEqual(points[0].day, date(2026, 1, 5))
         self.assertEqual(points[0].weight_kg, 90.0)
+
+
+class _FakeMeasurementManager:
+    """Phase 9.1: a minimal in-memory stand-in for BodyMeasurementManager,
+    just enough for resolve_measurements' `get_effective` calls."""
+
+    def __init__(self, measurements):
+        self._measurements = sorted(measurements, key=lambda m: m.date)
+
+    def get_effective(self, user_id, target_date):
+        candidates = [m for m in self._measurements if m.date <= target_date]
+        return candidates[-1] if candidates else None
+
+
+def make_measurement(measurement_id, measurement_date, waist_cm=90.0, neck_cm=38.0):
+    return BodyMeasurement(
+        measurement_id=measurement_id,
+        user_id=1,
+        date=measurement_date,
+        waist_cm=waist_cm,
+        neck_cm=neck_cm,
+        created_at=CREATED_AT,
+    )
+
+
+def make_log_input(log_date, **overrides) -> LogInput:
+    defaults = dict(
+        date=log_date, weight_kg=90.0, waist_cm=None, neck_cm=None, intake_kcal=2200.0, steps=6000.0
+    )
+    defaults.update(overrides)
+    return LogInput(**defaults)
+
+
+class ResolveMeasurementsTest(unittest.TestCase):
+    def test_fills_waist_neck_from_the_most_recent_measurement_on_or_before_the_date(self):
+        manager = _FakeMeasurementManager(
+            [
+                make_measurement(1, date(2026, 1, 1), waist_cm=91.0, neck_cm=38.5),
+                make_measurement(2, date(2026, 3, 1), waist_cm=85.0, neck_cm=37.0),
+            ]
+        )
+        resolved = resolve_measurements(
+            manager,
+            1,
+            [make_log_input(date(2026, 1, 15)), make_log_input(date(2026, 6, 1))],
+        )
+        self.assertEqual((resolved[0].waist_cm, resolved[0].neck_cm), (91.0, 38.5))
+        self.assertEqual((resolved[1].waist_cm, resolved[1].neck_cm), (85.0, 37.0))
+        self.assertTrue(is_input_computable(resolved[0]))
+
+    def test_no_measurement_yet_leaves_waist_neck_none_and_uncomputable(self):
+        manager = _FakeMeasurementManager([])
+        resolved = resolve_measurements(manager, 1, [make_log_input(date(2026, 1, 15))])
+        self.assertIsNone(resolved[0].waist_cm)
+        self.assertIsNone(resolved[0].neck_cm)
+        self.assertFalse(is_input_computable(resolved[0]))
 
 
 if __name__ == "__main__":

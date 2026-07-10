@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from server.src.data.db import DB as DBModule
 from server.src.data.db.BodyLogDAO import BodyLogDAO
+from server.src.data.db.BodyMeasurementDAO import BodyMeasurementDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.SessionDAO import SessionDAO
@@ -134,8 +135,6 @@ class DBTestCase(unittest.TestCase):
             user_id=profile.user_id,
             date=date(2026, 6, 26),
             weight_kg=90.7,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2014.30,
             intake_is_real=True,
             steps=5000,
@@ -150,8 +149,6 @@ class DBTestCase(unittest.TestCase):
                 user_id=profile.user_id,
                 date=date(2026, 6, 26),
                 weight_kg=91.0,
-                waist_cm=80.0,
-                neck_cm=35.0,
                 intake_kcal=2000,
                 intake_is_real=True,
                 steps=5000,
@@ -181,14 +178,63 @@ class DBTestCase(unittest.TestCase):
             user_id=profile.user_id,
             date=date(2026, 6, 26),
             weight_kg=90.7,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2014.30,
             intake_is_real=True,
             steps=5000,
         )
         user_dao.delete(profile.user_id)
         self.assertEqual(log_dao.list_for_user(profile.user_id), [])
+
+    def test_body_measurement_dao_crud_and_get_effective(self):
+        user_dao = UserDAO(self.db)
+        measurement_dao = BodyMeasurementDAO(self.db)
+        profile = user_dao.create(
+            username="demo_cut",
+            email="demo_cut@example.com",
+            password_hash="hash",
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+        )
+        first = measurement_dao.create(
+            user_id=profile.user_id, date=date(2026, 1, 1), waist_cm=91.0, neck_cm=38.5
+        )
+        second = measurement_dao.create(
+            user_id=profile.user_id, date=date(2026, 3, 1), waist_cm=85.0, neck_cm=37.0
+        )
+
+        with self.assertRaises(Exception):
+            measurement_dao.create(user_id=profile.user_id, date=date(2026, 1, 1), waist_cm=90.0)
+
+        # "static until next update": before the first measurement there's
+        # nothing to resolve; between the two, the first one still applies;
+        # on/after the second, the second applies.
+        self.assertIsNone(measurement_dao.get_effective(profile.user_id, date(2025, 12, 31)))
+        effective_mid = measurement_dao.get_effective(profile.user_id, date(2026, 2, 1))
+        self.assertEqual(effective_mid.measurement_id, first.measurement_id)
+        effective_after = measurement_dao.get_effective(profile.user_id, date(2026, 6, 1))
+        self.assertEqual(effective_after.measurement_id, second.measurement_id)
+
+        updated = measurement_dao.update(second.measurement_id, waist_cm=84.0)
+        self.assertAlmostEqual(updated.waist_cm, 84.0)
+
+        measurement_dao.delete(first.measurement_id)
+        self.assertEqual(len(measurement_dao.list_for_user(profile.user_id)), 1)
+
+    def test_body_measurements_cascade_delete_with_user(self):
+        user_dao = UserDAO(self.db)
+        measurement_dao = BodyMeasurementDAO(self.db)
+        profile = user_dao.create(
+            username="demo_cut",
+            email="demo_cut@example.com",
+            password_hash="hash",
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+        )
+        measurement_dao.create(user_id=profile.user_id, date=date(2026, 1, 1), waist_cm=91.0)
+        user_dao.delete(profile.user_id)
+        self.assertEqual(measurement_dao.list_for_user(profile.user_id), [])
 
     def test_goal_plan_dao_history_and_deactivate(self):
         user_dao = UserDAO(self.db)

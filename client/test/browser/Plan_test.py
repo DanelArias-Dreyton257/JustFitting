@@ -85,20 +85,41 @@ class PlanTest(unittest.TestCase):
         self.page.wait_for_selector(f"#view-{view}:not([hidden])")
 
     def _log_a_real_week(self):
-        """Logs one real week via the Log view's wizard -- gives the
-        account a computable current body fat so Phase 8.2's coherence
-        check has something to compare against."""
+        """Logs one real week via the Log view's wizard, plus a matching
+        body_measurements row via the Body view -- gives the account a
+        computable current body fat so Phase 8.2's coherence check has
+        something to compare against (Phase 9.1: waist/neck are resolved
+        from body_measurements, no longer part of the Log wizard itself)."""
+        today_iso = datetime.date.today().isoformat()
+        self._log_a_measurement(today_iso)
+
         self._navigate("log")
         self.page.fill('#log-form [name="weight_kg"]', "96.4")
-        self.page.click("#log-next")
-        self.page.fill('#log-form [name="waist_cm"]', "90.5")
-        self.page.fill('#log-form [name="neck_cm"]', "38.5")
         self.page.click("#log-next")
         self.page.fill('#log-form [name="intake_kcal"]', "2350")
         self.page.fill('#log-form [name="steps"]', "6200")
         self.page.click("#log-next")
         self.page.click("#log-save")
         self.page.wait_for_selector("#log-table tbody tr")
+
+    def _log_a_measurement(self, iso_date: str, waist_cm: float = 90.5, neck_cm: float = 38.5):
+        # Navigating to Body kicks off an async refreshBody() (fetch +
+        # form-defaults reset, including resetting the date input to today)
+        # that isn't awaited by the click handler -- waiting on the view
+        # becoming visible alone races that reset, which can otherwise
+        # clobber the date this method is about to fill in. Waiting for the
+        # GET it triggers to complete closes that race.
+        self.page.click("#nav-toggle")
+        with self.page.expect_response(
+            lambda r: "/api/body-measurements" in r.url and r.request.method == "GET"
+        ):
+            self.page.click('.nav-link[data-view="body"]')
+        self.page.wait_for_selector("#view-body:not([hidden])")
+        self.page.fill("#body-date-input", iso_date)
+        self.page.fill('#body-form [name="waist_cm"]', str(waist_cm))
+        self.page.fill('#body-form [name="neck_cm"]', str(neck_cm))
+        self.page.click("#body-save")
+        self.page.wait_for_selector(f'#body-table tbody tr td:text-is("{iso_date}")')
 
     def test_goal_start_date_defaults_to_today_and_is_editable(self):
         today_iso = datetime.date.today().isoformat()

@@ -108,14 +108,35 @@ class LogNavTest(unittest.TestCase):
         self._jump_to_date(iso_date)
         self.page.fill('#log-form [name="weight_kg"]', str(weight_kg))
         self.page.click("#log-next")
-        self.page.fill('#log-form [name="waist_cm"]', "80")
-        self.page.fill('#log-form [name="neck_cm"]', "35")
-        self.page.click("#log-next")
         self.page.fill('#log-form [name="intake_kcal"]', "2000")
         self.page.fill('#log-form [name="steps"]', "5000")
         self.page.click("#log-next")
         self.page.click("#log-save")
         self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_date}")')
+
+    def _log_measurement(self, iso_date: str, waist_cm: float = 90.5, neck_cm: float = 38.5):
+        # Phase 9.1: body fat (and hence anything the composition engine
+        # computes, including a forecast) needs a resolvable body_measurements
+        # row on or before the log date -- no longer part of the Log wizard.
+        #
+        # Navigating to Body kicks off an async refreshBody() (fetch +
+        # form-defaults reset, including resetting the date input to today)
+        # that isn't awaited by the click handler -- waiting on the view
+        # becoming visible alone races that reset, which can otherwise
+        # clobber the date this method is about to fill in. Waiting for the
+        # GET it triggers to complete closes that race.
+        self.page.click("#nav-toggle")
+        with self.page.expect_response(
+            lambda r: "/api/body-measurements" in r.url and r.request.method == "GET"
+        ):
+            self.page.click('.nav-link[data-view="body"]')
+        self.page.wait_for_selector("#view-body:not([hidden])")
+        self.page.fill("#body-date-input", iso_date)
+        self.page.fill('#body-form [name="waist_cm"]', str(waist_cm))
+        self.page.fill('#body-form [name="neck_cm"]', str(neck_cm))
+        self.page.click("#body-save")
+        self.page.wait_for_selector(f'#body-table tbody tr td:text-is("{iso_date}")')
+        self._navigate_to_log()
 
     def test_default_is_todays_day_view_with_empty_placeholder(self):
         self.assertEqual(self.page.inner_text("#log-list-heading"), "Today's logs")
@@ -229,6 +250,7 @@ class LogNavTest(unittest.TestCase):
         iso_week1 = _MONDAY.isoformat()
         iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
         iso_future = (_MONDAY + datetime.timedelta(days=14)).isoformat()
+        self._log_measurement(iso_week1)
         self._log_on(iso_week1, 90.0)
         self._log_on(iso_week2, 89.0)
 
@@ -258,46 +280,13 @@ class LogNavTest(unittest.TestCase):
         iso_week1 = _MONDAY.isoformat()
         iso_week2 = (_MONDAY + datetime.timedelta(days=7)).isoformat()
         iso_future = (_MONDAY + datetime.timedelta(days=14)).isoformat()
+        self._log_measurement(iso_week1)
         self._log_on(iso_week1, 90.0)
         self._log_on(iso_week2, 89.0)
 
         self._jump_to_date(iso_future)
         self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_future}")')
         self.assertIn("projected", self.page.inner_text("#log-table tbody tr").lower())
-
-    def test_wizard_prefills_perimeters_from_last_real_log(self):
-        # A brand-new account's first-ever wizard opens blank.
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), ""
-        )
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), ""
-        )
-
-        self._log_on(_MONDAY.isoformat(), 90.0)
-
-        # Right after saving, the wizard resets then re-prefills from the
-        # log just saved -- proving the prefill (not leftover form state,
-        # since the form is reset() before refreshLogs() re-fills it).
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), "80"
-        )
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), "35"
-        )
-
-        # Still prefilled after a later "fresh wizard" reset point (a
-        # day/week toggle), not just the moment right after saving.
-        self.page.click("#log-nav-week")
-        self.page.wait_for_function(
-            "document.getElementById('log-nav-week').classList.contains('active')"
-        )
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="waist_cm"]', "el => el.value"), "80"
-        )
-        self.assertEqual(
-            self.page.eval_on_selector('#log-form [name="neck_cm"]', "el => el.value"), "35"
-        )
 
     def test_editing_a_log_updates_the_row_in_place_and_persists_after_reload(self):
         iso_date = _MONDAY.isoformat()
@@ -321,7 +310,6 @@ class LogNavTest(unittest.TestCase):
         )
 
         self.page.fill('#log-form [name="weight_kg"]', "88.5")
-        self.page.click("#log-next")
         self.page.click("#log-next")
         self.page.click("#log-next")
         self.page.click("#log-save")

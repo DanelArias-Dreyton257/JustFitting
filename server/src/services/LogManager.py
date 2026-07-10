@@ -18,8 +18,6 @@ from server.src.services.composition.models import LogInput, ProfileParams
 LOG_EDITABLE_FIELDS = (
     "date",
     "weight_kg",
-    "waist_cm",
-    "neck_cm",
     "intake_kcal",
     "intake_is_real",
     "steps",
@@ -78,6 +76,11 @@ DEMO_STEPS_START = 6000
 DEMO_STEPS_END = 5000
 DEMO_INTAKE_START = 2400.0
 DEMO_INTAKE_END = 2014.30
+#: Phase 9.1: how often (in weeks) the demo series seeds a sporadic
+#: body_measurements row -- both boundary weeks are always seeded too, so
+#: the documented worked example (below) still resolves exactly at the last
+#: log's date regardless of this cadence.
+DEMO_MEASUREMENT_INTERVAL_WEEKS = 4
 #: Demo_cut's *second* (active) goal -- a demo goal change partway through
 #: the reference series, purely for exercising Phase 5.3's scoping and
 #: the log wizard/dashboard against real two-goal history. Not part of
@@ -162,10 +165,10 @@ class LogManager:
         log_date: date,
         # Phase 7.4 (partial logs, see README): individually optional --
         # a row can be created with only some of these known, and
-        # completed later by an edit or LogManager.upsert_fields.
+        # completed later by an edit or LogManager.upsert_fields. Phase
+        # 9.1: waist_cm/neck_cm are no longer a body_logs field at all --
+        # see services/BodyMeasurementManager.py.
         weight_kg: Optional[float] = None,
-        waist_cm: Optional[float] = None,
-        neck_cm: Optional[float] = None,
         intake_kcal: Optional[float] = None,
         steps: Optional[float] = None,
         intake_is_real: bool = True,
@@ -180,8 +183,8 @@ class LogManager:
         candidate = LogInput(
             date=log_date,
             weight_kg=weight_kg,
-            waist_cm=waist_cm,
-            neck_cm=neck_cm,
+            waist_cm=None,
+            neck_cm=None,
             intake_kcal=intake_kcal,
             steps=steps,
             intake_is_real=intake_is_real,
@@ -195,8 +198,6 @@ class LogManager:
             user_id=user_id,
             date=log_date,
             weight_kg=weight_kg,
-            waist_cm=waist_cm,
-            neck_cm=neck_cm,
             intake_kcal=intake_kcal,
             intake_is_real=intake_is_real,
             steps=steps,
@@ -256,8 +257,8 @@ class LogManager:
         merged = LogInput(
             date=fields.get("date", existing.date),
             weight_kg=fields.get("weight_kg", existing.weight_kg),
-            waist_cm=fields.get("waist_cm", existing.waist_cm),
-            neck_cm=fields.get("neck_cm", existing.neck_cm),
+            waist_cm=None,
+            neck_cm=None,
             intake_kcal=fields.get("intake_kcal", existing.intake_kcal),
             steps=fields.get("steps", existing.steps),
             intake_is_real=fields.get("intake_is_real", existing.intake_is_real),
@@ -296,12 +297,15 @@ class LogManager:
             self.metrics_cache.invalidate_for_user(existing.user_id)
 
     def to_engine_inputs(self, logs: List[BodyLog]) -> List[LogInput]:
+        """Phase 9.1: waist_cm/neck_cm start unset here -- the caller
+        (MetricsSeriesService/plan_routes/projection_routes) resolves them
+        from body_measurements per date before these reach the engine."""
         return [
             LogInput(
                 date=log.date,
                 weight_kg=log.weight_kg,
-                waist_cm=log.waist_cm,
-                neck_cm=log.neck_cm,
+                waist_cm=None,
+                neck_cm=None,
                 intake_kcal=log.intake_kcal,
                 steps=log.steps,
                 intake_is_real=log.intake_is_real,
@@ -324,9 +328,15 @@ class LogManager:
             return None
         return sum(real_diffs) / len(real_diffs)
 
-    def seed_reference_series(self, user_id: int) -> List[BodyLog]:
+    def seed_reference_series(self, user_id: int, measurement_manager=None) -> List[BodyLog]:
         """Seed the weekly Demo_cut reference series between the two documented
-        boundary logs (idempotent: no-op if the user already has logs)."""
+        boundary logs (idempotent: no-op if the user already has logs).
+        Phase 9.1: waist/neck are no longer part of the weekly body_logs row
+        -- ``measurement_manager`` (BodyMeasurementManager), if given, seeds
+        them as sporadic body_measurements rows instead, at
+        DEMO_MEASUREMENT_INTERVAL_WEEKS cadence plus both boundary weeks, so
+        the demo account's own perimeters chart shows the new held-static
+        step pattern rather than a measurement every single week."""
         if self.log_dao.list_for_user(user_id):
             return []
 
@@ -369,21 +379,26 @@ class LogManager:
                     user_id=user_id,
                     log_date=log_date,
                     weight_kg=round(weight_kg, 1),
-                    waist_cm=round(waist_cm, 1),
-                    neck_cm=round(neck_cm, 1),
                     intake_kcal=round(intake_kcal, 2),
                     steps=round(steps),
                     intake_is_real=True,
                     source="real",
                 )
             )
+            if measurement_manager is not None and (
+                week == 0 or week == total_weeks or week % DEMO_MEASUREMENT_INTERVAL_WEEKS == 0
+            ):
+                measurement_manager.create(
+                    user_id, log_date, waist_cm=round(waist_cm, 1), neck_cm=round(neck_cm, 1)
+                )
         return created
 
-    def seed_bulk_reference_series(self, user_id: int) -> List[BodyLog]:
+    def seed_bulk_reference_series(self, user_id: int, measurement_manager=None) -> List[BodyLog]:
         """Seed Demo_bulk's bulk reference series (idempotent: no-op if the
         user already has logs). The most recent DEMO_BULK_DAILY_WEEKS weeks
         are logged at daily granularity with macros, unlike Demo_cut's
-        all-weekly series above, so the seeded data also exercises F6/F9."""
+        all-weekly series above, so the seeded data also exercises F6/F9.
+        See seed_reference_series's docstring for ``measurement_manager``."""
         if self.log_dao.list_for_user(user_id):
             return []
 
@@ -430,8 +445,6 @@ class LogManager:
                         user_id,
                         log_date,
                         weight_kg,
-                        waist_cm,
-                        neck_cm,
                         intake_kcal,
                         steps,
                         cardio_kcal,
@@ -443,14 +456,18 @@ class LogManager:
                         user_id=user_id,
                         log_date=log_date,
                         weight_kg=round(weight_kg, 1),
-                        waist_cm=round(waist_cm, 1),
-                        neck_cm=round(neck_cm, 1),
                         intake_kcal=round(intake_kcal, 2),
                         steps=round(steps),
                         cardio_kcal=round(cardio_kcal),
                         intake_is_real=True,
                         source="real",
                     )
+                )
+            if measurement_manager is not None and (
+                week == 0 or week == total_weeks or week % DEMO_MEASUREMENT_INTERVAL_WEEKS == 0
+            ):
+                measurement_manager.create(
+                    user_id, log_date, waist_cm=round(waist_cm, 1), neck_cm=round(neck_cm, 1)
                 )
         return created
 
@@ -459,8 +476,6 @@ class LogManager:
         user_id: int,
         week_date: date,
         weight_kg: float,
-        waist_cm: float,
-        neck_cm: float,
         intake_kcal: float,
         steps: float,
         cardio_kcal: float,
@@ -479,8 +494,6 @@ class LogManager:
                     user_id=user_id,
                     log_date=day,
                     weight_kg=round(weight_kg + wiggle * 0.15, 1),
-                    waist_cm=round(waist_cm, 1),
-                    neck_cm=round(neck_cm, 1),
                     intake_kcal=round(day_intake, 2),
                     steps=round(max(0.0, steps + wiggle * 200)),
                     cardio_kcal=round(max(0.0, cardio_kcal + wiggle * 30)),

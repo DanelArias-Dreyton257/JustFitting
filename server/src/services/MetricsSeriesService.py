@@ -11,7 +11,12 @@ from flask import Flask
 
 from server.src.data.domain.BodyLog import BodyLog
 from server.src.services.composition.models import CompositionResult
-from server.src.services.LogResampler import is_computable, resample_to_weekly
+from server.src.services.LogResampler import (
+    is_computable,
+    is_input_computable,
+    resample_to_weekly,
+    resolve_measurements,
+)
 
 
 def compute_series_for_user(
@@ -55,13 +60,29 @@ def compute_series_for_user(
     # weekly-cadence) engine; weekly-tagged rows pass through unchanged.
     resampled_logs = resample_to_weekly(ordered_logs)
     # Phase 7.4 (partial logs, see README): a resampled week can still be
-    # missing weight/waist/neck/intake/steps if no source (sync, manual
-    # entry, import) has supplied one of them for any day in it -- exclude
-    # it from the computed series the same way an unlogged week already
-    # is, rather than let it reach the engine at all. The raw rows still
-    # show up via GET /api/logs/export/the Log view regardless.
+    # missing weight/intake/steps if no source (sync, manual entry, import)
+    # has supplied one of them for any day in it -- exclude it from the
+    # computed series the same way an unlogged week already is, rather than
+    # let it reach the engine at all. The raw rows still show up via
+    # GET /api/logs/export/the Log view regardless.
     computable_logs = [log for log in resampled_logs if is_computable(log)]
     engine_inputs = log_manager.to_engine_inputs(computable_logs)
+    # Phase 9.1 (body composition logging separation, see README): waist/neck
+    # no longer live on body_logs at all -- resolve them from the "static
+    # until next update" body_measurements history before the completeness
+    # check, and drop any week still missing a measurement as of its date
+    # (e.g. an account that's never logged one yet).
+    measurement_manager = app.extensions["body_measurement_manager"]
+    engine_inputs = resolve_measurements(measurement_manager, user_id, engine_inputs)
+    paired = [
+        (log, log_input)
+        for log, log_input in zip(computable_logs, engine_inputs)
+        if is_input_computable(log_input)
+    ]
+    if not paired:
+        return [], []
+    computable_logs = [log for log, _ in paired]
+    engine_inputs = [log_input for _, log_input in paired]
     goal = goal_plan_manager.get_active(user_id)
     profile_params = goal_plan_manager.build_profile_params(profile, goal)
     engine_constants = engine_settings_manager.to_engine_constants(

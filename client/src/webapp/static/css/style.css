@@ -645,6 +645,14 @@ button#health-sync-now-btn:hover {
   overflow: hidden;
 }
 
+/* Phase 9.2/9.3: the Body view's history table has enough columns (up to
+   twelve, once every Phase 9.3 measurement is logged) to overflow a narrow
+   viewport -- scope the horizontal scroll to the table itself rather than
+   letting it widen the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 .data-table th,
 .data-table td {
   text-align: left;

@@ -12,10 +12,9 @@ class BodyLogDTO:
     user_id: int
     date: str
     # Phase 7.4 (partial logs, see README): individually optional, same as
-    # the domain model -- `None` serializes to JSON `null`.
+    # the domain model -- `None` serializes to JSON `null`. Phase 9.1:
+    # waist_cm/neck_cm moved to BodyMeasurementDTO.
     weight_kg: Optional[float]
-    waist_cm: Optional[float]
-    neck_cm: Optional[float]
     intake_kcal: Optional[float]
     intake_is_real: bool
     steps: Optional[float]
@@ -33,8 +32,6 @@ class BodyLogDTO:
             user_id=log.user_id,
             date=log.date.isoformat(),
             weight_kg=log.weight_kg,
-            waist_cm=log.waist_cm,
-            neck_cm=log.neck_cm,
             intake_kcal=log.intake_kcal,
             intake_is_real=log.intake_is_real,
             steps=log.steps,

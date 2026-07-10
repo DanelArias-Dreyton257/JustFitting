@@ -83,7 +83,34 @@ class DashboardTest(unittest.TestCase):
         self.page.click(f'.nav-link[data-view="{view}"]')
         self.page.wait_for_selector(f"#view-{view}:not([hidden])")
 
+    def _log_measurement(self, date: str, waist_cm: float = 80, neck_cm: float = 35):
+        # Phase 9.1 (see README): waist/neck are resolved from
+        # body_measurements (most recent row on or before a log's date), no
+        # longer part of the Log wizard -- every Dashboard metric that
+        # depends on a computed body fat/mass (MetricsSeriesService drops any
+        # week it can't resolve a measurement for, entirely) needs one of
+        # these logged via the real Body view first.
+        #
+        # Navigating to Body kicks off an async refreshBody() (fetch +
+        # form-defaults reset, including resetting the date input to today)
+        # that isn't awaited by the click handler -- waiting on the view
+        # becoming visible alone races that reset, which can otherwise
+        # clobber the date this method is about to fill in. Waiting for the
+        # GET it triggers to complete closes that race.
+        self.page.click("#nav-toggle")
+        with self.page.expect_response(
+            lambda r: "/api/body-measurements" in r.url and r.request.method == "GET"
+        ):
+            self.page.click('.nav-link[data-view="body"]')
+        self.page.wait_for_selector("#view-body:not([hidden])")
+        self.page.fill("#body-date-input", date)
+        self.page.fill('#body-form [name="waist_cm"]', str(waist_cm))
+        self.page.fill('#body-form [name="neck_cm"]', str(neck_cm))
+        self.page.click("#body-save")
+        self.page.wait_for_selector(f'#body-table tbody tr td:text-is("{date}")')
+
     def _log_week(self, date: str, weight_kg: float):
+        self._log_measurement(date)
         self._navigate("log")
         # Phase 4.4: the wizard's date is derived from the Log view's
         # day/week navigator (a hidden input), not a directly-editable
@@ -94,9 +121,6 @@ class DashboardTest(unittest.TestCase):
             date,
         )
         self.page.fill('#log-form [name="weight_kg"]', str(weight_kg))
-        self.page.click("#log-next")
-        self.page.fill('#log-form [name="waist_cm"]', "80")
-        self.page.fill('#log-form [name="neck_cm"]', "35")
         self.page.click("#log-next")
         self.page.fill('#log-form [name="intake_kcal"]', "2000")
         self.page.fill('#log-form [name="steps"]', "5000")

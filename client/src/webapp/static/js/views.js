@@ -386,8 +386,6 @@ export function renderLogTable(tbody, logs) {
       <tr ${log.log_id != null ? `data-log-id="${log.log_id}"` : ""} class="${log.log_id == null ? "log-row-projected" : ""}">
         <td>${log.date}</td>
         <td>${dash(log.weight_kg)}</td>
-        <td>${dash(log.waist_cm)}</td>
-        <td>${dash(log.neck_cm)}</td>
         <td>${dash(log.intake_kcal)}</td>
         <td>${dash(log.steps)}</td>
         <td>${dash(log.cardio_kcal)}</td>
@@ -403,6 +401,66 @@ export function renderLogTable(tbody, logs) {
       </tr>`
     )
     .join("");
+}
+
+// Phase 9.1/9.3 (body composition logging separation, see README): the
+// eleven perimeter fields, in the order the Body view's Full form and
+// history table both use.
+export const BODY_MEASUREMENT_FIELDS = [
+  "waist_cm",
+  "neck_cm",
+  "shoulder_cm",
+  "chest_cm",
+  "hips_cm",
+  "biceps_r_cm",
+  "biceps_l_cm",
+  "thigh_r_cm",
+  "thigh_l_cm",
+  "calf_r_cm",
+  "calf_l_cm",
+];
+
+// Phase 9.3: a Quick (waist/neck-only) entry between two Full entries
+// shouldn't make Chest/Hips/etc. *appear* to reset to blank in the history
+// table -- each field independently carries forward its own most recent
+// non-null value, mirroring the same "static until next update" resolution
+// BodyMeasurementManager.get_effective already applies server-side for
+// waist/neck specifically. Assumes `measurements` is already date-ascending
+// (GET /api/body-measurements' own order).
+export function resolveMeasurementHistory(measurements) {
+  const carry = {};
+  return measurements.map((measurement) => {
+    const resolved = { ...measurement };
+    BODY_MEASUREMENT_FIELDS.forEach((field) => {
+      if (measurement[field] != null) carry[field] = measurement[field];
+      resolved[field] = carry[field] ?? null;
+    });
+    return resolved;
+  });
+}
+
+export function renderBodyMeasurementTable(tbody, measurements) {
+  const resolved = resolveMeasurementHistory(measurements);
+  tbody.innerHTML = resolved
+    .map(
+      (m, i) => `
+      <tr data-measurement-id="${m.measurement_id}">
+        <td>${m.date}</td>
+        ${BODY_MEASUREMENT_FIELDS.map((field) => `<td>${dash(m[field])}</td>`).join("")}
+        <td>
+          <button class="edit-measurement-btn" data-measurement-id="${m.measurement_id}">Edit</button>
+          <button class="delete-measurement-btn" data-measurement-id="${m.measurement_id}">Delete</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+}
+
+export function fillBodyMeasurementForm(form, measurement) {
+  form.date.value = measurement.date;
+  BODY_MEASUREMENT_FIELDS.forEach((field) => {
+    form[field].value = measurement[field] == null ? "" : measurement[field];
+  });
 }
 
 export function fillProfileForm(form, profile) {
@@ -430,8 +488,6 @@ export function renderLogReview(container, values) {
     ["Date", values.date],
     ["Granularity", values.granularity],
     ["Weight", values.weight_kg && `${values.weight_kg} kg`],
-    ["Waist", values.waist_cm && `${values.waist_cm} cm`],
-    ["Neck", values.neck_cm && `${values.neck_cm} cm`],
     ["Intake", values.intake_kcal && `${values.intake_kcal} kcal`],
     ["Steps", values.steps],
     ["Cardio", values.cardio_kcal && `${values.cardio_kcal} kcal`],

@@ -15,7 +15,12 @@ from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.models import ProfileParams
 from server.src.services.GoalPlanManager import GoalPlanManagerError, check_goal_coherence
-from server.src.services.LogResampler import is_computable, resample_to_weekly
+from server.src.services.LogResampler import (
+    is_computable,
+    is_input_computable,
+    resample_to_weekly,
+    resolve_measurements,
+)
 
 plan_bp = Blueprint("plan", __name__, url_prefix="/api/plan")
 
@@ -50,6 +55,17 @@ def preview():
     if not computable_logs:
         return jsonify({"error": "no computable logs yet"}), 404
 
+    # Phase 9.1 (see README): waist/neck are resolved from body_measurements
+    # per date, then a week still missing a measurement as of its date is
+    # excluded the same way an unlogged week already is.
+    measurement_manager = current_app.extensions["body_measurement_manager"]
+    engine_inputs = resolve_measurements(
+        measurement_manager, g.user_id, log_manager.to_engine_inputs(computable_logs)
+    )
+    engine_inputs = [log_input for log_input in engine_inputs if is_input_computable(log_input)]
+    if not engine_inputs:
+        return jsonify({"error": "no computable logs yet"}), 404
+
     try:
         target_bf = float(request.args.get("target_bf", goal.target_bf))
         weekly_rate = float(request.args.get("weekly_rate", goal.weekly_rate))
@@ -64,7 +80,6 @@ def preview():
         weekly_rate=weekly_rate,
     )
 
-    engine_inputs = log_manager.to_engine_inputs(computable_logs)
     prev_weight_kg = engine_inputs[-2].weight_kg if len(engine_inputs) > 1 else None
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(g.user_id)

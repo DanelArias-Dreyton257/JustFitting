@@ -19,6 +19,7 @@ from statistics import mean, median
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from server.src.data.domain.BodyLog import BodyLog
+from server.src.services.composition.models import LogInput
 
 
 def _mean_of_logged(values: Sequence[Optional[float]]) -> Optional[float]:
@@ -95,8 +96,6 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
                     weight_kg=_fill_missing(
                         weekly_log.weight_kg, (log.weight_kg for log in group), median=True
                     ),
-                    waist_cm=_fill_missing(weekly_log.waist_cm, (log.waist_cm for log in group)),
-                    neck_cm=_fill_missing(weekly_log.neck_cm, (log.neck_cm for log in group)),
                     intake_kcal=_fill_missing(
                         weekly_log.intake_kcal, (log.intake_kcal for log in group)
                     ),
@@ -122,8 +121,6 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
             replace(
                 representative,
                 weight_kg=_median_of_logged(log.weight_kg for log in group),
-                waist_cm=_mean_of_logged(log.waist_cm for log in group),
-                neck_cm=_mean_of_logged(log.neck_cm for log in group),
                 intake_kcal=_mean_of_logged(log.intake_kcal for log in group),
                 # Phase 7.4 (partial logs): a day with no intake logged at
                 # all doesn't get a vote either way -- `all()` over an
@@ -144,19 +141,48 @@ def resample_to_weekly(logs: List[BodyLog]) -> List[BodyLog]:
 
 
 def is_computable(log: BodyLog) -> bool:
-    """Whether a (possibly resampled) row has everything
-    `CompositionEngine.compute_row` needs -- see its
-    `REQUIRED_FOR_COMPUTATION`/`require_complete_log_input`. Phase 7.4
-    (partial logs, see README): a week can be "logged" (it has a row, or a
-    resampled group of daily rows) without being computable yet, if no
-    source has supplied one of these fields for any day in it."""
-    return (
-        log.weight_kg is not None
-        and log.waist_cm is not None
-        and log.neck_cm is not None
-        and log.intake_kcal is not None
-        and log.steps is not None
-    )
+    """Whether a (possibly resampled) row has everything `body_logs` itself
+    needs to contribute to `CompositionEngine.compute_row` -- weight/intake/
+    steps. Phase 7.4 (partial logs, see README): a week can be "logged" (it
+    has a row, or a resampled group of daily rows) without being computable
+    yet, if no source has supplied one of these fields for any day in it.
+    Phase 9.1: waist_cm/neck_cm are no longer part of `BodyLog` at all --
+    resolving them from `body_measurements` (`BodyMeasurementManager.
+    get_effective`) and checking they're actually available is a separate
+    step the caller (MetricsSeriesService et al.) applies after this one."""
+    return log.weight_kg is not None and log.intake_kcal is not None and log.steps is not None
+
+
+def resolve_measurements(
+    measurement_manager, user_id: int, engine_inputs: Sequence[LogInput]
+) -> List[LogInput]:
+    """Phase 9.1 (see README): fills each `LogInput.waist_cm`/`neck_cm` from
+    `BodyMeasurementManager.get_effective` -- the most recent body_measurements
+    row with `date <= log_input.date`, "static" until the next update.
+    `None` if the account has never logged a measurement on or before that
+    date. Called ahead of `is_input_computable`/`compute_row` by every
+    engine-input builder (MetricsSeriesService, plan_routes, projection_routes)
+    -- see the Phase 7.6 lesson that every one of those sites needs to agree.
+    """
+    resolved = []
+    for log_input in engine_inputs:
+        measurement = measurement_manager.get_effective(user_id, log_input.date)
+        resolved.append(
+            replace(
+                log_input,
+                waist_cm=measurement.waist_cm if measurement else None,
+                neck_cm=measurement.neck_cm if measurement else None,
+            )
+        )
+    return resolved
+
+
+def is_input_computable(log_input: LogInput) -> bool:
+    """Whether a (waist/neck-resolved) `LogInput` has everything
+    `CompositionEngine.compute_row` needs -- the engine-level counterpart of
+    `is_computable`, applied *after* `resolve_measurements` since waist/neck
+    no longer live on `BodyLog` itself (Phase 9.1)."""
+    return log_input.waist_cm is not None and log_input.neck_cm is not None
 
 
 @dataclass(frozen=True)

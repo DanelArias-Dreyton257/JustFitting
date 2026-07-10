@@ -11,6 +11,7 @@ from typing import List, Optional, Sequence, Tuple
 from server.src.data.db.ProjectionDAO import ProjectionDAO
 from server.src.data.domain.Projection import Projection as ProjectionRow
 from server.src.services.composition import Projection
+from server.src.services.composition.Projection import MeasurementPoint
 from server.src.services.composition.models import EngineConstants, LogInput, ProfileParams
 
 SOURCE_MODEL = "ols_linear"
@@ -30,6 +31,7 @@ class ProjectionService:
         activity_model: str = "constant",
         engine_constants: Optional[EngineConstants] = None,
         trend_model: str = "ols",
+        measurement_history: Optional[Sequence[MeasurementPoint]] = None,
     ) -> Tuple[str, List[ProjectionRow]]:
         pairs = Projection.project_series_with_inputs(
             profile,
@@ -39,6 +41,7 @@ class ProjectionService:
             activity_model,
             engine_constants,
             trend_model,
+            measurement_history,
         )
         run_id = uuid.uuid4().hex
         generated_at = datetime.now(timezone.utc)

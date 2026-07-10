@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import date
 
 from server.src.data.db.BodyLogDAO import BodyLogDAO
@@ -42,8 +43,6 @@ class MetricsCacheTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2025, 12, 28),
             weight_kg=97.0,
-            waist_cm=91.0,
-            neck_cm=38.5,
             intake_kcal=2400.0,
             steps=6000,
         )
@@ -51,16 +50,23 @@ class MetricsCacheTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 4),
             weight_kg=96.4,
-            waist_cm=90.5,
-            neck_cm=38.5,
             intake_kcal=2350.0,
             steps=6200,
         )
 
+    def _engine_inputs(self, logs):
+        # Phase 9.1: waist_cm/neck_cm no longer come from BodyLog -- this
+        # test isn't exercising the body_measurements resolution layer (see
+        # MetricsSeriesService_test), so fill them in directly.
+        return [
+            replace(log_input, waist_cm=91.0, neck_cm=38.5)
+            for log_input in self.log_manager.to_engine_inputs(logs)
+        ]
+
     def test_cache_miss_computes_and_stores_snapshots(self):
         self._seed_two_logs()
         logs = self.log_manager.list_logs(self.user_id)
-        engine_inputs = self.log_manager.to_engine_inputs(logs)
+        engine_inputs = self._engine_inputs(logs)
 
         results = self.cache.get_or_compute_series(PROFILE, logs, engine_inputs)
         self.assertEqual(len(results), 2)
@@ -72,7 +78,7 @@ class MetricsCacheTest(unittest.TestCase):
     def test_cache_hit_returns_stored_snapshot_without_recomputing(self):
         self._seed_two_logs()
         logs = self.log_manager.list_logs(self.user_id)
-        engine_inputs = self.log_manager.to_engine_inputs(logs)
+        engine_inputs = self._engine_inputs(logs)
         self.cache.get_or_compute_series(PROFILE, logs, engine_inputs)
 
         # Corrupt the stored snapshot so a genuine cache hit is distinguishable
@@ -90,7 +96,7 @@ class MetricsCacheTest(unittest.TestCase):
     def test_invalidate_clears_snapshots_for_the_user(self):
         self._seed_two_logs()
         logs = self.log_manager.list_logs(self.user_id)
-        engine_inputs = self.log_manager.to_engine_inputs(logs)
+        engine_inputs = self._engine_inputs(logs)
         self.cache.get_or_compute_series(PROFILE, logs, engine_inputs)
 
         self.cache.invalidate_for_user(self.user_id)
@@ -103,7 +109,7 @@ class MetricsCacheTest(unittest.TestCase):
     def test_update_log_invalidates_the_cache(self):
         self._seed_two_logs()
         logs = self.log_manager.list_logs(self.user_id)
-        engine_inputs = self.log_manager.to_engine_inputs(logs)
+        engine_inputs = self._engine_inputs(logs)
         self.cache.get_or_compute_series(PROFILE, logs, engine_inputs)
 
         first_log = sorted(logs, key=lambda log: log.date)[0]
