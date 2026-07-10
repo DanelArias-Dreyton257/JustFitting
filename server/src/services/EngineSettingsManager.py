@@ -43,6 +43,7 @@ FIELDS = (
     "protein_target_g_per_kg",
     "fat_target_g_per_kg",
     "macro_target_deviation_pct",
+    "missing_log_alert_days",
 )
 
 #: (min exclusive?, max exclusive?) sanity bounds -- generous, just enough
@@ -74,6 +75,7 @@ _BOUNDS = {
     "protein_target_g_per_kg": (0.0, None),
     "fat_target_g_per_kg": (0.0, None),
     "macro_target_deviation_pct": (0.0, 1.0),
+    "missing_log_alert_days": (0.0, None),
 }
 
 _VALID_BMR_MODELS = ("cunningham", "mifflin")

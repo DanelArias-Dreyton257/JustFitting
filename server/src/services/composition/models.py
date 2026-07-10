@@ -60,6 +60,9 @@ class EngineConstants:
     fat_target_g_per_kg: float = constants.FAT_TARGET_G_PER_KG
     macro_target_deviation_pct: float = constants.MACRO_TARGET_DEVIATION_PCT
 
+    # Phase 11.3 -- missing-log alert.
+    missing_log_alert_days: float = constants.MISSING_LOG_ALERT_DAYS
+
 
 DEFAULT_ENGINE_CONSTANTS = EngineConstants()
 

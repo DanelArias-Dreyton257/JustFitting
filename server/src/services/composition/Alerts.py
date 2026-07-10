@@ -41,9 +41,10 @@ class Alert:
     """A single user-facing feedback item anchored to one log's date."""
 
     type: str  # "implausible_change" | "stagnation" | "excessive_lean_loss" |
-    # "deviation" | "bulk_rate_out_of_range" | "dirty_bulk" | "recalibrate" |
-    # "macro_kcal_mismatch" | "protein_target_deviation" | "fat_target_deviation" |
-    # "unconfigured_goal"
+    # "deviation" | "bulk_rate_out_of_range" | "cut_rate_out_of_range" |
+    # "dirty_bulk" | "recalibrate" | "macro_kcal_mismatch" |
+    # "protein_target_deviation" | "fat_target_deviation" |
+    # "unconfigured_goal" | "stale_log"
     severity: str  # "warning" | "info"
     date: date_type
     message: str
@@ -189,6 +190,33 @@ def _bulk_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
             ),
             value=goal.weekly_rate,
             threshold=threshold,
+        )
+    ]
+
+
+def _cut_rate_alerts(goal: Optional[GoalPlan]) -> List[Alert]:
+    """Flag (not block) a cut goal whose weekly rate exceeds the literature-
+    cited ~1%/week max (Phase 11.4) -- the direct structural mirror of
+    `_bulk_rate_alerts` above: a single, goal-level check anchored to the
+    goal's own `start_date`, checked against a fixed module constant
+    (`constants.MAX_CUT_RATE_PCT`), not a per-account override, keeping both
+    sides of the rate-range check consistent."""
+    if goal is None or goal.direction != "cut":
+        return []
+    if abs(goal.weekly_rate) <= constants.MAX_CUT_RATE_PCT:
+        return []
+    return [
+        Alert(
+            type="cut_rate_out_of_range",
+            severity="info",
+            date=goal.start_date,
+            message=(
+                f"Weekly cut rate {goal.weekly_rate:+.2%} exceeds the "
+                f"recommended max {constants.MAX_CUT_RATE_PCT:.2%} -- risk of "
+                "excess muscle loss over time."
+            ),
+            value=goal.weekly_rate,
+            threshold=constants.MAX_CUT_RATE_PCT,
         )
     ]
 
@@ -360,6 +388,45 @@ def _macro_target_deviation_alerts(
     return alerts
 
 
+def _stale_log_alerts(
+    goal: Optional[GoalPlan],
+    thresholds: EngineConstants,
+    today: date_type,
+    all_logs: Optional[Sequence[_LogLike]],
+) -> List[Alert]:
+    """Flag (not block) an account that hasn't logged anything in too long
+    (Phase 11.3) -- the first detector anchored to wall-clock "now" rather
+    than purely comparing already-logged rows against each other. Anchored
+    to the latest *raw* log's date across the whole account (including a
+    still-partial, not-yet-computable row, e.g. a Health Connect sync --
+    any of it counts as "the user did something"), or the active goal's own
+    `start_date` for an account that's never logged at all. Deduped on
+    `(user_id, type, date)` like every other alert with `date=today`, so
+    dismissing it only silences *today's* firing -- it re-fires (and can be
+    re-dismissed) again tomorrow if the account is still stale."""
+    if goal is None:
+        return []
+    latest_log_date = max((log.date for log in all_logs), default=None) if all_logs else None
+    anchor_date = latest_log_date if latest_log_date is not None else goal.start_date
+    days_since = (today - anchor_date).days
+    if days_since <= thresholds.missing_log_alert_days:
+        return []
+    last_logged_text = anchor_date.isoformat() if latest_log_date is not None else "never"
+    return [
+        Alert(
+            type="stale_log",
+            severity="warning",
+            date=today,
+            message=(
+                f"No log in {days_since} days (last logged: {last_logged_text}) -- "
+                "log this week's numbers to keep your metrics current."
+            ),
+            value=float(days_since),
+            threshold=float(thresholds.missing_log_alert_days),
+        )
+    ]
+
+
 def detect_alerts(
     results: Sequence[CompositionResult],
     thresholds: Optional[EngineConstants] = None,
@@ -369,6 +436,8 @@ def detect_alerts(
     logs: Optional[Sequence[_LogLike]] = None,
     macro_targets: Optional[Sequence[MacroTargetsRow]] = None,
     goal_history_count: Optional[int] = None,
+    today: Optional[date_type] = None,
+    all_logs: Optional[Sequence[_LogLike]] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -388,9 +457,15 @@ def detect_alerts(
     it's exactly `1` -- omitting it just skips that detector, same as
     every other optional signal above. Unlike every other detector here,
     this one needs no logged week at all, so it fires even for a
-    brand-new account with zero logs.
+    brand-new account with zero logs. ``today`` (Phase 11.3, defaults to
+    `date.today()`) and ``all_logs`` (every raw logged row for the account,
+    regardless of computability -- distinct from ``logs`` above, which is
+    already filtered to computable weeks) feed the stale-log detector, the
+    first one anchored to wall-clock "now" rather than purely comparing
+    already-logged rows against each other.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
+    today = today or date_type.today()
     ordered = sorted(results, key=lambda r: r.date)
     alerts = (
         _implausible_change_alerts(ordered, thresholds)
@@ -398,10 +473,12 @@ def detect_alerts(
         + _excessive_lean_loss_alerts(ordered, thresholds)
         + _deviation_alerts(ordered, thresholds)
         + _bulk_rate_alerts(goal)
+        + _cut_rate_alerts(goal)
         + _unconfigured_goal_alerts(goal, goal_history_count)
         + (_dirty_bulk_alerts(gain_quality, thresholds, goal) if gain_quality else [])
         + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
         + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])
         + (_macro_target_deviation_alerts(macro_targets, thresholds) if macro_targets else [])
+        + _stale_log_alerts(goal, thresholds, today, all_logs)
     )
     return sorted(alerts, key=lambda a: a.date)

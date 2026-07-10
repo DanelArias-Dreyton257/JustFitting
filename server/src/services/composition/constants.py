@@ -101,6 +101,15 @@ FAT_RATIO_IDEAL = 0.25
 BULK_RATE_MIN = 0.0025
 BULK_RATE_MAX = 0.005
 
+#: Phase 11.4 -- maximum recommended weekly cut rate (magnitude), the
+#: literature-cited "max ~1%/week of bodyweight" figure that avoids
+#: inducing excess muscle loss. The direct structural mirror of
+#: BULK_RATE_MIN/BULK_RATE_MAX above: a fixed module constant, not a
+#: per-account `EngineSettings` field, since neither bulk-rate bound is
+#: overridable today either -- promoting both together would be a
+#: reasonable future consistency cleanup, out of scope here.
+MAX_CUT_RATE_PCT = 0.01
+
 #: Phase 3.2 (Wave 2, F5/F7) -- energy reconciliation & increment analytics.
 #: See docs/composition_spec.md's "Wave 2" section, F5.
 
@@ -163,3 +172,10 @@ FAT_TARGET_G_PER_KG = 0.70
 #: than this relative share is flagged (not blocked) -- own reasoned
 #: default, same flag-not-block pattern as MACRO_KCAL_MISMATCH_PCT above.
 MACRO_TARGET_DEVIATION_PCT = 0.20
+
+#: Phase 11.3 -- a missing-log alert fires once this many days have passed
+#: since the account's latest real log (or since the active goal's
+#: start_date, for an account that's never logged at all) -- per-account
+#: overridable via `EngineConstants.missing_log_alert_days`, same pattern as
+#: every other alert threshold above.
+MISSING_LOG_ALERT_DAYS = 7

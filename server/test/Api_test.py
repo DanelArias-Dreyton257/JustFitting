@@ -1768,6 +1768,21 @@ class ApiTestCase(unittest.TestCase):
         self.assertAlmostEqual(body["protein_target_g_per_kg"], 2.0)
         self.assertAlmostEqual(body["fat_target_g_per_kg"], 0.9)
 
+    def test_settings_update_missing_log_alert_days(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        get_response = self.client.get("/api/users/me/settings", headers=headers)
+        self.assertAlmostEqual(get_response.get_json()["missing_log_alert_days"], 7.0)
+
+        update_response = self.client.put(
+            "/api/users/me/settings",
+            json={"missing_log_alert_days": 14},
+            headers=headers,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertAlmostEqual(update_response.get_json()["missing_log_alert_days"], 14.0)
+
     def test_out_of_range_bulk_rate_produces_a_dismissible_alert(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)

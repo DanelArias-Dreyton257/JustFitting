@@ -236,6 +236,39 @@ class BulkRateAlertTest(unittest.TestCase):
         self.assertFalse(any(a.type == "bulk_rate_out_of_range" for a in alerts))
 
 
+class CutRateAlertTest(unittest.TestCase):
+    """Phase 11.4: the direct structural mirror of BulkRateAlertTest above --
+    a cut goal's weekly rate (magnitude) exceeding the literature-cited
+    ~1%/week max is flagged (not blocked)."""
+
+    def test_within_max_cut_rate_is_not_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(-0.008))
+        self.assertFalse(any(a.type == "cut_rate_out_of_range" for a in alerts))
+
+    def test_above_max_cut_rate_is_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(-0.015))
+        flagged = [a for a in alerts if a.type == "cut_rate_out_of_range"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "info")
+
+    def test_bulk_direction_is_never_flagged_regardless_of_rate(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(0.05))
+        self.assertFalse(any(a.type == "cut_rate_out_of_range" for a in alerts))
+
+    def test_zero_rate_default_goal_is_never_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=make_goal(0.0))
+        self.assertFalse(any(a.type == "cut_rate_out_of_range" for a in alerts))
+
+    def test_no_goal_is_never_flagged(self):
+        results = [make_result(0)]
+        alerts = Alerts.detect_alerts(results, goal=None)
+        self.assertFalse(any(a.type == "cut_rate_out_of_range" for a in alerts))
+
+
 class UnconfiguredGoalAlertTest(unittest.TestCase):
     """Phase 5.2 follow-up: a brand-new account's still-untouched,
     auto-assigned default goal (0% weekly rate) is flagged once, even with
@@ -453,6 +486,77 @@ class MacroTargetDeviationAlertTest(unittest.TestCase):
     def test_omitting_macro_targets_skips_the_detector(self):
         alerts = Alerts.detect_alerts([make_result(0)])
         self.assertFalse(any(a.type == "protein_target_deviation" for a in alerts))
+
+
+class StaleLogAlertTest(unittest.TestCase):
+    """Phase 11.3: the first detector anchored to wall-clock "now" rather
+    than purely comparing already-logged rows against each other -- fires
+    once too many days have passed since the account's latest raw log (or
+    since the goal's own start_date, for an account that's never logged at
+    all)."""
+
+    @dataclass
+    class FakeLog:
+        date: date
+
+    def test_recent_log_is_not_flagged(self):
+        today = BASE_DATE + timedelta(days=3)
+        alerts = Alerts.detect_alerts(
+            [], goal=make_goal(0.0), today=today, all_logs=[self.FakeLog(BASE_DATE)]
+        )
+        self.assertFalse(any(a.type == "stale_log" for a in alerts))
+
+    def test_stale_log_is_flagged(self):
+        today = BASE_DATE + timedelta(days=10)
+        alerts = Alerts.detect_alerts(
+            [], goal=make_goal(0.0), today=today, all_logs=[self.FakeLog(BASE_DATE)]
+        )
+        flagged = [a for a in alerts if a.type == "stale_log"]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0].severity, "warning")
+        self.assertEqual(flagged[0].date, today)
+
+    def test_uses_the_latest_of_several_logs(self):
+        today = BASE_DATE + timedelta(days=10)
+        logs = [self.FakeLog(BASE_DATE), self.FakeLog(BASE_DATE + timedelta(days=9))]
+        alerts = Alerts.detect_alerts([], goal=make_goal(0.0), today=today, all_logs=logs)
+        self.assertFalse(any(a.type == "stale_log" for a in alerts))
+
+    def test_never_logged_falls_back_to_goal_start_date(self):
+        today = BASE_DATE + timedelta(days=10)
+        alerts = Alerts.detect_alerts([], goal=make_goal(0.0), today=today, all_logs=[])
+        flagged = [a for a in alerts if a.type == "stale_log"]
+        self.assertEqual(len(flagged), 1)
+
+    def test_no_goal_is_never_flagged(self):
+        today = BASE_DATE + timedelta(days=100)
+        alerts = Alerts.detect_alerts([], goal=None, today=today, all_logs=[])
+        self.assertFalse(any(a.type == "stale_log" for a in alerts))
+
+    def test_omitting_today_defaults_to_the_real_today(self):
+        # A goal whose start_date is far in the past with no logs at all
+        # should be flagged regardless of when this test runs.
+        alerts = Alerts.detect_alerts(
+            [], goal=make_goal(0.0, start_date=date(2020, 1, 1)), all_logs=[]
+        )
+        self.assertTrue(any(a.type == "stale_log" for a in alerts))
+
+    def test_custom_threshold_shifts_the_boundary(self):
+        today = BASE_DATE + timedelta(days=10)
+        logs = [self.FakeLog(BASE_DATE)]
+        default_alerts = Alerts.detect_alerts(
+            [], goal=make_goal(0.0), today=today, all_logs=logs
+        )
+        self.assertTrue(any(a.type == "stale_log" for a in default_alerts))
+
+        looser = Alerts.detect_alerts(
+            [],
+            EngineConstants(missing_log_alert_days=14),
+            goal=make_goal(0.0),
+            today=today,
+            all_logs=logs,
+        )
+        self.assertFalse(any(a.type == "stale_log" for a in looser))
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ class EngineSettings:
     protein_target_g_per_kg: float
     fat_target_g_per_kg: float
     macro_target_deviation_pct: float
+    missing_log_alert_days: float
     start_date: date
     active: bool
     created_at: datetime
@@ -77,6 +78,7 @@ class EngineSettings:
             protein_target_g_per_kg=row["protein_target_g_per_kg"],
             fat_target_g_per_kg=row["fat_target_g_per_kg"],
             macro_target_deviation_pct=row["macro_target_deviation_pct"],
+            missing_log_alert_days=row["missing_log_alert_days"],
             start_date=date.fromisoformat(row["start_date"]),
             active=bool(row["active"]),
             created_at=datetime.fromisoformat(row["created_at"]),

@@ -41,6 +41,7 @@ class EngineSettingsDAO:
         protein_target_g_per_kg: float,
         fat_target_g_per_kg: float,
         macro_target_deviation_pct: float,
+        missing_log_alert_days: float,
         start_date: date,
         active: bool = True,
     ) -> EngineSettings:
@@ -58,9 +59,9 @@ class EngineSettingsDAO:
                  tef_mode, kappa_carbs, kappa_fat, kappa_protein,
                  macro_kcal_mismatch_pct,
                  protein_target_g_per_kg, fat_target_g_per_kg,
-                 macro_target_deviation_pct,
+                 macro_target_deviation_pct, missing_log_alert_days,
                  start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -90,6 +91,7 @@ class EngineSettingsDAO:
                 protein_target_g_per_kg,
                 fat_target_g_per_kg,
                 macro_target_deviation_pct,
+                missing_log_alert_days,
                 start_date.isoformat(),
                 int(active),
                 created_at,

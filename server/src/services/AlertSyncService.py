@@ -6,7 +6,8 @@ Shared by `alerts_routes.py` and `user_routes.py`'s report endpoint.
 
 from __future__ import annotations
 
-from typing import List
+from datetime import date
+from typing import List, Optional
 
 from flask import Flask
 
@@ -16,7 +17,10 @@ from server.src.services.MetricsSeriesService import compute_series_for_user
 
 
 def sync_alerts(
-    app: Flask, user_id: int, include_acknowledged: bool = False
+    app: Flask,
+    user_id: int,
+    include_acknowledged: bool = False,
+    today: Optional[date] = None,
 ) -> List[AlertLog]:
     logs, results = compute_series_for_user(app, user_id)
     engine_settings_manager = app.extensions["engine_settings_manager"]
@@ -35,6 +39,8 @@ def sync_alerts(
     macro_targets = (
         MacroTargets.compute_macro_targets(logs, results, thresholds) if results else []
     )
+    log_manager = app.extensions["log_manager"]
+    all_logs = log_manager.list_logs(user_id)
     detected = Alerts.detect_alerts(
         results,
         thresholds,
@@ -44,6 +50,8 @@ def sync_alerts(
         logs=logs,
         macro_targets=macro_targets,
         goal_history_count=goal_history_count,
+        today=today,
+        all_logs=all_logs,
     )
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)

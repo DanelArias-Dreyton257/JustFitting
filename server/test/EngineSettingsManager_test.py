@@ -114,6 +114,14 @@ class EngineSettingsManagerTest(unittest.TestCase):
         with self.assertRaises(EngineSettingsManagerError):
             self.manager.update_settings(self.user_id, macro_target_deviation_pct=1.5)
 
+    def test_accepts_valid_missing_log_alert_days_override(self):
+        updated = self.manager.update_settings(self.user_id, missing_log_alert_days=14)
+        self.assertAlmostEqual(updated.missing_log_alert_days, 14)
+
+    def test_rejects_out_of_bounds_missing_log_alert_days(self):
+        with self.assertRaises(EngineSettingsManagerError):
+            self.manager.update_settings(self.user_id, missing_log_alert_days=0.0)
+
     def test_bf_weights_must_sum_to_one_when_all_three_overridden(self):
         with self.assertRaises(EngineSettingsManagerError):
             self.manager.update_settings(self.user_id, w_rfm=0.6, w_navy=0.3, w_deur=0.3)
