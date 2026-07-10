@@ -14,6 +14,7 @@ import {
   showView,
   setFormError,
   renderDashboardStats,
+  renderTodaySummary,
   renderWeightSummary,
   renderCaloriesSummary,
   renderGoalSummary,
@@ -30,6 +31,8 @@ import {
   fillSettingsForm,
   renderSettingsStatus,
   renderSettingsHistory,
+  fillActivityGoalForm,
+  renderActivityGoalStatus,
   renderImportSummary,
   renderHealthSyncStatus,
   renderBodyMeasurementTable,
@@ -255,13 +258,14 @@ function navigate(viewName) {
 }
 
 async function refreshDashboardSummary() {
-  const [latest, series, gainQuality, adherence, alerts, logs] = await Promise.all([
+  const [latest, series, gainQuality, adherence, alerts, logs, todayEstimate] = await Promise.all([
     api.metricsLatest().catch(() => null),
     api.metricsSeries().catch(() => []),
     api.gainQuality().catch(() => []),
     api.adherence().catch(() => null),
     api.alerts().catch(() => []),
     api.listLogs().catch(() => []),
+    api.todayEstimate().catch(() => null),
   ]);
   state.series = series;
   state.gainQuality = gainQuality;
@@ -272,6 +276,7 @@ async function refreshDashboardSummary() {
   const realLogs = logs.filter((log) => log.source === "real");
   const latestRealLog = realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
 
+  renderTodaySummary(document.getElementById("summary-today-stats"), todayEstimate);
   renderWeightSummary(
     document.getElementById("summary-weight-stats"),
     latest,
@@ -814,12 +819,16 @@ function enterBodyEditMode(measurement) {
 }
 
 async function refreshPlan() {
-  const [profile, current, goals] = await Promise.all([
+  const [profile, current, goals, activityGoal] = await Promise.all([
     api.me(),
     api.metricsLatest().catch(() => null),
     api.goals().catch(() => []),
+    api.getActivityGoal(),
   ]);
   state.profile = profile;
+  fillActivityGoalForm(document.getElementById("activity-goal-form"), activityGoal);
+  renderActivityGoalStatus(document.getElementById("activity-goal-status"), activityGoal);
+  setFormError("activity-goal-form", "");
   const form = document.getElementById("plan-form");
   form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
@@ -1360,6 +1369,25 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     await refreshSettings();
   } catch (err) {
     setFormError("settings-form", err.message);
+  }
+});
+
+document.getElementById("activity-goal-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("activity-goal-form", "");
+  const raw = formToJson(event.target);
+  const payload = {
+    steps_goal: raw.steps_goal === "" || raw.steps_goal == null ? null : Number(raw.steps_goal),
+    cardio_kcal_goal:
+      raw.cardio_kcal_goal === "" || raw.cardio_kcal_goal == null
+        ? null
+        : Number(raw.cardio_kcal_goal),
+  };
+  try {
+    await api.updateActivityGoal(payload);
+    await refreshPlan();
+  } catch (err) {
+    setFormError("activity-goal-form", err.message);
   }
 });
 

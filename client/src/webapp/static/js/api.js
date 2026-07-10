@@ -64,9 +64,16 @@ export const api = {
   // given fields, creating a partial row if none exists yet.
   upsertLogByDate: (date, fields) =>
     request("PUT", `/api/logs/by-date/${date}`, { body: fields }),
+  // Phase 10.2 (Today dashboard section, see README): read-side
+  // counterpart of the upsert above -- 404s (caught by the caller) when
+  // nothing's logged for that date yet.
+  getLogByDate: (date) => request("GET", `/api/logs/by-date/${date}`),
 
   metricsLatest: () => request("GET", "/api/metrics/latest"),
   metricsSeries: () => request("GET", "/api/metrics/series"),
+  // Phase 10.2 (Today dashboard section, see README): a same-day
+  // NEAT/TEF/EAT estimate held against the most recently computed week.
+  todayEstimate: () => request("GET", "/api/metrics/today"),
   adherence: () => request("GET", "/api/metrics/adherence"),
   gainQuality: () => request("GET", "/api/metrics/gain-quality"),
   energyBalance: () => request("GET", "/api/metrics/energy-balance"),
@@ -95,4 +102,10 @@ export const api = {
   getSettings: () => request("GET", "/api/users/me/settings"),
   updateSettings: (payload) => request("PUT", "/api/users/me/settings", { body: payload }),
   settingsHistory: () => request("GET", "/api/users/me/settings/history"),
+
+  // Phase 10.2 (Today dashboard section, see README): independent of the
+  // main body-fat goal above -- unset by default.
+  getActivityGoal: () => request("GET", "/api/users/me/activity-goal"),
+  updateActivityGoal: (payload) =>
+    request("PUT", "/api/users/me/activity-goal", { body: payload }),
 };

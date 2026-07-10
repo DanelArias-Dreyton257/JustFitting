@@ -1101,10 +1101,19 @@ SDKs directly.
   plus `READ_HEALTH_DATA_HISTORY` for >30-day reads — see 7.6), but only
   the first two actually gate sync (`requiredPermissions()`), so declining
   history access degrades to a 30-day clamp rather than blocking sync.
-- **"Not today" rule**: the sync window's upper bound is always computed
-  natively as `LocalDate.now()`, never trusted from the JS caller, and
-  Health Connect's own aggregation excludes it — today's count is still
-  accumulating and would look like a shortfall read mid-day.
+- **"Not today" rule (relaxed by Phase 10.2)**: originally, the sync
+  window's upper bound was always computed natively as `LocalDate.now()`,
+  never trusted from the JS caller, with Health Connect's own aggregation
+  excluding it entirely — today's count is still accumulating and would
+  look like a shortfall read with nowhere sensible to show it. Phase
+  10.2's Today dashboard section gives a still-accumulating same-day
+  reading exactly that place, flagged as current/incomplete rather than a
+  false shortfall, so the upper bound now passes tomorrow instead
+  (`HealthSyncPlugin.java`), including today as the range's last, partial
+  day. The upstream aggregation mechanism itself
+  (`HealthConnectBridge.readDailyReadings`) was always a plain
+  `[sinceDate, untilDate)` range with no "not today" meaning baked in —
+  only the caller's choice of `untilDate` changed.
 - **Manual sync only, for now**: triggered solely by a "Sync now" button
   (7.5) — no background pull/`WorkManager` job in this first version,
   matching Phase 6's "no execution after the app is swiped away" posture.
@@ -1589,7 +1598,7 @@ This sub-phase is pure plumbing — no new UI, foundational for 9.2:
   record-keeping feature, per the note's own "do not intervene in
   computations."
 
-### Phase 10 — Big remaining features: DB migration protocol (GAME CHANGER 2) + Today dashboard section (GAME CHANGER 3) (planned, v5.0)
+### Phase 10 — Big remaining features: DB migration protocol (GAME CHANGER 2) + Today dashboard section (GAME CHANGER 3) (done, v5.0)
 
 Source: `things-to-improve.txt`'s GAME CHANGER (2) and GAME CHANGER (3) —
 listed in the note itself out of numeric order (3 appears before 2);
@@ -1598,9 +1607,9 @@ sequenced after Phase 9 (v4.0): 10.1's migration protocol is far more
 concretely motivated with a real, already-shipped schema change (Phase
 9's `body_logs.waist_cm`/`neck_cm` removal) to design a backfill
 migration against, rather than being built speculatively with nothing yet
-to migrate.
+to migrate. **Both sub-phases, 10.1-10.2, are done.**
 
-#### Phase 10.1 — Versioned DB migration protocol (planned)
+#### Phase 10.1 — Versioned DB migration protocol (done)
 
 Problem: `DB.py`'s own docstring is explicit that this project keeps "no
 real user data that a migration history would need to carry forward" —
@@ -1619,49 +1628,86 @@ a real device's existing DB, or, worse, a future column removal (exactly
 what Phase 9 just did) simply leaves the stale column and stale data
 behind untouched, forever, since nothing runs to reconcile it.
 
-Plan:
-- Bring back a real migration runner — a return to the
-  pre-Phase-1.0-squash design, this time justified by data that actually
-  needs to survive. SQLite's own `PRAGMA user_version` (a plain integer
-  already stored in the DB file header) tracks the applied version, no
-  new table required.
+Implemented:
+- A real migration runner — a return to the pre-Phase-1.0-squash design,
+  this time justified by data that actually needs to survive. SQLite's own
+  `PRAGMA user_version` (a plain integer already stored in the DB file
+  header) tracks the applied version, no new table required.
 - New `server/src/data/db/migrations/` package, one module per version
-  (`m0001_baseline.py`, `m0002_...`, ...), each exposing
-  `upgrade(conn: sqlite3.Connection) -> None`. `DB.__init__` reads
-  `PRAGMA user_version`, applies every migration numbered above it in
-  order inside one transaction (so a failure never leaves a
-  half-migrated file), then sets `PRAGMA user_version` to the latest
-  applied number. Migration 1 is a no-op "this is the current `SCHEMA` as
-  of this phase" baseline, so a brand-new DB (dev machine, fresh Android
-  install, a fresh Render deploy) and an upgraded existing DB converge on
-  an identical end state.
+  (`m0001_baseline.py`, `m0002_body_measurements_catchup.py`,
+  `m0003_activity_goals.py`), each exposing
+  `upgrade(conn: sqlite3.Connection) -> None` plus a module-level
+  `VERSION` int. `DB._apply_migrations` (called from `DB.__init__`, after
+  `SCHEMA` runs) reads `PRAGMA user_version`, applies every migration
+  numbered above it in order inside one transaction (`BEGIN`/`COMMIT`, a
+  `PRAGMA foreign_key_check` before committing, `ROLLBACK` on any
+  exception — so a failure never leaves a half-migrated file, verified by
+  a dedicated `DB_test.py` case that injects a failing migration and
+  asserts both the DB shape and `user_version` are untouched afterward),
+  then advances `PRAGMA user_version` to the highest one applied. Foreign
+  keys are switched off for the duration and back on afterward —
+  `PRAGMA foreign_keys` is a documented no-op once a transaction is
+  already open, and off is what a same-name table rebuild (below) needs.
+  `SCHEMA` itself stays frozen at what migration 1 represents — a
+  brand-new DB (dev machine, fresh Android install, a fresh Render
+  deploy) gets that shape directly from `SCHEMA`'s own
+  `CREATE TABLE IF NOT EXISTS` statements, migration 1's `upgrade` is a
+  literal no-op, and an upgraded existing DB converges on the identical
+  end state since every migration after it is a no-op against a table
+  that's already in the target shape.
+- **From this phase on, a schema change is a new migration module, not a
+  `SCHEMA` edit** — established immediately by both migrations this phase
+  ships, not just the destructive one: `m0002` (below) is the drop this
+  protocol exists for, and `m0003` (Phase 10.2's brand-new
+  `activity_goals` table) is deliberately routed through a migration too,
+  even though a plain `SCHEMA` addition would have "worked" for a
+  purely-additive change — keeping exactly one code path responsible for
+  every DB's shape, rather than two that could quietly drift apart.
 - SQLite can `ADD COLUMN`/`RENAME COLUMN`/`RENAME TABLE` natively but has
-  no `DROP COLUMN` before 3.35 and no `ALTER COLUMN TYPE` at all — a
-  migration doing either needs the standard "create new table, copy data
-  across, drop old, rename" sequence. This directly matters for the one
-  schema change already in the plan ahead of this phase: **a "catch-up"
-  migration is needed for any real device that installed the Phase 9
-  (v4.0) release before this migration protocol (v5.0) existed** — it
-  must copy any surviving `body_logs.waist_cm`/`neck_cm` values (if that
-  device's data predates even Phase 9's own dev-time schema edit) into
-  `body_measurements` rows before dropping the columns, mirroring Phase
-  9.1's own JSON-import backfill logic but as a migration instead of a
-  manual import.
-- `scripts/reset_db.sh`/`seed_demo_data.sh` and `DB.py`'s docstring get
-  rewritten for the new convention: a schema change from here on is a new
-  migration file, not a `SCHEMA` edit; local dev may still reset for
-  convenience (faster than writing a migration while iterating), but a
-  real device always migrates in place, never resets.
+  no `DROP COLUMN` old enough to rely on here and no `ALTER COLUMN TYPE`
+  at all — `m0002_body_measurements_catchup.py` needs the standard
+  create-copy-drop-rename sequence for exactly the schema change already
+  shipped ahead of this phase: **a real device that installed the Phase 9
+  (v4.0) release before this migration protocol (v5.0) existed** still
+  has `waist_cm`/`neck_cm` physically on its own `body_logs` table (since
+  `CREATE TABLE IF NOT EXISTS` never touches a table that already
+  exists). The migration copies any surviving values into
+  `body_measurements` (`INSERT OR IGNORE`, so a row a manual Phase 9.1
+  JSON import already recovered always wins over the automatic backfill),
+  builds the new shape under a temporary name, copies the data across,
+  drops the old table, and renames the new one into place — deliberately
+  never renaming `body_logs` itself away, so `metrics_snapshots.log_id`'s
+  own `REFERENCES body_logs(...)` is never rewritten by SQLite's own
+  rename-following behavior — exactly the pitfall sqlite.org's own
+  recommended procedure for this kind of schema change warns about. The
+  copied rows' explicit `log_id` values bypass
+  `AUTOINCREMENT`'s own bookkeeping, so the migration also reseeds
+  `sqlite_sequence` from their actual max id before the rename, to avoid
+  a future real insert colliding with one of them.
+- `scripts/reset_db.sh` and `scripts/update.sh` gained comments spelling
+  out the new convention (a fresh DB just runs every migration from
+  `user_version=0`, same as a first install; a real device always
+  migrates in place via `scripts/update.sh`, never resets); `DB.py`'s own
+  module docstring is rewritten to match — its "no real user data that a
+  migration history would need to carry forward" claim is exactly what
+  Phase 6's on-device persistence made untrue.
 - No `ENGINE_VERSION` implication — this is a persistence-layer
   mechanism, unrelated to `CompositionEngine`'s own cached-snapshot
   versioning.
-- New `DB_test.py` migration-runner coverage: applying every migration in
-  order against a fixture DB seeded at each historical version reproduces
-  a fresh install's schema and preserves existing data, plus specifically
-  exercising the `body_logs`→`body_measurements` catch-up migration's
-  backfill.
+- New `DB_test.py` `MigrationRunnerTest` coverage: a fresh DB converges on
+  the latest `user_version` and shape; reconnecting an already-migrated
+  DB is a no-op; the `body_logs`→`body_measurements` catch-up migration
+  backfills surviving values, never clobbers a pre-existing
+  `body_measurements` row, preserves `metrics_snapshots`' foreign-key
+  reference and cascade-delete behavior across the table rebuild, and
+  leaves `AUTOINCREMENT` collision-free for a subsequent real insert; a
+  failed migration batch rolls back atomically. Verified manually too:
+  booted the server against this repo's own real, already-populated local
+  dev `justfitting.db` (pre-dating this phase) and confirmed it migrated
+  in place — `user_version` advanced, `activity_goals` now exists,
+  existing accounts and their logs were untouched.
 
-#### Phase 10.2 — Today dashboard section (planned)
+#### Phase 10.2 — Today dashboard section (done)
 
 Problem: the Dashboard only ever shows the last **computed, complete**
 week. Since Phase 7.3-7.6's Health Connect sync, a user can have real
@@ -1669,53 +1715,84 @@ steps/nutrition data for *today* sitting in a partial `body_logs` row
 (Phase 7.4) with nowhere on the Dashboard that surfaces it before the
 week closes and the row becomes computable.
 
-Plan:
+Implemented:
 - A new "Today" stat-row, the first section on the Dashboard (above
-  Weight & Body Composition), backed by a new thin
-  `GET /api/logs/by-date/<date>` route (the read-side counterpart to
-  Phase 7.4's existing `PUT /api/logs/by-date/<date>`, both wrapping
-  `LogManager.get_by_date`).
-- Tiles: **Steps done** (today's `steps`, dash if not yet synced/logged),
+  Weight & Body Composition), fed by a single new
+  `GET /api/metrics/today` route. A new thin `GET /api/logs/by-date/<date>`
+  route (the read-side counterpart to Phase 7.4's existing
+  `PUT /api/logs/by-date/<date>`, both wrapping `LogManager.get_by_date`)
+  ships alongside it, covered by its own `Api_test.py` cases, for the same
+  "ask what today's row looks like" need outside the Dashboard.
+- Tiles: **Steps done** (today's `steps`, dash if not yet synced/logged;
+  a subtitle shows "N left of the goal" once a daily steps goal is set),
   **Kcals eaten** (today's `intake_kcal`, dash if unset), **Kcal to
   target** (`target_calories - intake_kcal`, only rendered once both are
-  known), and a combined **TEF / NEAT / EAT today** block.
-- Today's own row is essentially never `is_computable` (per Phase 9's
-  design, it won't have its own waist/neck, and typically won't yet have
-  a full week's worth of anything else either) — so these figures can't
-  come from a persisted `compute_row` result. They're an **estimate**,
-  generalizing Phase 9's "hold the last known value" idea from perimeters
-  to lean mass/BMR: NEAT recomputed from today's real `steps` against the
-  most recent computed week's `lean_mass_kg` (held static), TEF from
-  today's real macros (or the flat estimate) against today's real
-  `intake_kcal`, EAT straight from today's real `cardio_kcal`. Computed
-  on the fly in a new read-side module (`services/composition/
-  TodayEstimate.py`, alongside `GainQuality.py`/`EnergyReconciliation.py`'s
-  existing "derived view over an already-computed series" pattern) —
-  never persisted to `metrics_snapshots`, no `ENGINE_VERSION` implication,
-  same "computed but not cached" precedent `GET /api/plan/preview`
-  already established.
+  known), a combined **TEF / NEAT / EAT today** block, and (once a daily
+  cardio goal is set) a **Cardio left today** tile.
+- Today's own row is essentially never `is_computable` — so these figures
+  can't come from a persisted `compute_row` result. They're an
+  **estimate**, generalizing Phase 9's "hold the last known value" idea
+  from perimeters to lean mass/BMR: NEAT is `neat_step_factor * (held
+  weight_kg) * (today's real steps / 1000)`, where the held weight is the
+  most recently *computed* week's own total mass (`fat_mass_kg +
+  lean_mass_kg`); TEF is computed from today's real macros when logged
+  (account `tef_mode="macros"`), else the flat divisor formula applied to
+  that same held BMR plus the NEAT/EAT just computed; EAT is today's real
+  `cardio_kcal` directly; `target_calories`/`kcal_to_target` are likewise
+  held from the latest computed week, never recomputed for today. All of
+  it lives in a new pure module, `services/composition/TodayEstimate.py`
+  (`compute_today_estimate`), alongside `GainQuality.py`/
+  `EnergyReconciliation.py`'s existing "derived view over an
+  already-computed series" pattern — never persisted to
+  `metrics_snapshots`, no `ENGINE_VERSION` implication, same "computed but
+  not cached" precedent `GET /api/plan/preview` already established.
+  Covered by a dedicated `TodayEstimate_test.py`.
 - **"Incomplete/current" framing is inferred, not stored** — consistent
-  with this project's consistent preference for a derived property over a
-  new column (`GoalPlan.direction`, the `unconfigured_goal` alert): a row
-  counts as "current" precisely when `date == today` and
-  `not LogResampler.is_computable(row)` (or no row exists for today at
-  all). The Today section renders that state as a badge; no new
-  `body_logs` column, no lifecycle to manage — it stops being "current"
-  automatically the moment either the day rolls over or the row becomes
-  complete.
+  with this project's preference for a derived property over a new column
+  (`GoalPlan.direction`, the `unconfigured_goal` alert): `is_current` is
+  true whenever there's no row for today at all, or today's row exists but
+  isn't `is_computable` yet. The Today section's stat tiles show it as a
+  subtitle ("still logging today -- an estimate" vs. "today's log is
+  complete"); no new `body_logs` column, no lifecycle to manage — it
+  stops being "current" automatically the moment either the day rolls
+  over or the row becomes complete.
 - **Daily step / cardio goals**: a new goal type, independent of the main
-  `GoalPlan`/Plan tab per the note's own wording ("planned in a similar
-  way to the main goal plan but independently") — a new `activity_goals`
-  table (`activity_goal_id, user_id, steps_goal, cardio_kcal_goal,
-  start_date, active, created_at`), historized the same
-  create-new/deactivate-old/audit pattern as `GoalPlanManager`, in a
-  parallel `ActivityGoalManager`, with `GET`/`PUT
-  /api/users/me/activity-goal` routes. Unlike the body-fat goal, there's
-  no cut/bulk-direction coherence check to port over (steps/cardio have
-  no sign relationship to body fat). Once set, the Today section's tiles
-  gain "Steps left today"/"Cardio left today"; unset by default, matching
-  Phase 5.2's "don't force a goal at signup" precedent — no onboarding
-  step forces this.
+  `GoalPlan` *in the data model* per the note's own wording ("planned in a
+  similar way to the main goal plan but independently") — a new
+  `activity_goals` table (`activity_goal_id, user_id, steps_goal,
+  cardio_kcal_goal, start_date, active, created_at`, migration `m0003`),
+  historized the same create-new/deactivate-old/audit pattern as
+  `GoalPlanManager`, in a parallel `ActivityGoalManager`, with
+  `GET`/`PUT`/`GET .../history` `/api/users/me/activity-goal` routes
+  (`activity_goal_routes.py`). Either `steps_goal`/`cardio_kcal_goal`
+  alone is enough — unlike the body-fat goal there's no cut/bulk-direction
+  coherence check to port over (steps/cardio have no sign relationship to
+  body fat), just a positive-value check and "at least one of the two."
+  Unset by default, matching Phase 5.2's "don't force a goal at signup"
+  precedent — no onboarding step creates one. **UI-wise it lives on the
+  Plan tab**, not a new nav destination or Settings — a new "Daily
+  activity goal" section under the existing body-fat goal's history table,
+  since both are conceptually "targets" a user sets even though their
+  data models and business rules stay fully independent; a dedicated
+  8th-or-9th nav item for a two-field form would have worked against
+  Phase 4.1's own original goal of trimming nav clutter. Covered by
+  `ActivityGoalManager_test.py` and `Api_test.py`.
+- **Health Connect sync now feeds the Today section**: Phase 7.3's
+  "not today" rule (see above) is relaxed — `HealthSyncPlugin.java`'s
+  sync window now includes today as its last, partial day, upserted via
+  the same `PUT /api/logs/by-date/<date>` route every other synced day
+  already uses (Phase 7.4/7.5), so "Sync now" needs no client-side
+  changes at all to start populating the Today section. A day's true
+  final total still arrives automatically the next time sync runs on a
+  *later* calendar day: that date is no longer "today," so it gets
+  re-read and upserted with its now-complete aggregate, overwriting the
+  partial number captured while it still was.
+- New/extended test coverage: `TodayEstimate_test.py`,
+  `ActivityGoalManager_test.py` (new files), `Api_test.py` (the new
+  routes' round trips, empty-state 404/defaults), and a new Dashboard
+  Playwright case (`Dashboard_test.py`) exercising a still-partial today
+  log plus an activity goal end-to-end through the real UI. 403 server
+  tests, 67 client tests green.
 
 ### Phase 11 — Beta-testing feedback, round 3 (part 2): remaining small features (planned, v5.1)
 
@@ -1959,7 +2036,7 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `4.0.0`/`8`, tracking this Phase 9 release. Not
+to `2.0.0`/`2`; currently `5.0.0`/`9`, tracking this Phase 10 release. Not
 done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 

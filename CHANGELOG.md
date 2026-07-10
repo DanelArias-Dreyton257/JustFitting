@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-07-10
+
+### Added
+
+Phase 10 (README), GAME CHANGER (2) and GAME CHANGER (3) from
+`things-to-improve.txt`'s "Big Remaining Features" — a persistence-layer
+foundation paired with the Dashboard's biggest remaining gap:
+
+- **Versioned DB migration protocol** (Phase 10.1). A real migration
+  runner returns, justified now by real on-device data (Phase 6): a new
+  `server/src/data/db/migrations/` package (`m0001_baseline.py`,
+  `m0002_body_measurements_catchup.py`, `m0003_activity_goals.py`), each
+  a numbered `upgrade(conn)`, applied in order inside one transaction via
+  SQLite's own `PRAGMA user_version` — a failure rolls the whole batch
+  back, never leaving a half-migrated file. `m0002` is the protocol's
+  first real user: it backfills any surviving `body_logs.waist_cm`/
+  `neck_cm` values (still physically present on any device that installed
+  Phase 9 before this protocol existed) into `body_measurements`, then
+  drops the columns via the standard create-copy-drop-rename sequence,
+  carefully avoiding SQLite's rename-following behavior so
+  `metrics_snapshots`' foreign key survives and `AUTOINCREMENT` doesn't
+  collide with the copied rows. From this phase on, a schema change is a
+  new migration module, not a `DB.SCHEMA` edit — established immediately
+  by `m0003`'s brand-new `activity_goals` table (below), routed through
+  the protocol even though it's purely additive. `scripts/reset_db.sh`/
+  `update.sh` and `DB.py`'s own docstring are rewritten for the new
+  convention.
+- **Today dashboard section** (Phase 10.2). A new "Today" stat-row leads
+  the Dashboard, above Weight & Body Composition: steps done, kcals
+  eaten, kcal-to-target, and a combined TEF/NEAT/EAT-today block, all
+  computed on the fly by a new pure module
+  (`services/composition/TodayEstimate.py`) against today's own
+  (typically still-partial) log row, holding the most recently *computed*
+  week's weight/BMR/target-calories static rather than waiting for a full
+  week to close — the same "hold the last known value" idea Phase 9.1
+  already established for perimeters, generalized to lean mass/BMR. A new
+  `GET /api/metrics/today` route serves it; a new
+  `GET /api/logs/by-date/<date>` route is the read-side counterpart of
+  Phase 7.4's existing upsert-by-date route. An "Incomplete/current" state
+  is inferred (never stored) from whether today's row is `is_computable`
+  yet.
+- **Daily activity goals** (Phase 10.2, extending the above). A new
+  daily steps/cardio-kcal goal, independent of the main body-fat goal in
+  the data model (its own `activity_goals` table, historized the same
+  create-new/deactivate-old pattern, a parallel `ActivityGoalManager`,
+  `GET`/`PUT`/history `/api/users/me/activity-goal` routes) but placed on
+  the Plan tab in the UI — a new "Daily activity goal" section under the
+  body-fat goal's own history table, rather than a new nav destination or
+  Settings. Unset by default (no onboarding step forces it); once set, the
+  Today section gains "N left of goal" subtitles on the Steps/Cardio tiles.
+- **Health Connect sync now feeds the Today section** (Phase 10.2). Phase
+  7.3's "not today" rule is relaxed — `HealthSyncPlugin.java`'s sync
+  window now includes today as its last, necessarily partial day, upserted
+  through the same by-date route every other synced day already uses; a
+  day's true final total still arrives automatically once a later sync
+  re-reads it after it's no longer "today." No client-side changes needed
+  — "Sync now" already upserts whatever dates it's given.
+
+New coverage: `DB_test.py`'s new `MigrationRunnerTest` (fresh-DB
+convergence, the catch-up migration's backfill/foreign-key/AUTOINCREMENT
+safety, atomic rollback on a failed batch — plus manual verification
+against this repo's own real, already-populated local dev database);
+`TodayEstimate_test.py` and `ActivityGoalManager_test.py` (new files);
+`Api_test.py` extended for every new route; a new Dashboard Playwright
+case exercising a partial today-log plus an activity goal through the
+real UI end-to-end. 403 server tests, 67 client tests green.
+
 ## [4.0.0] - 2026-07-10
 
 ### Added

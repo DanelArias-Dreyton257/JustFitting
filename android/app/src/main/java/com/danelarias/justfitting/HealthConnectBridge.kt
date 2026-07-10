@@ -99,13 +99,16 @@ object HealthConnectBridge {
     /**
      * Steps (Mi Fitness) and calories/macros (Samsung Health) for each
      * whole day in [sinceDate, untilDate) -- untilDate itself is excluded,
-     * which is how the Java caller enforces the "not today" rule (README's
-     * Phase 7.3: callers pass today as untilDate). Uses Health Connect's
-     * own per-day aggregation (aggregateGroupByPeriod) rather than reading
-     * and summing raw records by hand, so a record spanning midnight is
-     * attributed the same way Health Connect's own UI would, and
-     * dataOriginFilter does the app-origin filtering server-side instead
-     * of over-fetching every contributing app's data first.
+     * a plain half-open range with no "not today" meaning baked in here;
+     * it's entirely up to the caller which day is last (HealthSyncPlugin.java
+     * passes tomorrow, so today's still-accumulating total is included as
+     * the final, partial day -- see its own comment, Phase 10.2). Uses
+     * Health Connect's own per-day aggregation (aggregateGroupByPeriod)
+     * rather than reading and summing raw records by hand, so a record
+     * spanning midnight is attributed the same way Health Connect's own UI
+     * would, and dataOriginFilter does the app-origin filtering
+     * server-side instead of over-fetching every contributing app's data
+     * first.
      */
     @JvmStatic
     fun readDailyReadings(

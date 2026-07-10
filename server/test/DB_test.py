@@ -1,12 +1,17 @@
+import os
+import sqlite3
+import tempfile
 import threading
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import patch
 
 from server.src.data.db import DB as DBModule
 from server.src.data.db.BodyLogDAO import BodyLogDAO
 from server.src.data.db.BodyMeasurementDAO import BodyMeasurementDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
+from server.src.data.db.migrations import MIGRATIONS, Migration
 from server.src.data.db.SessionDAO import SessionDAO
 from server.src.data.db.UserDAO import UserDAO
 
@@ -267,6 +272,246 @@ class DBTestCase(unittest.TestCase):
 
         history = goal_dao.list_for_user(profile.user_id)
         self.assertEqual([g.goal_id for g in history], [second.goal_id, first.goal_id])
+
+
+class MigrationRunnerTest(unittest.TestCase):
+    """Phase 10.1 (versioned DB migration protocol, see README)."""
+
+    def test_fresh_db_lands_on_latest_user_version_and_shape(self):
+        """A brand-new DB (user_version starts at 0) applies every
+        migration in order and converges on the exact same shape a real
+        device migrating in place does (the other tests below)."""
+        db = DB(":memory:")
+        try:
+            self.assertEqual(
+                db.query_one("PRAGMA user_version")[0], MIGRATIONS[-1].version
+            )
+            body_log_columns = {row["name"] for row in db.query("PRAGMA table_info(body_logs)")}
+            self.assertNotIn("waist_cm", body_log_columns)
+            self.assertNotIn("neck_cm", body_log_columns)
+            activity_goal_columns = {
+                row["name"] for row in db.query("PRAGMA table_info(activity_goals)")
+            }
+            self.assertEqual(
+                activity_goal_columns,
+                {
+                    "activity_goal_id",
+                    "user_id",
+                    "steps_goal",
+                    "cardio_kcal_goal",
+                    "start_date",
+                    "active",
+                    "created_at",
+                },
+            )
+        finally:
+            db.close()
+
+    def test_reconnecting_a_migrated_db_is_a_no_op(self):
+        """Applying the migrations a second time (a normal reboot) must not
+        error or reset user_version."""
+        path = tempfile.mktemp(suffix=".db")
+        try:
+            DB(path).close()
+            db = DB(path)
+            try:
+                self.assertEqual(
+                    db.query_one("PRAGMA user_version")[0], MIGRATIONS[-1].version
+                )
+            finally:
+                db.close()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+    def test_body_logs_waist_neck_catchup_backfills_and_drops_columns(self):
+        """Reproduces a real device that installed a pre-Phase-10.1 release
+        (waist_cm/neck_cm still physically on body_logs, user_version=0):
+        the m0002 catch-up migration must backfill surviving values into
+        body_measurements, drop the two columns, preserve every other
+        table's foreign-key reference across the table rebuild, and keep
+        AUTOINCREMENT from colliding with the copied rows' own ids."""
+        path = tempfile.mktemp(suffix=".db")
+        try:
+            legacy_conn = sqlite3.connect(path)
+            legacy_conn.executescript(
+                """
+                CREATE TABLE users (
+                    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    height_cm REAL NOT NULL,
+                    sex INTEGER NOT NULL,
+                    birthdate TEXT NOT NULL,
+                    units TEXT NOT NULL DEFAULT 'metric',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE body_logs (
+                    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    weight_kg REAL,
+                    waist_cm REAL,
+                    neck_cm REAL,
+                    intake_kcal REAL,
+                    intake_is_real INTEGER NOT NULL DEFAULT 1,
+                    steps REAL,
+                    cardio_kcal REAL NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL DEFAULT 'real',
+                    granularity TEXT NOT NULL DEFAULT 'weekly',
+                    carbs_g REAL, fat_g REAL, protein_g REAL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(user_id, date)
+                );
+                CREATE TABLE body_measurements (
+                    measurement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    waist_cm REAL, neck_cm REAL,
+                    shoulder_cm REAL, chest_cm REAL, hips_cm REAL,
+                    biceps_r_cm REAL, biceps_l_cm REAL,
+                    thigh_r_cm REAL, thigh_l_cm REAL,
+                    calf_r_cm REAL, calf_l_cm REAL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(user_id, date)
+                );
+                CREATE TABLE metrics_snapshots (
+                    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    log_id INTEGER NOT NULL REFERENCES body_logs(log_id) ON DELETE CASCADE,
+                    note TEXT
+                );
+                """
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            legacy_conn.execute(
+                "INSERT INTO users (user_id, username, email, password_hash, height_cm, "
+                "sex, birthdate, created_at) VALUES (1, 'demo', 'demo@example.com', 'x', "
+                "176, 1, '2001-08-22', ?)",
+                (now,),
+            )
+            legacy_conn.execute(
+                "INSERT INTO body_logs (log_id, user_id, date, weight_kg, waist_cm, "
+                "neck_cm, intake_kcal, steps, created_at) VALUES "
+                "(1, 1, '2026-01-01', 90.0, 91.0, 38.5, 2000, 5000, ?)",
+                (now,),
+            )
+            legacy_conn.execute(
+                "INSERT INTO body_logs (log_id, user_id, date, weight_kg, waist_cm, "
+                "neck_cm, intake_kcal, steps, created_at) VALUES "
+                "(2, 1, '2026-01-08', 89.5, NULL, NULL, 2000, 5000, ?)",
+                (now,),
+            )
+            # A body_measurements row already exists at log 1's own date
+            # (e.g. a manual Phase 9.1 JSON-import recovery) -- the
+            # automatic backfill below must not clobber it.
+            legacy_conn.execute(
+                "INSERT INTO body_measurements (user_id, date, waist_cm, neck_cm, "
+                "created_at) VALUES (1, '2026-01-01', 999.0, 999.0, ?)",
+                (now,),
+            )
+            legacy_conn.execute(
+                "INSERT INTO metrics_snapshots (log_id, note) VALUES (1, 'existing')"
+            )
+            legacy_conn.commit()
+            legacy_conn.close()
+
+            db = DB(path)
+            try:
+                columns = {row["name"] for row in db.query("PRAGMA table_info(body_logs)")}
+                self.assertNotIn("waist_cm", columns)
+                self.assertNotIn("neck_cm", columns)
+
+                logs = db.query("SELECT log_id, date, weight_kg FROM body_logs ORDER BY log_id")
+                self.assertEqual([row["log_id"] for row in logs], [1, 2])
+
+                measurements = db.query(
+                    "SELECT date, waist_cm, neck_cm FROM body_measurements ORDER BY date"
+                )
+                self.assertEqual(len(measurements), 1)
+                # The pre-existing row wins -- never overwritten by the
+                # automatic body_logs backfill (which would have written
+                # 91.0/38.5 instead).
+                self.assertEqual(measurements[0]["waist_cm"], 999.0)
+
+                snapshot = db.query_one("SELECT log_id FROM metrics_snapshots")
+                self.assertEqual(snapshot["log_id"], 1)
+
+                db.execute("DELETE FROM users WHERE user_id = 1")
+                self.assertEqual(db.query("SELECT * FROM body_logs"), [])
+
+                db.execute(
+                    "INSERT INTO users (username, email, password_hash, height_cm, sex, "
+                    "birthdate, created_at) VALUES ('demo2', 'demo2@example.com', 'x', "
+                    "176, 1, '2001-08-22', ?)",
+                    (now,),
+                )
+                new_user = db.query_one("SELECT user_id FROM users WHERE username = 'demo2'")
+                new_log = BodyLogDAO(db).create(
+                    user_id=new_user["user_id"],
+                    date=date(2026, 2, 1),
+                    weight_kg=80.0,
+                    intake_kcal=2000,
+                    intake_is_real=True,
+                    steps=5000,
+                )
+                self.assertGreaterEqual(new_log.log_id, 3)
+            finally:
+                db.close()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+    def test_body_logs_catchup_is_a_no_op_on_an_already_current_schema(self):
+        """A fresh DB (or one that already ran m0002) has no waist_cm/
+        neck_cm columns to begin with -- the migration must detect that and
+        do nothing, rather than erroring on a missing column."""
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(DBModule.SCHEMA)
+            from server.src.data.db.migrations import m0002_body_measurements_catchup
+
+            m0002_body_measurements_catchup.upgrade(conn)  # must not raise
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(body_logs)")}
+            self.assertNotIn("waist_cm", columns)
+        finally:
+            conn.close()
+
+    def test_failed_migration_batch_rolls_back_atomically(self):
+        """If any migration in the pending batch raises, none of the
+        batch's changes (including an earlier migration's own DDL) may
+        survive, and user_version must not advance -- otherwise a half-
+        migrated file would look "done" on the next boot and never retry."""
+
+        def _bad_upgrade(conn):
+            conn.execute("CREATE TABLE should_not_survive (x INTEGER)")
+            raise RuntimeError("boom")
+
+        fake_migrations = [
+            Migration(version=1, upgrade=lambda conn: None, name="m1"),
+            Migration(version=2, upgrade=_bad_upgrade, name="bad"),
+        ]
+
+        db = DB.__new__(DB)
+        db.path = ":memory:"
+        db._lock = threading.Lock()
+        db._conn = sqlite3.connect(":memory:")
+        db._conn.row_factory = sqlite3.Row
+        try:
+            with patch.object(DBModule, "MIGRATIONS", fake_migrations):
+                with self.assertRaises(RuntimeError):
+                    db._apply_migrations()
+
+            tables = {
+                row[0]
+                for row in db._conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            self.assertNotIn("should_not_survive", tables)
+            self.assertEqual(db._conn.execute("PRAGMA user_version").fetchone()[0], 0)
+        finally:
+            db._conn.close()
 
 
 class DBConcurrencyTest(unittest.TestCase):
