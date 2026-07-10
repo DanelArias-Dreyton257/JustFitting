@@ -764,10 +764,27 @@ async function refreshPlan() {
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
   renderPlanStats(document.getElementById("plan-current-stats"), current, profile.direction);
   renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
+
+  // Phase 8.1: the active goal's start date is only editable bounded
+  // strictly after whichever prior goal most recently ended, mirroring
+  // GoalPlanManager.update_start_date's own server-side bounds.
+  const activeGoal = goals.find((goal) => goal.active);
+  document.getElementById("goal-start-date-section").hidden = !activeGoal;
+  if (activeGoal) {
+    const previousGoal = goals
+      .filter((goal) => !goal.active)
+      .reduce((latest, goal) => (!latest || goal.start_date > latest.start_date ? goal : latest), null);
+    const startDateInput = document.getElementById("goal-start-date-input");
+    startDateInput.value = activeGoal.start_date;
+    startDateInput.min = previousGoal ? addDays(previousGoal.start_date, 1) : "";
+    startDateInput.max = todayIso();
+  }
+
   state.planPreviewParams = null;
   document.getElementById("plan-preview-result").hidden = true;
   setFormError("plan-form", "");
   setFormError("plan-commit", "");
+  setFormError("goal-start-date-form", "");
 }
 
 async function refreshReport() {
@@ -1070,6 +1087,18 @@ document.getElementById("dashboard-projection-weeks")?.addEventListener("change"
 
 document.getElementById("report-print-btn").addEventListener("click", () => {
   window.print();
+});
+
+document.getElementById("goal-start-date-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setFormError("goal-start-date-form", "");
+  const startDate = document.getElementById("goal-start-date-input").value;
+  try {
+    await api.updateGoalStartDate(startDate);
+    await refreshPlan();
+  } catch (err) {
+    setFormError("goal-start-date-form", err.message);
+  }
 });
 
 document.getElementById("plan-form").addEventListener("submit", async (event) => {

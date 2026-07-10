@@ -1271,7 +1271,7 @@ actually invoked) and threads the result into `renderHealthSyncStatus`
 device's Health Connect can't support history reads yet, instead of the
 toggle just silently being missing.
 
-### Roadmap continuation — Phases 8-11 (planned, v3.1 → v5.1)
+### Roadmap continuation — Phases 8-11 (v3.1 done; v4.0 → v5.1 planned)
 
 `things-to-improve.txt` was reorganized into two categories after a
 third round of beta-testing: "Good improvements" and "Small Features to
@@ -1283,31 +1283,30 @@ requested order: **v3.1** ships the two small goal-editing fixes first
 (lowest risk); **v4.0** ships GAME CHANGER (1) together with the one
 small feature explicitly gated on it; **v5.0** ships GAME CHANGER (2)
 and (3) together; **v5.1** closes out the four remaining small features.
-**None of these are built yet — every phase below is a plan, not a
-retrospective**, unlike every "(done)" phase above.
+**Phase 8 (v3.1) is done; Phases 9-11 are still plans, not
+retrospectives**, unlike every "(done)" phase above.
 
-### Phase 8 — Beta-testing feedback, round 3 (part 1): goal-editing correctness (planned, v3.1)
+### Phase 8 — Beta-testing feedback, round 3 (part 1): goal-editing correctness (done, v3.1)
 
 Source: `things-to-improve.txt`'s "Good improvements" section — two
 goal-plan correctness issues found from real usage, both narrower and
 lower-risk than the Game Changer features below, so they ship first.
 
-#### Phase 8.1 — Retroactively editable goal start date (planned)
+#### Phase 8.1 — Retroactively editable goal start date (done)
 
-Problem: `GoalPlanManager.create_goal_plan` always stamps a new goal's
-`start_date` as `date.today()` unless a caller explicitly overrides it
-(only `UserManager.register`'s `goal_start_date` param does today, for
-demo seeding) — and since Phase 5.3, `GoalPlanManager.active_period_start`
+Problem: `GoalPlanManager.create_goal_plan` always stamped a new goal's
+`start_date` as `date.today()` unless a caller explicitly overrode it
+(only `UserManager.register`'s `goal_start_date` param did, for demo
+seeding) — and since Phase 5.3, `GoalPlanManager.active_period_start`
 uses the active goal's `start_date` to scope every computed
 series/chart/alert/projection to "this goal's own period" once an
 account has ever changed goals. A user who was already mid-cut or
 mid-bulk before adopting JustFitting — syncing or importing weeks of
-pre-existing history — has no way to tell the app their *current* goal
+pre-existing history — had no way to tell the app their *current* goal
 actually started earlier than the day they set it up in the Plan tab;
-every goal always starts "today," silently excluding real, already-logged
+every goal always started "today," silently excluding real, already-logged
 history from that goal's own trajectory/adherence/forecast.
 
-Plan:
 - A new `GoalPlanManager.update_start_date(user_id, new_start_date)`
   mutates the **currently active** goal's `start_date` in place (not a
   new historized row — this corrects when the same goal actually began,
@@ -1317,51 +1316,74 @@ Plan:
   mutation.
 - Bounds: `new_start_date` must be on or before today (no backdating into
   the future) and, if a previous historized goal exists, strictly after
-  that goal's own `start_date` (so the two periods can't overlap once
-  `active_period_start` scoping applies).
+  that goal's own `start_date` (the goal with the latest `start_date`
+  among every *other* goal the account has ever had) — so the two
+  periods can't overlap once `active_period_start` scoping applies.
 - Only the *active* goal's start date is editable — a historized
   (inactive) goal's `start_date` stays frozen, since perturbing it would
   retroactively change where an already-superseded period's scoping
   boundary was.
-- New `PUT /api/users/me/goals/active/start-date` route; the Plan tab
-  gains a small "Edit start date" control next to the active goal's
-  summary, a date input constrained (`min`/`max`) to the bounds above.
+- New `PUT /api/users/me/goals/active/start-date` route; the Plan tab's
+  "Current plan" section gains an always-visible "Edit start date"
+  control (an account always has an active goal, even a brand-new
+  default one), a date input constrained (`min`/`max`) to the bounds
+  above, pre-filled with the active goal's own `start_date`.
 - No schema change (`start_date` already exists on `goal_plans`) and no
   `ENGINE_VERSION` implication — this only changes which already-logged
   rows `active_period_start` includes, not any formula.
 
-#### Phase 8.2 — Reject incoherent target-BF/weekly-rate combinations (planned)
+#### Phase 8.2 — Reject incoherent target-BF/weekly-rate combinations (done)
 
-Problem: neither `GoalPlanManager.create_goal_plan` (only checks
+Problem: neither `GoalPlanManager.create_goal_plan` (only checked
 `0 < target_bf < 1`) nor `GET /api/plan/preview` (no bound at all beyond
-whatever `compute_row` happens to raise) ever compares a candidate goal
-against the account's *current* body fat — a user can set, say,
-`target_bf=0.15` while their latest computed body fat is `0.20` (a "lose
+whatever `compute_row` happened to raise) ever compared a candidate goal
+against the account's *current* body fat — a user could set, say,
+`target_bf=0.15` while their latest computed body fat was `0.20` (a "lose
 fat" target) paired with a positive `weekly_rate` (a literal gaining
-rate), and it's accepted silently today.
+rate), and it was accepted silently.
 
-Plan:
-- A new coherence check, run in both `GoalPlanManager.create_goal_plan`
-  (before committing) and `GET /api/plan/preview` (so the Plan tab's
-  preview surfaces it before commit, not after): given the account's
-  latest real `body_fat` (from the most recent computable log's metrics —
-  skipped entirely if the account has no computable log yet, e.g. a
-  brand-new default goal), `target_bf < current_bf` requires
-  `weekly_rate <= 0`, `target_bf > current_bf` requires
-  `weekly_rate >= 0`; `target_bf` within a small epsilon of `current_bf`
-  allows any rate (maintenance/recomp).
+- A new pure function, `GoalPlanManager.check_goal_coherence(current_bf,
+  target_bf, weekly_rate)`, run from both `GoalPlanManager.create_goal_plan`
+  (before committing, via a new optional `current_bf` parameter) and
+  `GET /api/plan/preview` (so the Plan tab's preview surfaces it before
+  commit, not after): `target_bf < current_bf` requires `weekly_rate <=
+  0`, `target_bf > current_bf` requires `weekly_rate >= 0`; `target_bf`
+  within a small epsilon (`BODY_FAT_COHERENCE_EPSILON`, 0.5 percentage
+  points) of `current_bf` allows any rate (maintenance/recomp).
+  `current_bf=None` (no computable log yet, e.g. a brand-new default
+  goal) skips the check entirely.
+- `current_bf` is the account's real latest computed body fat, sourced
+  differently in each caller: `PUT /api/users/me` (`user_routes.py`)
+  computes it via `MetricsSeriesService.compute_series_for_user` only
+  when a `target_bf`/`weekly_rate` change is actually part of the
+  request; `GET /api/plan/preview` gets it for free from the candidate
+  `compute_row` result it already computes -- `body_fat` never depends
+  on `target_bf`/`weekly_rate` (see "The Composition Model" above), so
+  that result's `body_fat` *is* the real current figure regardless of
+  the candidate params it was computed against, no second engine call
+  needed.
 - This checks **sign coherence only** — magnitude bounds for a bulk rate
   are already `bulk_rate_out_of_range`'s job (Phase 3), and this phase
   doesn't add an equivalent cut-side magnitude check (see Phase 11.4
   below for that).
-- `create_goal_plan` raises a `GoalPlanManagerError` (400) with a
-  plain-language message; `GET /api/plan/preview` returns the same
-  message inline instead of only failing if the mismatch happens to also
-  trip a `ZeroDivisionError`/domain error deep in `compute_row`. The Plan
-  tab renders it as a clear inline validation error next to the preview
-  form.
+- `create_goal_plan`/`update_profile` raise a `GoalPlanManagerError`
+  (400) with a plain-language message; `GET /api/plan/preview` returns
+  the same message inline after computing the candidate row, instead of
+  only failing if the mismatch happens to also trip a
+  `ZeroDivisionError`/domain error deep in `compute_row`. The Plan tab's
+  existing generic form-error handling (unchanged) renders it as a clear
+  inline validation error next to the preview form.
 - No schema/engine change — pure validation logic in
-  `GoalPlanManager`/`plan_routes.py`.
+  `GoalPlanManager`/`user_routes.py`/`plan_routes.py`.
+- New coverage: `GoalPlanManager_test.py` (the coherence function directly,
+  `create_goal_plan`'s new `current_bf` param, and `update_start_date`'s
+  bounds/audit/cache-invalidation), `Api_test.py` (the new start-date
+  route's happy path and every rejection, `PUT /api/users/me` and
+  `GET /api/plan/preview` both rejecting/allowing goals against a seeded
+  account's real body fat), and a new `client/test/browser/Plan_test.py`
+  (Playwright: the start-date control's default value, native
+  `max`-date validation, a persisted edit, and the preview form's inline
+  error for an incoherent goal).
 
 ### Phase 9 — Big remaining features: body composition logging separation (GAME CHANGER 1) + expanded body measurements (planned, v4.0)
 

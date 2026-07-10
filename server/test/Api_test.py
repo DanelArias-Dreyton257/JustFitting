@@ -840,6 +840,107 @@ class ApiTestCase(unittest.TestCase):
         goals = self.client.get("/api/users/me/goals", headers=headers).get_json()
         self.assertEqual(goals[0]["direction"], "bulk")
 
+    def test_update_active_goal_start_date(self):
+        # Phase 8.1: a user who was already mid-cut before adopting
+        # JustFitting can backdate their (single, never-changed) goal's
+        # start_date so it's no longer stamped "today" from registration.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.put(
+            "/api/users/me/goals/active/start-date",
+            json={"start_date": "2025-11-01"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["start_date"], "2025-11-01")
+        self.assertTrue(body["active"])
+
+        goals = self.client.get("/api/users/me/goals", headers=headers).get_json()
+        self.assertEqual(len(goals), 1)
+        self.assertEqual(goals[0]["start_date"], "2025-11-01")
+
+    def test_update_active_goal_start_date_rejects_a_future_date(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        response = self.client.put(
+            "/api/users/me/goals/active/start-date",
+            json={"start_date": "2999-01-01"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_active_goal_start_date_rejects_before_the_previous_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        # The account's second goal (registration's is the first, dated
+        # today) -- update_profile only historizes target_bf/weekly_rate,
+        # so this goal's own start_date is "today" too.
+        self.client.put(
+            "/api/users/me", json={"target_bf": 0.2}, headers=headers
+        )
+        response = self.client.put(
+            "/api/users/me/goals/active/start-date",
+            json={"start_date": "2020-01-01"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_active_goal_start_date_rejects_an_invalid_payload(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        response = self.client.put(
+            "/api/users/me/goals/active/start-date",
+            json={"start_date": "not-a-date"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_update_profile_rejects_an_incoherent_goal_against_current_body_fat(self):
+        # Phase 8.2: the account's real computed body fat (from
+        # _seed_two_logs, ~19-20%) is well above 0.15, so pairing that cut
+        # target with a positive (bulk) weekly_rate is self-contradictory.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.put(
+            "/api/users/me",
+            json={"target_bf": 0.15, "weekly_rate": 0.005},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # Rejected -- no new goal plan was created.
+        goals = self.client.get("/api/users/me/goals", headers=headers).get_json()
+        self.assertEqual(len(goals), 1)
+
+    def test_update_profile_allows_a_coherent_goal_against_current_body_fat(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.put(
+            "/api/users/me",
+            json={"target_bf": 0.15, "weekly_rate": -0.005},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_update_profile_skips_coherence_check_with_no_computable_log(self):
+        # A brand-new account with no logs yet has no "current body fat" to
+        # compare against -- the check is skipped entirely, matching a
+        # brand-new default goal.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        response = self.client.put(
+            "/api/users/me",
+            json={"target_bf": 0.15, "weekly_rate": 0.005},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_log_edit_is_recorded_in_the_audit_log(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -939,6 +1040,19 @@ class ApiTestCase(unittest.TestCase):
 
         goals_response = self.client.get("/api/users/me/goals", headers=headers)
         self.assertEqual(len(goals_response.get_json()), 1)
+
+    def test_plan_preview_rejects_an_incoherent_candidate_goal(self):
+        # Phase 8.2: surfaced at preview time, before commit -- same check
+        # `PUT /api/users/me` runs, against the account's real current body
+        # fat (well above 0.15 with _seed_two_logs's weights/perimeters).
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+
+        response = self.client.get(
+            "/api/plan/preview?target_bf=0.15&weekly_rate=0.005", headers=headers
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_plan_preview_without_logs_returns_404(self):
         token = self._register().get_json()["token"]

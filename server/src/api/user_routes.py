@@ -202,8 +202,19 @@ def update_me():
             fields[key] = payload[key]
     if "birthdate" in payload:
         fields["birthdate"] = date.fromisoformat(payload["birthdate"])
+
+    # Phase 8.2: a goal change needs the account's current (real, computed)
+    # body fat to sign-check the candidate target_bf/weekly_rate against --
+    # `None` (no computable log yet) skips GoalPlanManager's coherence check
+    # entirely, same as a brand-new default goal at registration.
+    current_bf = None
+    if "target_bf" in fields or "weekly_rate" in fields:
+        _, results = compute_series_for_user(current_app, g.user_id)
+        if results:
+            current_bf = results[-1].body_fat
+
     try:
-        _user_manager().update_profile(g.user_id, **fields)
+        _user_manager().update_profile(g.user_id, current_bf=current_bf, **fields)
     except (UserManagerError, GoalPlanManagerError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(asdict(_profile_dto(g.user_id)))
@@ -237,6 +248,25 @@ def delete_me():
 def list_goals():
     goals = _goal_plan_manager().list_history(g.user_id)
     return jsonify([asdict(GoalPlanDTO.from_domain(goal)) for goal in goals])
+
+
+@user_bp.put("/users/me/goals/active/start-date")
+@require_auth
+def update_active_goal_start_date():
+    """Phase 8.1: corrects when the *currently active* goal actually began,
+    in place -- not a new historized goal-plan row -- so already-logged
+    history (e.g. imported from before the account existed) counts toward
+    that goal's own scoped series/trajectory (`active_period_start`)."""
+    payload = request.get_json(force=True) or {}
+    try:
+        new_start_date = date.fromisoformat(payload["start_date"])
+    except (KeyError, ValueError) as exc:
+        return jsonify({"error": f"invalid start_date: {exc}"}), 400
+    try:
+        goal = _goal_plan_manager().update_start_date(g.user_id, new_start_date)
+    except GoalPlanManagerError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(asdict(GoalPlanDTO.from_domain(goal)))
 
 
 @user_bp.get("/users/me/audit-log")

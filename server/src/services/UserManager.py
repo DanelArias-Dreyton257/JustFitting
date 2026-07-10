@@ -125,7 +125,9 @@ class UserManager:
     def get_profile(self, user_id: int) -> Optional[UserProfile]:
         return self.user_dao.get_by_id(user_id)
 
-    def update_profile(self, user_id: int, **fields) -> Optional[UserProfile]:
+    def update_profile(
+        self, user_id: int, current_bf: Optional[float] = None, **fields
+    ) -> Optional[UserProfile]:
         existing = self.user_dao.get_by_id(user_id)
         if existing is None:
             return None
@@ -142,7 +144,9 @@ class UserManager:
             weekly_rate = goal_fields.get(
                 "weekly_rate", active_goal.weekly_rate if active_goal else None
             )
-            self.goal_plan_manager.create_goal_plan(user_id, target_bf, weekly_rate)
+            self.goal_plan_manager.create_goal_plan(
+                user_id, target_bf, weekly_rate, current_bf=current_bf
+            )
 
         if self.audit_log_dao is not None:
             for field, new_value in fields.items():
