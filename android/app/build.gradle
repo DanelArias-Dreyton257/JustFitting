@@ -138,6 +138,22 @@ chaquopy {
                 "server/test/**",
                 "**/__pycache__/**",
                 "**/*_test.py",
+                // Repo-root build artifacts that live alongside this
+                // sourceSet's root (../..) but are never Python source --
+                // gitignored (so `git status` stays clean) but not
+                // filesystem-absent, so Chaquopy's own scan still finds
+                // them unless explicitly excluded. Their absence was never
+                // actually verified before: a stray previously-built
+                // JustFitting-debug.apk sitting at the repo root (a
+                // completely normal thing to have around between builds)
+                // got bundled whole into assets/chaquopy/app.imy, ballooning
+                // a real build from ~40MB to ~480MB -- caught by inspecting
+                // the built APK's own contents after a suspiciously large
+                // build, not by any existing check.
+                "*.apk",
+                "*.aab",
+                "justfitting.db",
+                "justfitting.db-journal",
             )
         }
     }
