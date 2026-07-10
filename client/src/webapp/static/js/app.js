@@ -529,12 +529,22 @@ async function renderDashboardCharts() {
 }
 
 async function refreshLogs() {
-  state.logs = await api.listLogs();
+  // Reset synchronously, before the fetch below even starts -- the same
+  // navigate()-races-an-unawaited-refresh shape already fixed for the
+  // Body/Account/Settings views (see their own comments/CHANGELOG
+  // entries): navigate("log") calls this unawaited, so a fetch that
+  // resolved late (slow network/CI) used to run goToLogStep(1) *after*
+  // the user had already started filling the wizard, silently resetting
+  // it back to step 1 -- hiding #log-save right as a test/user tried to
+  // click it. Confirmed via a CI-only Playwright timeout, reproduced
+  // locally by throttling the API. Neither reset depends on the fetched
+  // data, so there's no correctness reason they were ever gated on it.
   resetWizardDefaults();
+  goToLogStep(1);
+  state.logs = await api.listLogs();
   renderLogNav();
   renderFilteredLogList();
   refreshProjectedRow();
-  goToLogStep(1);
 }
 
 // Sets the wizard's granularity default from the active view mode (day ->
