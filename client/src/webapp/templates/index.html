@@ -110,6 +110,7 @@
       </div>
       <div class="summary-section">
         <h2>Weight &amp; Body Composition</h2>
+        <p class="disclaimer" id="summary-last-logged"></p>
         <div class="stat-row" id="summary-weight-stats"></div>
       </div>
       <div class="summary-section">
@@ -120,6 +121,8 @@
         <h2>Goal</h2>
         <div class="stat-row" id="summary-goal-stats"></div>
       </div>
+
+      <div id="dashboard-goal-progress"></div>
 
       <details id="dashboard-details">
       <summary>Full charts &amp; advanced stats</summary>
@@ -436,6 +439,7 @@
         <label>Lean-loss window (weeks) <input name="lean_loss_window_weeks" type="number" step="1" min="1" required /></label>
         <label>Max lean-mass loss share (%) <input name="max_lean_loss_pct" type="number" step="1" required /></label>
         <label>Significant deviation (kg) <input name="significant_deviation_kg" type="number" step="0.1" required /></label>
+        <label>Missing-log alert threshold (days) <input name="missing_log_alert_days" type="number" step="1" min="0" required /></label>
 
         <h2>Body-fat &amp; BMR calibration</h2>
         <p class="disclaimer">

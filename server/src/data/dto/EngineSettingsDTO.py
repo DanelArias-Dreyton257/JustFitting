@@ -34,6 +34,7 @@ class EngineSettingsDTO:
     protein_target_g_per_kg: float
     fat_target_g_per_kg: float
     macro_target_deviation_pct: float
+    missing_log_alert_days: float
     is_default: bool
     settings_id: Optional[int] = None
     start_date: Optional[str] = None
@@ -73,6 +74,7 @@ class EngineSettingsDTO:
                 protein_target_g_per_kg=defaults.protein_target_g_per_kg,
                 fat_target_g_per_kg=defaults.fat_target_g_per_kg,
                 macro_target_deviation_pct=defaults.macro_target_deviation_pct,
+                missing_log_alert_days=defaults.missing_log_alert_days,
                 is_default=True,
             )
         return EngineSettingsDTO(
@@ -102,6 +104,7 @@ class EngineSettingsDTO:
             protein_target_g_per_kg=settings.protein_target_g_per_kg,
             fat_target_g_per_kg=settings.fat_target_g_per_kg,
             macro_target_deviation_pct=settings.macro_target_deviation_pct,
+            missing_log_alert_days=settings.missing_log_alert_days,
             is_default=False,
             settings_id=settings.settings_id,
             start_date=settings.start_date.isoformat(),

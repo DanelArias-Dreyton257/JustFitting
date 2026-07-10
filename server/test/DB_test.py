@@ -304,6 +304,10 @@ class MigrationRunnerTest(unittest.TestCase):
                     "created_at",
                 },
             )
+            engine_settings_columns = {
+                row["name"] for row in db.query("PRAGMA table_info(engine_settings)")
+            }
+            self.assertIn("missing_log_alert_days", engine_settings_columns)
         finally:
             db.close()
 

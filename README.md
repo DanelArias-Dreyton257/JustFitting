@@ -1287,7 +1287,7 @@ actually invoked) and threads the result into `renderHealthSyncStatus`
 device's Health Connect can't support history reads yet, instead of the
 toggle just silently being missing.
 
-### Roadmap continuation — Phases 8-11 (v3.1/v4.0 done; v5.0 → v5.1 planned)
+### Roadmap continuation — Phases 8-11 (v3.1, v4.0, v5.0, v5.1 — all done)
 
 `things-to-improve.txt` was reorganized into two categories after a
 third round of beta-testing: "Good improvements" and "Small Features to
@@ -1299,8 +1299,8 @@ requested order: **v3.1** ships the two small goal-editing fixes first
 (lowest risk); **v4.0** ships GAME CHANGER (1) together with the one
 small feature explicitly gated on it; **v5.0** ships GAME CHANGER (2)
 and (3) together; **v5.1** closes out the four remaining small features.
-**Phases 8 (v3.1) and 9 (v4.0) are done; Phases 10-11 are still plans, not
-retrospectives**, unlike every "(done)" phase above.
+**Phases 8-11 are all done** -- every phase in this continuation, like
+every "(done)" phase above, is now a retrospective.
 
 ### Phase 8 — Beta-testing feedback, round 3 (part 1): goal-editing correctness (done, v3.1)
 
@@ -1310,96 +1310,38 @@ lower-risk than the Game Changer features below, so they ship first.
 
 #### Phase 8.1 — Retroactively editable goal start date (done)
 
-Problem: `GoalPlanManager.create_goal_plan` always stamped a new goal's
-`start_date` as `date.today()` unless a caller explicitly overrode it
-(only `UserManager.register`'s `goal_start_date` param did, for demo
-seeding) — and since Phase 5.3, `GoalPlanManager.active_period_start`
-uses the active goal's `start_date` to scope every computed
-series/chart/alert/projection to "this goal's own period" once an
-account has ever changed goals. A user who was already mid-cut or
-mid-bulk before adopting JustFitting — syncing or importing weeks of
-pre-existing history — had no way to tell the app their *current* goal
-actually started earlier than the day they set it up in the Plan tab;
-every goal always started "today," silently excluding real, already-logged
-history from that goal's own trajectory/adherence/forecast.
+Problem: a new goal's `start_date` was always stamped "today," and since
+Phase 5.3 scopes every computed series/chart/alert/projection to the
+active goal's own period once an account has changed goals — a user
+already mid-cut/mid-bulk before adopting JustFitting had no way to tell
+the app their goal actually started earlier, silently excluding
+already-logged history from its own trajectory/adherence/forecast.
 
-- A new `GoalPlanManager.update_start_date(user_id, new_start_date)`
-  mutates the **currently active** goal's `start_date` in place (not a
-  new historized row — this corrects when the same goal actually began,
-  it isn't a goal change) and records an audit-log entry
-  (`start_date: <old> -> <new>`), then
-  `metrics_cache.invalidate_for_user(user_id)`, same as every other goal
-  mutation.
-- Bounds: `new_start_date` must be on or before today (no backdating into
-  the future) and, if a previous historized goal exists, strictly after
-  that goal's own `start_date` (the goal with the latest `start_date`
-  among every *other* goal the account has ever had) — so the two
-  periods can't overlap once `active_period_start` scoping applies.
-- Only the *active* goal's start date is editable — a historized
-  (inactive) goal's `start_date` stays frozen, since perturbing it would
-  retroactively change where an already-superseded period's scoping
-  boundary was.
-- New `PUT /api/users/me/goals/active/start-date` route; the Plan tab's
-  "Current plan" section gains an always-visible "Edit start date"
-  control (an account always has an active goal, even a brand-new
-  default one), a date input constrained (`min`/`max`) to the bounds
-  above, pre-filled with the active goal's own `start_date`.
-- No schema change (`start_date` already exists on `goal_plans`) and no
-  `ENGINE_VERSION` implication — this only changes which already-logged
-  rows `active_period_start` includes, not any formula.
+- A new `GoalPlanManager.update_start_date` corrects the *active* goal's
+  `start_date` in place (not a new historized row), audited and
+  cache-invalidated like every other goal mutation.
+- Bounded to on-or-before today, and strictly after any previous goal's
+  own `start_date` so periods can't overlap. Only the active goal is
+  editable.
+- New `PUT /api/users/me/goals/active/start-date` route; the Plan tab
+  gains an always-visible "Edit start date" control. No schema/engine
+  change.
 
 #### Phase 8.2 — Reject incoherent target-BF/weekly-rate combinations (done)
 
-Problem: neither `GoalPlanManager.create_goal_plan` (only checked
-`0 < target_bf < 1`) nor `GET /api/plan/preview` (no bound at all beyond
-whatever `compute_row` happened to raise) ever compared a candidate goal
-against the account's *current* body fat — a user could set, say,
-`target_bf=0.15` while their latest computed body fat was `0.20` (a "lose
-fat" target) paired with a positive `weekly_rate` (a literal gaining
-rate), and it was accepted silently.
+Problem: neither goal creation nor the Plan tab's preview ever compared a
+candidate goal against the account's *current* body fat — a "lose fat"
+target paired with a gaining rate (or vice versa) was accepted silently.
 
-- A new pure function, `GoalPlanManager.check_goal_coherence(current_bf,
-  target_bf, weekly_rate)`, run from both `GoalPlanManager.create_goal_plan`
-  (before committing, via a new optional `current_bf` parameter) and
-  `GET /api/plan/preview` (so the Plan tab's preview surfaces it before
-  commit, not after): `target_bf < current_bf` requires `weekly_rate <=
-  0`, `target_bf > current_bf` requires `weekly_rate >= 0`; `target_bf`
-  within a small epsilon (`BODY_FAT_COHERENCE_EPSILON`, 0.5 percentage
-  points) of `current_bf` allows any rate (maintenance/recomp).
-  `current_bf=None` (no computable log yet, e.g. a brand-new default
-  goal) skips the check entirely.
-- `current_bf` is the account's real latest computed body fat, sourced
-  differently in each caller: `PUT /api/users/me` (`user_routes.py`)
-  computes it via `MetricsSeriesService.compute_series_for_user` only
-  when a `target_bf`/`weekly_rate` change is actually part of the
-  request; `GET /api/plan/preview` gets it for free from the candidate
-  `compute_row` result it already computes -- `body_fat` never depends
-  on `target_bf`/`weekly_rate` (see "The Composition Model" above), so
-  that result's `body_fat` *is* the real current figure regardless of
-  the candidate params it was computed against, no second engine call
-  needed.
-- This checks **sign coherence only** — magnitude bounds for a bulk rate
-  are already `bulk_rate_out_of_range`'s job (Phase 3), and this phase
-  doesn't add an equivalent cut-side magnitude check (see Phase 11.4
-  below for that).
-- `create_goal_plan`/`update_profile` raise a `GoalPlanManagerError`
-  (400) with a plain-language message; `GET /api/plan/preview` returns
-  the same message inline after computing the candidate row, instead of
-  only failing if the mismatch happens to also trip a
-  `ZeroDivisionError`/domain error deep in `compute_row`. The Plan tab's
-  existing generic form-error handling (unchanged) renders it as a clear
-  inline validation error next to the preview form.
-- No schema/engine change — pure validation logic in
-  `GoalPlanManager`/`user_routes.py`/`plan_routes.py`.
-- New coverage: `GoalPlanManager_test.py` (the coherence function directly,
-  `create_goal_plan`'s new `current_bf` param, and `update_start_date`'s
-  bounds/audit/cache-invalidation), `Api_test.py` (the new start-date
-  route's happy path and every rejection, `PUT /api/users/me` and
-  `GET /api/plan/preview` both rejecting/allowing goals against a seeded
-  account's real body fat), and a new `client/test/browser/Plan_test.py`
-  (Playwright: the start-date control's default value, native
-  `max`-date validation, a persisted edit, and the preview form's inline
-  error for an incoherent goal).
+- A new pure `GoalPlanManager.check_goal_coherence(current_bf, target_bf,
+  weekly_rate)` requires the rate's sign to match the target's direction
+  (a small epsilon around `current_bf` allows any rate, for
+  maintenance/recomp); skipped entirely when there's no computable log
+  yet.
+- Run from both goal creation and `GET /api/plan/preview`, so the Plan
+  tab surfaces an incoherent combination before commit, not after.
+  Checks sign only — magnitude bounds are `bulk_rate_out_of_range`'s
+  (Phase 3) and `cut_rate_out_of_range`'s (Phase 11.4) job.
 
 ### Phase 9 — Big remaining features: body composition logging separation (GAME CHANGER 1) + expanded body measurements (done, v4.0)
 
@@ -1415,188 +1357,56 @@ between, fully decoupled from the weight/nutrition/steps logging cadence.
 
 #### Phase 9.1 — `body_measurements` table and the "static until next update" resolution layer (done)
 
-This sub-phase is pure plumbing — no new UI, foundational for 9.2:
+Pure plumbing, foundational for 9.2 — no new UI yet.
 
-- New table, `body_measurements` (`measurement_id, user_id, date,
-  waist_cm, neck_cm, created_at`, `UNIQUE(user_id, date)`, indexed on
-  `(user_id, date)` like `body_logs`) — since this project has no
-  migration runner yet (Phase 10.1), 9.3's nine extra record-only columns
-  were added to the same `SCHEMA` edit rather than a second one, with no
-  behavior difference: nothing reads them until 9.3's Quick/Full form
-  ships. `body_logs.waist_cm`/`neck_cm` are **dropped** — perimeters are
-  no longer a `body_logs` field at all, addressed exclusively through this
-  new table going forward. (This specific column removal is exactly the
-  kind of change that motivates Phase 10.1's migration protocol — see
-  that phase's backfill-migration note for how a real device's existing
-  data survives this.)
-- A new resolution step, ahead of the engine: given a target date, "the
-  most recent `body_measurements` row with `date <= target date`"
-  supplies `waist_cm`/`neck_cm` — implemented as
-  `BodyMeasurementManager.get_effective(user_id, date)`, called by
-  `MetricsSeriesService.compute_series_for_user` (and the
-  `plan_routes.py`/`projection_routes.py` engine-input builders, per
-  Phase 7.6's lesson that every engine-input site needs to agree) to
-  populate `LogInput.waist_cm`/`neck_cm` before `is_computable`/
-  `compute_row` ever run. If no measurement has ever been logged for an
-  account, resolution returns `None` for both — the week stays
-  not-computable, the same "not enough data yet" outcome as today, just
-  gated on a different table.
-- `CompositionEngine.REQUIRED_FOR_COMPUTATION`/`validate_log_input`/
-  `require_complete_log_input` are unchanged in shape (still five
-  required fields) — only where `waist_cm`/`neck_cm` come from changes,
-  entirely outside `compute_row` itself, so **no `ENGINE_VERSION`
-  bump**: the formulas and every value they produce for a given
-  `(weight, waist, neck, intake, steps)` tuple are byte-for-byte
-  identical to before.
-- Cache invalidation gets a new trigger: today,
-  `metrics_cache.invalidate_for_user` only runs on a goal/settings change
-  or a `body_logs` edit tied to a specific `log_id`. A new/edited
-  `body_measurements` row can silently change the resolved input for
-  every week between its date and the next measurement's date, none of
-  which necessarily touch `body_logs` at all — so
-  `BodyMeasurementManager.create`/`update`/`delete` all call the existing
-  (already user-scoped, not log-scoped)
-  `metrics_cache.invalidate_for_user(user_id)`, the same blunt-but-safe
-  pattern Phase 1.5's settings changes already use.
-- Export/import: `GET /api/users/me/export` gains a `body_measurements`
-  array alongside `logs`; `POST /api/users/me/import` accepts it the same
-  way. **Backward compatibility for pre-Phase-9 export files** (which
-  still carry `waist_cm`/`neck_cm` inline on each `logs[]` row): the
-  import route detects inline perimeter fields on a log entry and,
-  instead of discarding them, synthesizes a `body_measurements` row at
-  that log's date from them (skipping a date collision the same way
-  `logs` import already does) — so restoring an old backup doesn't
-  silently lose every historical perimeter reading.
-- `Projection.py`'s waist/neck trend-fit source moves from the (now
-  perimeter-less) `body_logs` history to `body_measurements` history — a
-  strictly sparser, irregularly-dated series, which the existing
-  OLS/recency-weighted fit already handles fine (it fits against real
-  dates, not a week index). A new `MeasurementPoint` value object carries
-  it through `project_series_with_inputs`; fewer than two real
-  measurements falls back to holding the last resolved waist/neck
-  constant for every forecasted week (there's nothing yet to fit a trend
-  against), rather than erroring.
-- New/extended test coverage: a new `BodyMeasurementManager_test.py`
-  (CRUD, validation, `get_effective`'s static-until-next-update rule,
-  audit entries, cache invalidation); `DB_test.py` gained
-  `BodyMeasurementDAO` CRUD/cascade-delete cases; `LogManager_test.py`/
-  `LogResampler_test.py`/`MetricsCache_test.py` had `waist_cm`/`neck_cm`
-  removed from their `BodyLog`/`LogInput` fixtures (a couple now build a
-  `LogInput` directly with waist/neck filled in, since those specific
-  tests aren't exercising the resolution layer itself); `LogResampler_test.py`
-  gained a `ResolveMeasurementsTest` for the new resolution helper;
-  `MetricsSeriesService_test.py` gained a case proving a sporadic
-  measurement stays effective for later weight-only weeks;
-  `DemoSeeder_test.py` now seeds measurements too and checks the seeded
-  data resolves to the README's own Demo_cut worked example figures at the
-  last logged date; and `Api_test.py` had `waist_cm`/`neck_cm` removed
-  from every `/api/logs`(`/by-date`) payload across ~30 tests, with a
-  `POST /api/body-measurements` call added wherever a test's assertions
-  depend on a computable week. 376 server tests green.
+- New `body_measurements` table (waist/neck, plus — from 9.3 — nine more
+  record-only measurements); `body_logs.waist_cm`/`neck_cm` are dropped
+  entirely.
+- A new resolution step, `BodyMeasurementManager.get_effective`, supplies
+  waist/neck from the most recent measurement on or before a given date
+  — called by every engine-input builder ahead of the completeness
+  check. No `ENGINE_VERSION` bump: formulas are byte-for-byte identical
+  for a given input tuple, only where waist/neck come from changes.
+- `metrics_cache.invalidate_for_user` gets a new trigger: any
+  `body_measurements` create/update/delete, since it can silently change
+  the resolved input for every week between its date and the next
+  measurement's.
+- Export/import gain a `body_measurements` array; a pre-Phase-9 export
+  file's inline `waist_cm`/`neck_cm` are still recovered into it on
+  import. `Projection.py`'s waist/neck trend-fit source moves to this
+  new, sparser history, falling back to a held constant when fewer than
+  two real measurements exist to fit against.
 
 #### Phase 9.2 — Separate "Body" tab; Log wizard drops perimeters (done)
 
-- New nav destination, "Body" (alongside Dashboard/Log/Plan/Alerts/
-  Report/Settings/Account in the hamburger menu), backed by a new
-  `POST`/`GET`/`PUT /api/body-measurements` route set
-  (`body_measurement_routes.py`) — deliberately separate from
-  `/api/logs`, matching the note's "separate logging tab" ask directly,
-  not a mode within the existing Log view.
-- The Body view: a simple date-picker (defaults to today, same navigator
-  affordance style as the Log view) plus a two-field form (Waist, Neck)
-  and a save button — no wizard needed at only two fields. A history
-  table below lists every past measurement (date, waist, neck) — the
-  sporadic-record analogue of the Log view's table.
-- The **Log wizard drops its Perimeters step** — down to 3 steps (Date &
-  weight → Energy → Review) instead of 4; `weight_kg` now sits alongside
-  `intake_kcal`/`steps`/`cardio_kcal`/macros on the same cadence, exactly
-  matching the note's "weight is separated and needs to be logged daily
-  or weekly as nutrition and steps." `LOG_WIZARD_STEPS` drops from 4 to 3
-  in `app.js`; step 2's old perimeter fields are removed, not hidden.
-- Dashboard's existing Waist/Neck perimeters chart is repointed from the
-  current `GET /api/logs` + `GET /api/metrics/series` merge (the exact
-  "known limitation" this README already documents above, which this
-  phase incidentally resolves for perimeters specifically — steps stays
-  the only chart still affected by that limitation) to the new
-  `GET /api/body-measurements` endpoint directly, since perimeters are no
-  longer resampled/weekly at all. Because the data is now genuinely
-  sporadic (irregular gaps between real measurements, "static in
-  between" by design), the chart renders as a **held/step line** rather
-  than the diagonally-interpolated line every other chart uses — a new
-  `charts.js` primitive, `drawStepLineChart` (flat segments between
-  consecutive real points, no diagonal interpolation), visually
-  communicating "this value didn't actually change, we just haven't
-  measured again yet" rather than implying a linear glide between two
-  distant readings.
-- The 4.3 Dashboard forecast toggle's waist/neck overlay
-  (`estimated_waist`/`estimated_neck`) is unaffected in shape —
-  `GET /api/projection` still returns those fields, just sourced from
-  9.1's relocated trend-fit; the Dashboard appends them as trailing
-  projected points onto the same step-line chart, still marked hollow
-  like every other chart's forecast points.
-- No manual `sw.js` cache bump needed — Phase 5.1's self-hashing service
-  worker already picks up every edit here automatically.
-- New/extended test coverage: `Log_test.py`/`Dashboard_test.py`/
-  `Plan_test.py`/`Views_test.py` (Playwright) updated for the 3-step
-  wizard flow and the Body view; the retired perimeter-prefill test
-  removed (that Phase 5.4 behavior no longer exists once perimeters left
-  the Log wizard); `renderLogTable`'s shifted column indices; two new
-  `Views_test.py` cases for `renderBodyMeasurementTable`'s carry-forward
-  behavior and `fillBodyMeasurementForm`. Also caught and fixed two real
-  bugs along the way, both the same navigate()-races-an-unawaited-refresh
-  shape already fixed for the Account/Settings views (see their own
-  notes above and v2.0.1's CHANGELOG entry) — fixed the same way in both
-  cases, by reordering the local, no-network-dependency reset to run
-  synchronously before the async fetch instead of after it:
-  - Navigating to the Body view fired an unawaited `refreshBody()` whose
-    form-defaults reset (including the date input) could land *after* a
-    fast-typing user had already started filling the form, silently
-    clobbering it.
-  - `refreshLogs()` — called unawaited from `navigate("log")` since
-    before Phase 9 existed — ran `goToLogStep(1)` *after* its own fetch,
-    so a late-resolving fetch could reset an in-progress wizard back to
-    step 1 mid-entry, hiding `#log-save` right as something tried to
-    click it. This one wasn't caught locally at all — it only surfaced
-    as two Playwright timeouts on CI (a slower/more loaded runner than
-    local dev), reproduced afterward by throttling the API locally to
-    confirm the fix. Narrowed into actually landing by this same phase's
-    own changes: the Log wizard shrinking to 3 steps, and the new Body-
-    tab round trip most tests now need before logging a computable week,
-    both meaningfully shrink the real time available before the race
-    window closes on its own.
-
-  376 server tests, 66 client tests green.
+- New "Body" nav destination and `POST`/`GET`/`PUT /api/body-measurements`
+  routes — a simple date-picker, a Waist/Neck form, and a history table,
+  deliberately separate from `/api/logs`.
+- The Log wizard drops its Perimeters step (4 steps → 3); weight now logs
+  on the same cadence as nutrition/steps.
+- The Dashboard's Waist/neck chart repoints to the new endpoint directly,
+  rendered as a held/step line (a new `drawStepLineChart` primitive)
+  rather than diagonally interpolated, since the data is now genuinely
+  sporadic — this incidentally resolves the "steps-only" version of a
+  known limitation this README used to document for perimeters too.
+- Two real `navigate()`-races-an-unawaited-refresh bugs (same shape as
+  the Account/Settings races before them) caught and fixed along the way.
 
 #### Phase 9.3 — Expanded body measurements (Small Feature 5) (done)
 
-- `body_measurements` gains nine more nullable columns, all
-  **record-only, never read by `CompositionEngine`**: `shoulder_cm,
-  chest_cm, hips_cm, biceps_r_cm, biceps_l_cm, thigh_r_cm, thigh_l_cm,
-  calf_r_cm, calf_l_cm` — the exact list from the note.
-- The Body view's form gains a **Quick / Full** toggle, matching the
-  note's "user can only log (waist and neck) or (all measurements)"
-  constraint exactly (not an arbitrary field-by-field subset): Quick
-  submits only waist/neck (9.2's existing form, unchanged); Full reveals
-  all eleven fields. A Full entry leaves any field the user didn't fill
-  in as `NULL` for that specific date's row — the history table (and any
-  future chart of a non-computational measurement) resolves a blank cell
-  the same "most recent non-null value as of this date" way 9.1 already
-  established for waist/neck, so e.g. a Quick entry between two Full
-  entries doesn't make Chest/Hips *appear* to reset to blank, it just
-  means that date's own row didn't touch them.
-- `BodyMeasurementDTO` and the JSON export/import contract extend to the
-  full eleven-field column set (`GET /api/users/me/export`'s
-  `body_measurements` array, `POST /api/users/me/import`'s matching
-  key — see `docs/import_format.md`); the nine new fields are always
-  optional on import, so a pre-Phase-9.3 export file (which won't have
-  them at all) still imports cleanly. Deliberately **not** extended to
-  CSV: the Account view's CSV import path only ever produces `{"logs":
-  [...]}` (`csvImport.js`), and there's no case for a second CSV pipeline
-  just for a record-only, low-volume field set the JSON path already
-  covers.
-- No new alerts, no chart beyond the history table for now — purely a
-  record-keeping feature, per the note's own "do not intervene in
-  computations."
+- Nine more nullable, record-only columns on `body_measurements`
+  (shoulder, chest, hips, biceps, thighs, calves) — never read by
+  `CompositionEngine`.
+- The Body view's form gains a Quick (waist/neck) / Full (all eleven)
+  toggle; a blank field on a Full save leaves that field's last value
+  untouched rather than resetting it, the same "most recent non-null
+  value" resolution 9.1 established. Export/import extend to the full
+  column set; deliberately not added to CSV (a record-only, low-volume
+  field set the JSON path already covers).
+- No new alerts, no chart beyond the history table — purely a
+  record-keeping feature.
+
+376 server tests, 66 client tests green across all of Phase 9.
 
 ### Phase 10 — Big remaining features: DB migration protocol (GAME CHANGER 2) + Today dashboard section (GAME CHANGER 3) (done, v5.0)
 
@@ -1611,265 +1421,103 @@ to migrate. **Both sub-phases, 10.1-10.2, are done.**
 
 #### Phase 10.1 — Versioned DB migration protocol (done)
 
-Problem: `DB.py`'s own docstring is explicit that this project keeps "no
-real user data that a migration history would need to carry forward" —
-true when it was written (pre-Android, and the Phase 1.0 squash of what
-used to be 19 numbered migrations into one idempotent `SCHEMA` script
-happened before Phase 6 gave Android a genuine on-device, persistent
-SQLite file). It's no longer true: Phase 6 shipped real on-device
-persistence, and by the time Phase 9 ships, real users may have real
-accumulated `body_logs`/`goal_plans`/`engine_settings`/`body_measurements`
-rows on their phones. `CREATE TABLE IF NOT EXISTS` is a no-op against an
-existing file with an outdated schema — it does not add columns, rename
-them, or move data — so today's "delete and let it be recreated"
-convention (fine for a dev machine or the ephemeral Render demo instance)
-would mean an app update **silently fails to pick up the new schema** on
-a real device's existing DB, or, worse, a future column removal (exactly
-what Phase 9 just did) simply leaves the stale column and stale data
-behind untouched, forever, since nothing runs to reconcile it.
+Problem: `CREATE TABLE IF NOT EXISTS` is a no-op against an existing file
+with an outdated schema, so a real device's on-device DB (Phase 6) would
+silently miss a schema change on update, or worse, keep a stale,
+just-dropped column around forever.
 
-Implemented:
-- A real migration runner — a return to the pre-Phase-1.0-squash design,
-  this time justified by data that actually needs to survive. SQLite's own
-  `PRAGMA user_version` (a plain integer already stored in the DB file
-  header) tracks the applied version, no new table required.
-- New `server/src/data/db/migrations/` package, one module per version
-  (`m0001_baseline.py`, `m0002_body_measurements_catchup.py`,
-  `m0003_activity_goals.py`), each exposing
-  `upgrade(conn: sqlite3.Connection) -> None` plus a module-level
-  `VERSION` int. `DB._apply_migrations` (called from `DB.__init__`, after
-  `SCHEMA` runs) reads `PRAGMA user_version`, applies every migration
-  numbered above it in order inside one transaction (`BEGIN`/`COMMIT`, a
-  `PRAGMA foreign_key_check` before committing, `ROLLBACK` on any
-  exception — so a failure never leaves a half-migrated file, verified by
-  a dedicated `DB_test.py` case that injects a failing migration and
-  asserts both the DB shape and `user_version` are untouched afterward),
-  then advances `PRAGMA user_version` to the highest one applied. Foreign
-  keys are switched off for the duration and back on afterward —
-  `PRAGMA foreign_keys` is a documented no-op once a transaction is
-  already open, and off is what a same-name table rebuild (below) needs.
-  `SCHEMA` itself stays frozen at what migration 1 represents — a
-  brand-new DB (dev machine, fresh Android install, a fresh Render
-  deploy) gets that shape directly from `SCHEMA`'s own
-  `CREATE TABLE IF NOT EXISTS` statements, migration 1's `upgrade` is a
-  literal no-op, and an upgraded existing DB converges on the identical
-  end state since every migration after it is a no-op against a table
-  that's already in the target shape.
-- **From this phase on, a schema change is a new migration module, not a
-  `SCHEMA` edit** — established immediately by both migrations this phase
-  ships, not just the destructive one: `m0002` (below) is the drop this
-  protocol exists for, and `m0003` (Phase 10.2's brand-new
-  `activity_goals` table) is deliberately routed through a migration too,
-  even though a plain `SCHEMA` addition would have "worked" for a
-  purely-additive change — keeping exactly one code path responsible for
-  every DB's shape, rather than two that could quietly drift apart.
-- SQLite can `ADD COLUMN`/`RENAME COLUMN`/`RENAME TABLE` natively but has
-  no `DROP COLUMN` old enough to rely on here and no `ALTER COLUMN TYPE`
-  at all — `m0002_body_measurements_catchup.py` needs the standard
-  create-copy-drop-rename sequence for exactly the schema change already
-  shipped ahead of this phase: **a real device that installed the Phase 9
-  (v4.0) release before this migration protocol (v5.0) existed** still
-  has `waist_cm`/`neck_cm` physically on its own `body_logs` table (since
-  `CREATE TABLE IF NOT EXISTS` never touches a table that already
-  exists). The migration copies any surviving values into
-  `body_measurements` (`INSERT OR IGNORE`, so a row a manual Phase 9.1
-  JSON import already recovered always wins over the automatic backfill),
-  builds the new shape under a temporary name, copies the data across,
-  drops the old table, and renames the new one into place — deliberately
-  never renaming `body_logs` itself away, so `metrics_snapshots.log_id`'s
-  own `REFERENCES body_logs(...)` is never rewritten by SQLite's own
-  rename-following behavior — exactly the pitfall sqlite.org's own
-  recommended procedure for this kind of schema change warns about. The
-  copied rows' explicit `log_id` values bypass
-  `AUTOINCREMENT`'s own bookkeeping, so the migration also reseeds
-  `sqlite_sequence` from their actual max id before the rename, to avoid
-  a future real insert colliding with one of them.
-- `scripts/reset_db.sh` and `scripts/update.sh` gained comments spelling
-  out the new convention (a fresh DB just runs every migration from
-  `user_version=0`, same as a first install; a real device always
-  migrates in place via `scripts/update.sh`, never resets); `DB.py`'s own
-  module docstring is rewritten to match — its "no real user data that a
-  migration history would need to carry forward" claim is exactly what
-  Phase 6's on-device persistence made untrue.
-- No `ENGINE_VERSION` implication — this is a persistence-layer
-  mechanism, unrelated to `CompositionEngine`'s own cached-snapshot
-  versioning.
-- New `DB_test.py` `MigrationRunnerTest` coverage: a fresh DB converges on
-  the latest `user_version` and shape; reconnecting an already-migrated
-  DB is a no-op; the `body_logs`→`body_measurements` catch-up migration
-  backfills surviving values, never clobbers a pre-existing
-  `body_measurements` row, preserves `metrics_snapshots`' foreign-key
-  reference and cascade-delete behavior across the table rebuild, and
-  leaves `AUTOINCREMENT` collision-free for a subsequent real insert; a
-  failed migration batch rolls back atomically. Verified manually too:
-  booted the server against this repo's own real, already-populated local
-  dev `justfitting.db` (pre-dating this phase) and confirmed it migrated
-  in place — `user_version` advanced, `activity_goals` now exists,
-  existing accounts and their logs were untouched.
+- A real migration runner returns: `server/src/data/db/migrations/`, one
+  module per version (`upgrade(conn)` + `VERSION`), applied in order
+  inside one transaction via SQLite's own `PRAGMA user_version` — a
+  failure rolls the whole batch back.
+- `m0002` backfills any surviving `body_logs.waist_cm`/`neck_cm` (still
+  physically present on a pre-Phase-10.1 device) into `body_measurements`
+  then drops the columns via the standard create-copy-drop-rename
+  sequence, careful to preserve `metrics_snapshots`' foreign key and
+  `AUTOINCREMENT` safety.
+- From this phase on, a schema change is a new migration module, not a
+  `SCHEMA` edit — established immediately by `m0003`'s purely-additive
+  `activity_goals` table too, keeping one code path responsible for every
+  DB's shape.
+- Verified against this repo's own real, already-populated local dev DB:
+  it migrated in place with no data loss.
 
 #### Phase 10.2 — Today dashboard section (done)
 
-Problem: the Dashboard only ever shows the last **computed, complete**
-week. Since Phase 7.3-7.6's Health Connect sync, a user can have real
-steps/nutrition data for *today* sitting in a partial `body_logs` row
-(Phase 7.4) with nowhere on the Dashboard that surfaces it before the
-week closes and the row becomes computable.
+Problem: the Dashboard only ever showed the last computed, complete
+week — since Phase 7.3-7.6's Health Connect sync, a partial, still-
+accumulating today had nowhere to show.
 
-Implemented:
-- A new "Today" stat-row, the first section on the Dashboard (above
-  Weight & Body Composition), fed by a single new
-  `GET /api/metrics/today` route. A new thin `GET /api/logs/by-date/<date>`
-  route (the read-side counterpart to Phase 7.4's existing
-  `PUT /api/logs/by-date/<date>`, both wrapping `LogManager.get_by_date`)
-  ships alongside it, covered by its own `Api_test.py` cases, for the same
-  "ask what today's row looks like" need outside the Dashboard.
-- Tiles: **Steps done** (today's `steps`, dash if not yet synced/logged;
-  a subtitle shows "N left of the goal" once a daily steps goal is set),
-  **Kcals eaten** (today's `intake_kcal`, dash if unset), **Kcal to
-  target** (`target_calories - intake_kcal`, only rendered once both are
-  known), a combined **TEF / NEAT / EAT today** block, and (once a daily
-  cardio goal is set) a **Cardio left today** tile.
-- Today's own row is essentially never `is_computable` — so these figures
-  can't come from a persisted `compute_row` result. They're an
-  **estimate**, generalizing Phase 9's "hold the last known value" idea
-  from perimeters to lean mass/BMR: NEAT is `neat_step_factor * (held
-  weight_kg) * (today's real steps / 1000)`, where the held weight is the
-  most recently *computed* week's own total mass (`fat_mass_kg +
-  lean_mass_kg`); TEF is computed from today's real macros when logged
-  (account `tef_mode="macros"`), else the flat divisor formula applied to
-  that same held BMR plus the NEAT/EAT just computed; EAT is today's real
-  `cardio_kcal` directly; `target_calories`/`kcal_to_target` are likewise
-  held from the latest computed week, never recomputed for today. All of
-  it lives in a new pure module, `services/composition/TodayEstimate.py`
-  (`compute_today_estimate`), alongside `GainQuality.py`/
-  `EnergyReconciliation.py`'s existing "derived view over an
-  already-computed series" pattern — never persisted to
-  `metrics_snapshots`, no `ENGINE_VERSION` implication, same "computed but
-  not cached" precedent `GET /api/plan/preview` already established.
-  Covered by a dedicated `TodayEstimate_test.py`.
-- **"Incomplete/current" framing is inferred, not stored** — consistent
-  with this project's preference for a derived property over a new column
-  (`GoalPlan.direction`, the `unconfigured_goal` alert): `is_current` is
-  true whenever there's no row for today at all, or today's row exists but
-  isn't `is_computable` yet. The Today section's stat tiles show it as a
-  subtitle ("still logging today -- an estimate" vs. "today's log is
-  complete"); no new `body_logs` column, no lifecycle to manage — it
-  stops being "current" automatically the moment either the day rolls
-  over or the row becomes complete.
-- **Daily step / cardio goals**: a new goal type, independent of the main
-  `GoalPlan` *in the data model* per the note's own wording ("planned in a
-  similar way to the main goal plan but independently") — a new
-  `activity_goals` table (`activity_goal_id, user_id, steps_goal,
-  cardio_kcal_goal, start_date, active, created_at`, migration `m0003`),
-  historized the same create-new/deactivate-old/audit pattern as
-  `GoalPlanManager`, in a parallel `ActivityGoalManager`, with
-  `GET`/`PUT`/`GET .../history` `/api/users/me/activity-goal` routes
-  (`activity_goal_routes.py`). Either `steps_goal`/`cardio_kcal_goal`
-  alone is enough — unlike the body-fat goal there's no cut/bulk-direction
-  coherence check to port over (steps/cardio have no sign relationship to
-  body fat), just a positive-value check and "at least one of the two."
-  Unset by default, matching Phase 5.2's "don't force a goal at signup"
-  precedent — no onboarding step creates one. **UI-wise it lives on the
-  Plan tab**, not a new nav destination or Settings — a new "Daily
-  activity goal" section under the existing body-fat goal's history table,
-  since both are conceptually "targets" a user sets even though their
-  data models and business rules stay fully independent; a dedicated
-  8th-or-9th nav item for a two-field form would have worked against
-  Phase 4.1's own original goal of trimming nav clutter. Covered by
-  `ActivityGoalManager_test.py` and `Api_test.py`.
-- **Health Connect sync now feeds the Today section**: Phase 7.3's
-  "not today" rule (see above) is relaxed — `HealthSyncPlugin.java`'s
-  sync window now includes today as its last, partial day, upserted via
-  the same `PUT /api/logs/by-date/<date>` route every other synced day
-  already uses (Phase 7.4/7.5), so "Sync now" needs no client-side
-  changes at all to start populating the Today section. A day's true
-  final total still arrives automatically the next time sync runs on a
-  *later* calendar day: that date is no longer "today," so it gets
-  re-read and upserted with its now-complete aggregate, overwriting the
-  partial number captured while it still was.
-- New/extended test coverage: `TodayEstimate_test.py`,
-  `ActivityGoalManager_test.py` (new files), `Api_test.py` (the new
-  routes' round trips, empty-state 404/defaults), and a new Dashboard
-  Playwright case (`Dashboard_test.py`) exercising a still-partial today
-  log plus an activity goal end-to-end through the real UI. 403 server
-  tests, 67 client tests green.
+- A new "Today" stat-row leads the Dashboard: steps done, kcals eaten,
+  kcal-to-target, and a combined TEF/NEAT/EAT-today block, fed by a new
+  `GET /api/metrics/today` route (plus a read-side
+  `GET /api/logs/by-date/<date>`, the counterpart to Phase 7.4's existing
+  upsert route).
+- Since today's row is essentially never a complete, computable week,
+  these are **estimates** — a new pure `TodayEstimate.py` holds the most
+  recently *computed* week's weight/BMR/target-calories static and
+  layers today's real steps/macros/cardio on top, the same "hold the
+  last known value" idea Phase 9.1 established for perimeters. Never
+  persisted, no `ENGINE_VERSION` implication.
+- "Incomplete/current" is inferred, not stored — true whenever today has
+  no row yet or an incomplete one.
+- A new, independent daily steps/cardio-kcal goal (`activity_goals`
+  table, historized like the main goal plan, a parallel
+  `ActivityGoalManager`) lives on the Plan tab, not a new nav destination.
+- Health Connect sync's "not today" rule is relaxed so "Sync now" feeds
+  the Today section directly, with no client-side changes needed.
 
-### Phase 11 — Beta-testing feedback, round 3 (part 2): remaining small features (planned, v5.1)
+403 server tests, 67 client tests green across all of Phase 10.
+
+### Phase 11 — Beta-testing feedback, round 3 (part 2): remaining small features (done, v5.1)
 
 Source: `things-to-improve.txt`'s remaining four "Small Features to add"
 items — the same four the Phase 7 section above originally
 forward-referenced as "Phase 8"; renumbered to Phase 11 now that Phases
 8-10 sit ahead of them, matching the requested v3.1 → v4.0 → v5.0 → v5.1
-sequencing.
+sequencing. **All four sub-phases, 11.1-11.4, are done.**
 
-#### Phase 11.1 — Goal progress bar on the Dashboard (planned)
+#### Phase 11.1 — Goal progress bar on the Dashboard (done)
 
-- A full-page-width progress bar (respecting the page's existing
-  margins, per the note) placed just above the chart grid, spanning
-  `[active goal's start_date, today + current weeks_to_goal]` with today
-  marked as the filled portion. The right edge is a **moving target** —
-  it's recomputed from the live `weeks_to_goal` on every dashboard load,
-  so it can shift week to week as real adherence data comes in, the same
-  way `weeks_to_goal` itself already behaves as a receding-horizon figure
-  elsewhere in the engine (see the Composition Model section above) —
-  documented as deliberate, not a bug.
-- Purely client-side: a new `views.js` `renderGoalProgressBar` (a
-  lightweight DOM/SVG element, not a `charts.js` data-series primitive)
-  fed by `GET /api/users/me/goals` (active goal's `start_date`) and
-  `GET /api/metrics/latest` (`weeks_to_goal`) — both already fetched by
-  `refreshDashboardSummary`. No server/API/DB change, no
-  `ENGINE_VERSION` implication, the same "every figure already exists"
-  precedent Phase 4.2/4.3/5.5/5.6 all followed.
+- A full-width progress bar above the chart grid, spanning `[active
+  goal's start_date, today + current weeks_to_goal]` with today as the
+  filled portion. The right edge is a deliberate moving target,
+  recomputed from the live `weeks_to_goal` on every load, the same way
+  `weeks_to_goal` itself already behaves elsewhere in the engine.
+- Purely client-side (`views.js`'s new `renderGoalProgressBar`), fed by
+  data `refreshDashboardSummary` already fetches (plus a new
+  `GET /api/users/me/goals` call) — no server/API/DB change.
 
-#### Phase 11.2 — "Last logged" info line (planned)
+#### Phase 11.2 — "Last logged" info line (done)
 
-- A small subtitle, e.g. "Last logged: 3 days ago (2026-07-07)", derived
-  client-side from the max date already present in `state.logs` (or
-  `GET /api/metrics/latest`'s own date) — placed near the new Today
-  section (Phase 10.2) or under the Weight & Body Composition heading. No
-  new endpoint.
+- A small "Last logged: 3 days ago (2026-07-07)" subtitle under Weight &
+  Body Composition, derived client-side from the max real log date
+  already fetched for the dashboard — no new endpoint.
 
-#### Phase 11.3 — Missing-log alert (planned)
+#### Phase 11.3 — Missing-log alert (done)
 
-- A new detector, `stale_log`, in `Alerts.py`, following the established
-  pattern (a new per-account-overridable `missing_log_alert_days` field
-  on `EngineConstants`/`EngineSettings`, default `7`) — fires when
-  `today - <latest real log's date>` exceeds the threshold (or since the
-  goal's `start_date` if the account has never logged at all).
-- This is the **first** alert detector that depends on wall-clock "now"
-  rather than purely comparing already-logged rows against each other —
-  every existing detector (implausible-change, stagnation, deviation,
-  etc.) only ever looks at data that's already been logged.
-  `AlertSyncService.sync_alerts` gains an explicit `today` parameter
-  (defaulting to `date.today()`, injectable for tests) threaded through
-  to this one detector.
-- Persisted/dismissed through the existing `alert_log` pipeline, deduped
-  on `(user_id, type, date)` like every other alert — since `date` here
-  is "today," dismissing it only silences *today's* firing; it can
-  re-fire (and be re-dismissed) again tomorrow if the account is still
-  stale, rather than a persistent one-time nag. This is the simplest fit
-  for the existing dedup key, not a new snooze mechanism.
+- A new `stale_log` detector fires when `today - <latest real log's
+  date>` exceeds a new per-account `missing_log_alert_days` setting
+  (default `7`), or since the goal's `start_date` for an account that's
+  never logged. The **first** alert anchored to wall-clock "now" rather
+  than only comparing logged rows — `AlertSyncService.sync_alerts` gains
+  an explicit, test-injectable `today` parameter.
+- Deduped on `(user_id, type, date)` like every other alert, so
+  dismissing it only silences today's firing; it can re-fire tomorrow.
 
-#### Phase 11.4 — Excessive cut-rate alert (planned)
+#### Phase 11.4 — Excessive cut-rate alert (done)
 
-- A new goal-level detector, `cut_rate_out_of_range`, the direct
-  structural mirror of Phase 3's existing `bulk_rate_out_of_range`: for
-  `goal.direction == "cut"`, fires when
-  `abs(weekly_rate) > MAX_CUT_RATE_PCT` (a new module constant in
-  `constants.py`, default `0.01` — the literature-cited "max ~1%/week of
-  bodyweight" figure the note cites, to avoid inducing excess muscle
-  loss).
-- Mirrors `bulk_rate_out_of_range` exactly in scope, including staying a
-  **fixed module constant**, not a per-account-overridable
-  `EngineSettings` field — `BULK_RATE_MIN`/`BULK_RATE_MAX` aren't
-  overridable today either, so this keeps both sides of the same check
-  consistent rather than promoting only the new one. (Promoting both to
-  per-account settings together would be a reasonable future consistency
-  cleanup, out of scope here.)
+- A new `cut_rate_out_of_range` detector, the direct mirror of Phase 3's
+  `bulk_rate_out_of_range`: flags a cut goal whose weekly rate exceeds a
+  fixed `MAX_CUT_RATE_PCT` (1%, the literature-cited max to avoid excess
+  muscle loss) — kept a fixed constant, not per-account, consistent with
+  the bulk-side bounds it mirrors.
+
+418 server tests, 69 client tests green across all of Phase 11.
 
 **With Phase 11, every item from `things-to-improve.txt`'s three rounds
 of beta-testing feedback (Phases 4, 5, and this 8/9/10/11 continuation)
-will be scheduled.**
+is shipped.**
 
 ## Android app
 
@@ -2036,9 +1684,8 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `5.0.1`/`10` (v5.0.1: a Chaquopy source-set
-packaging fix, see CHANGELOG), tracking Phase 10's release line. Not
-done: a release keystore/signed build, and an emulator system image
+to `2.0.0`/`2`; currently `5.1.0`/`11`, tracking Phase 11's release line.
+Not done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 
 ### Embedded on-device server (Phase 6, done)

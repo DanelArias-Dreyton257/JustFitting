@@ -56,6 +56,57 @@ function badgeDelta(text, ok) {
   return `<span class="delta"><span class="badge ${ok ? "active" : "inactive"}">${text}</span></span>`;
 }
 
+// Phase 11.2 (see README): a small "how stale is my data" subtitle,
+// derived client-side from the max real-log date already fetched for the
+// dashboard -- no new endpoint. `latestRealLog` is a BodyLogDTO (or null
+// for a brand-new account with no real logs yet).
+export function renderLastLoggedInfo(container, latestRealLog) {
+  if (!latestRealLog) {
+    container.textContent = "";
+    return;
+  }
+  const logDate = new Date(`${latestRealLog.date}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAgo = Math.round((today - logDate) / 86400000);
+  const agoText = daysAgo <= 0 ? "today" : daysAgo === 1 ? "1 day ago" : `${daysAgo} days ago`;
+  container.textContent = `Last logged: ${agoText} (${latestRealLog.date})`;
+}
+
+// Phase 11.1 (see README): a full-width progress bar spanning
+// [active goal's start_date, today + current weeks_to_goal], today marked
+// as the filled portion. The right edge is a moving target -- it shifts
+// week to week as `weeks_to_goal` itself does elsewhere in the app, which
+// is deliberate, not a bug. `activeGoal` is a GoalPlanDTO (from
+// `GET /api/users/me/goals`, the entry with `active: true`); `latest` is
+// the `GET /api/metrics/latest` DTO, for `weeks_to_goal`.
+export function renderGoalProgressBar(container, activeGoal, latest) {
+  if (!activeGoal || !latest || !(latest.weeks_to_goal > 0)) {
+    container.innerHTML = "";
+    return;
+  }
+  const startDate = new Date(`${activeGoal.start_date}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = new Date(today.getTime() + latest.weeks_to_goal * 7 * 86400000);
+  const totalMs = endDate - startDate;
+  const elapsedMs = today - startDate;
+  const pct = totalMs > 0 ? Math.min(100, Math.max(0, (elapsedMs / totalMs) * 100)) : 100;
+  const endDateText = endDate.toISOString().slice(0, 10);
+  container.innerHTML = `
+    <div class="goal-progress-bar" role="progressbar" aria-valuenow="${pct.toFixed(0)}"
+         aria-valuemin="0" aria-valuemax="100" aria-label="Progress toward goal">
+      <div class="goal-progress-bar-track">
+        <div class="goal-progress-bar-fill" style="width: ${pct.toFixed(1)}%"></div>
+      </div>
+      <div class="goal-progress-bar-labels">
+        <span>${activeGoal.start_date}</span>
+        <span>${pct.toFixed(0)}% -- ${latest.weeks_to_goal.toFixed(1)} weeks left</span>
+        <span>${endDateText} (projected)</span>
+      </div>
+    </div>`;
+}
+
 export function renderWeightSummary(container, latest, previousMetrics, gainQualityLatest) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
@@ -334,6 +385,7 @@ export function fillSettingsForm(form, dto) {
   form.lean_loss_window_weeks.value = dto.lean_loss_window_weeks;
   form.max_lean_loss_pct.value = (dto.max_lean_mass_loss_share * 100).toFixed(0);
   form.significant_deviation_kg.value = dto.significant_deviation_kg;
+  form.missing_log_alert_days.value = dto.missing_log_alert_days;
   form.bmr_model.value = dto.bmr_model;
   form.w_rfm.value = dto.w_rfm;
   form.w_navy.value = dto.w_navy;
