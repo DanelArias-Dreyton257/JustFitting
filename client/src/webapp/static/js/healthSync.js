@@ -65,9 +65,10 @@ function roundReading(reading) {
 }
 
 // {readings: [{date, steps?, intake_kcal?, carbs_g?, fat_g?, protein_g?}]}
-// sinceDate is an ISO "YYYY-MM-DD" string; the native side always excludes
-// today itself (the "not today" rule -- README's Phase 7.3), regardless of
-// what's passed here.
+// sinceDate is an ISO "YYYY-MM-DD" string; the native side includes today
+// itself as the range's last day (a necessarily partial, still-accumulating
+// reading -- Phase 10.2, see README) and always computes "today" natively,
+// never trusting it from this call.
 export async function syncRecentReadings(sinceDate) {
   const plugin = nativePlugin();
   if (!plugin) return { readings: [] };

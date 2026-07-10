@@ -128,13 +128,24 @@ public class HealthSyncPlugin extends Plugin {
                     call.reject("Health Connect permissions not granted");
                     return;
                 }
-                // untilDate is always today, computed natively here -- never
-                // trusted from the JS caller -- enforcing the "not today"
-                // rule (README's Phase 7.3): today's step count is still
-                // accumulating and would look like a shortfall read mid-day.
+                // untilDate is always computed natively here as tomorrow --
+                // never trusted from the JS caller -- so today itself is
+                // included as the range's last (partial) day. Phase 7.3
+                // originally excluded today entirely (today's count is still
+                // accumulating mid-day, "the 'not today' rule"), but Phase
+                // 10.2's Today dashboard section now exists specifically to
+                // show a still-accumulating same-day reading, flagged as
+                // current/incomplete -- so a synced today reading is no
+                // longer a shortfall read with nowhere sensible to land, and
+                // withholding it just delayed the Today section by one sync.
+                // A day's true final total still arrives automatically: the
+                // next sync run on a *later* calendar day re-reads and
+                // upserts (never duplicates, README's Phase 7.4/7.5) that
+                // now-past day with its now-complete aggregate, overwriting
+                // whatever partial number was captured while it was "today."
                 LocalDate today = LocalDate.now();
                 List<DailyReading> readings = HealthConnectBridge.readDailyReadings(
-                    getContext(), sinceDate, today, MI_FITNESS_PACKAGES, SAMSUNG_HEALTH_PACKAGES
+                    getContext(), sinceDate, today.plusDays(1), MI_FITNESS_PACKAGES, SAMSUNG_HEALTH_PACKAGES
                 );
                 JSArray array = new JSArray();
                 for (DailyReading reading : readings) {
