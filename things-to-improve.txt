@@ -1,4 +1,0 @@
-Bugs found:
-(done) - Remaining bug for the Health connect syncing. Even if extended access permission is granted (more than 30 days) it still retrieves only up to 90 days of info from health connect. Info from march was not retrieved (today is 10 july) even if there is data in health connect.
-(done) - Adding the weekly rate into the goal should show whether it asks for the percentage (1 means 1%) or for the value (0.01 means 1%). Anyways a big bug is that in adnroid the text does not let putting a '-' yo need to copy paste it.
-
