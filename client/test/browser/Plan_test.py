@@ -191,6 +191,35 @@ class PlanTest(unittest.TestCase):
         self.page.click('#plan-form button[type=submit]')
         self.page.wait_for_selector("#plan-preview-result:not([hidden])")
 
+    def test_weekly_rate_field_accepts_a_typed_minus_sign(self):
+        # things-to-improve.txt: on Android, weekly_rate_pct's virtual
+        # keyboard offered no "-" key at all when the field was
+        # type="number" (a real, widely-reported Chromium/WebView
+        # limitation for numeric inputs, not fixable via min/max/step) --
+        # fixed by switching to type="text" + inputmode="decimal" +
+        # pattern, which Android's decimal keyboard does show a minus key
+        # for. Playwright's fill() sets the DOM value directly and can't
+        # reproduce a real device's virtual-keyboard layout either way, so
+        # this asserts the field's actual attributes (the real fix) and
+        # drives it via press_sequentially (real per-character key events,
+        # unlike fill()) to prove nothing in this app's own JS -- as
+        # opposed to the OS keyboard -- blocks a "-" keystroke.
+        field = self.page.locator('#plan-form [name="weekly_rate_pct"]')
+        self.assertEqual(field.get_attribute("type"), "text")
+        self.assertEqual(field.get_attribute("inputmode"), "decimal")
+
+        self._log_a_real_week()
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.page.fill('#plan-form [name="target_bf_pct"]', "15")
+        field.fill("")
+        field.press_sequentially("-0.5")
+        self.assertEqual(field.input_value(), "-0.5")
+        self.page.click('#plan-form button[type=submit]')
+        self.page.wait_for_selector("#plan-preview-result:not([hidden])")
+
 
 if __name__ == "__main__":
     unittest.main()

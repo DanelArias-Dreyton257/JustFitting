@@ -67,7 +67,7 @@
     <!-- Without this, Health Connect silently clamps every read (regardless
          of the requested time range) to the last 30 days, a real bug
          reported against a >30-day "Sync last N days" value (README's Phase
-         7.5 sync window, up to 90 days) that only ever returned 30. Granting
+         7.5 sync window, up to 365 days) that only ever returned 30. Granting
          this lets HealthConnectBridge.readDailyReadings actually read the
          full requested window. -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
