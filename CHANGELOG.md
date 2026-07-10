@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chaquopy source set bundled stray repo-root build artifacts into the
+  Android APK.** Discovered rebuilding the APK for the v5.0.0 release: a
+  previously-built `JustFitting-debug.apk` sitting at the repo root (a
+  completely normal thing to have between builds) got swept into the
+  Chaquopy Python source set as if it were source, bloating
+  `assets/chaquopy/app.imy` from ~0.3MB to ~460MB and the final APK to
+  ~480MB (vs. the documented ~40.8MB baseline) — the exclude-only
+  pattern list (`android/app/build.gradle`) covered directories but no
+  repo-root file types. Added `*.apk`/`*.aab`/`justfitting.db`/
+  `justfitting.db-journal` to the exclude list; a clean rebuild
+  (`gradlew clean`, needed since Gradle's incremental APK packager had
+  patched the bloated file in place rather than rewriting it) now
+  reproduces the correct ~41MB size, confirmed by inspecting the built
+  APK's own zip contents and a real install/launch on a connected
+  device. Not part of the CI/release pipeline (the Android APK is only
+  ever built manually via `npm run android:apk`), so no version bump.
+
 ## [5.0.0] - 2026-07-10
 
 ### Added
