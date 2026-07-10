@@ -888,13 +888,22 @@ async function refreshSettings() {
 const HEALTH_SYNC_DEFAULT_WINDOW_DAYS = 7;
 const HEALTH_SYNC_LAST_SYNCED_KEY = "healthSyncLastSyncedAt";
 
-// Falls back to the default for a blank/invalid/out-of-range value rather
-// than rejecting it outright -- this is a convenience field, not a form
-// that needs its own error state.
+// Falls back to the default for a blank/invalid value rather than
+// rejecting it outright -- this is a convenience field, not a form that
+// needs its own error state. Deliberately uncapped: once
+// READ_HEALTH_DATA_HISTORY is granted (README's Phase 7.6), Health
+// Connect has no clamp of its own beyond whatever history the source app
+// actually wrote, so this always requests exactly what's asked for. A
+// previous 90-day (then 365-day) ceiling here was itself a reported bug
+// (things-to-improve.txt: data from ~4 months back never synced even
+// with history access granted), left over from before that permission
+// existed and never fully removed afterward. Declining history access
+// still degrades to Health Connect's own 30-day platform clamp
+// regardless of what's requested here (README's Phase 7.3).
 function healthSyncWindowDays() {
   const raw = Number(document.getElementById("health-sync-days-input").value);
   if (!Number.isFinite(raw) || raw < 1) return HEALTH_SYNC_DEFAULT_WINDOW_DAYS;
-  return Math.min(raw, 90);
+  return raw;
 }
 
 async function refreshHealthSyncUI() {

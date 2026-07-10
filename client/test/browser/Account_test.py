@@ -4,6 +4,7 @@ goal editing lives solely in the Plan tab) -- drives the real client app
 same harness as Dashboard_test.py/Log_test.py.
 """
 
+import datetime
 import os
 import shutil
 import tempfile
@@ -145,6 +146,62 @@ class AccountTest(unittest.TestCase):
             self.page.eval_on_selector('#plan-form [name="weekly_rate_pct"]', "el => el.value"),
             weekly_rate_before,
         )
+
+    def _mock_health_sync_plugin(self):
+        # Mirrors HealthSync_test.py's own mock, but also records the
+        # sinceDate a "Sync now" press actually requests, so this test can
+        # confirm the requested window isn't silently clamped -- the real
+        # regression: a stale 90-day (then 365-day) ceiling
+        # (things-to-improve.txt) left over from before
+        # READ_HEALTH_DATA_HISTORY existed (README's Phase 7.6) meant a
+        # request past that ceiling never reached the native plugin at
+        # all, regardless of what the user typed.
+        self.page.evaluate(
+            """() => {
+                window.__syncCalls = [];
+                window.Capacitor = {
+                    Plugins: {
+                        HealthSync: {
+                            isAvailable: async () => ({ available: true, status: "available" }),
+                            hasPermissions: async () => ({ steps: true, nutrition: true, granted: true }),
+                            requestPermissions: async () => ({ granted: true }),
+                            readRecentReadings: async ({ sinceDate }) => {
+                                window.__syncCalls.push(sinceDate);
+                                return { readings: [] };
+                            },
+                        },
+                    },
+                };
+            }"""
+        )
+
+    def test_health_sync_window_input_has_no_upper_cap(self):
+        self._mock_health_sync_plugin()
+        self._navigate("account")
+        self.page.wait_for_selector("#health-sync-section:not([hidden])")
+        # No `max` attribute at all -- neither the old 90-day nor the
+        # since-superseded 365-day ceiling.
+        self.assertIsNone(self.page.get_attribute("#health-sync-days-input", "max"))
+
+        # Well past both of this app's former ceilings (90, then 365), to
+        # prove the request itself is genuinely uncapped, not just raised.
+        requested_days = 500
+        self.page.fill("#health-sync-days-input", str(requested_days))
+        self.page.click("#health-sync-now-btn")
+        self.page.wait_for_function("window.__syncCalls && window.__syncCalls.length === 1")
+        requested_since_date = self.page.evaluate("window.__syncCalls[0]")
+
+        today = self.page.evaluate(
+            "() => { const d = new Date(); "
+            "return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-"
+            "${String(d.getDate()).padStart(2, '0')}`; }"
+        )
+        expected_since_date = (
+            datetime.date.fromisoformat(today) - datetime.timedelta(days=requested_days)
+        ).isoformat()
+        # Asserting exact equality (not just "further back than N days")
+        # pins the exact requested window -- any clamp would fail this.
+        self.assertEqual(requested_since_date, expected_since_date)
 
 
 if __name__ == "__main__":

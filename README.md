@@ -1183,9 +1183,9 @@ that Phase 7.4 makes a real persisted partial row possible:
   are only ever sent as a complete trio, matching `validate_log_input`'s
   all-or-nothing rule. A reading is a real row the moment it's synced —
   the original `localStorage`-cache/prefill idea was dropped entirely.
-  The sync window is a fixed rolling window (default 7 days, capped at
-  90) on every press; re-syncing an overlapping day is harmless (upsert,
-  not create).
+  The sync window is a fixed rolling window (default 7 days, no upper
+  cap -- see Phase 11.5) on every press; re-syncing an overlapping day
+  is harmless (upsert, not create).
 - **Completing a day** is exactly Phase 5.7's existing edit flow — a
   synced day is already a normal partial row, so open it in the Log view
   and add weight/waist/neck. `renderLogTable`/the wizard now render
@@ -1519,6 +1519,33 @@ sequencing. **All four sub-phases, 11.1-11.4, are done.**
 of beta-testing feedback (Phases 4, 5, and this 8/9/10/11 continuation)
 is shipped.**
 
+#### Phase 11.5 — Two real-usage bugs (done, v5.1.1)
+
+Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
+"Bugs found" section:
+
+- **Health Connect sync silently capped at 90 days regardless of granted
+  history permission.** Health Connect itself imposes no additional
+  clamp once `READ_HEALTH_DATA_HISTORY` (Phase 7.6) is granted — the
+  real ceiling was this app's own "Sync last N days" input and JS clamp,
+  both leftover from before that permission existed. Both are now
+  removed entirely — the "Sync last N days" field has no upper bound at
+  all, so the request always matches exactly what's asked for; declining
+  history access still degrades to Health Connect's own real 30-day
+  platform clamp, as before.
+- **The Plan tab's "Weekly rate (%)" field wouldn't accept a typed `-` on
+  Android.** `type="number"` gets a numeric virtual keyboard that,
+  depending on device/IME, omits the minus key — a known Chromium/WebView
+  limitation, not fixable via `min`/`max`/`step`. `weekly_rate_pct` and
+  Settings' `delta_pct` (the same negative-capable class of field) switch
+  to `type="text" inputmode="decimal"` with a decimal-number pattern,
+  which Android's decimal keyboard does show a minus key for. The Plan
+  tab also gained an explicit percentage-vs-fraction example underneath
+  the field, addressing the adjacent report that the convention wasn't
+  clear.
+
+418 server tests unaffected, 71 client tests green (2 new).
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
@@ -1684,7 +1711,7 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `5.1.0`/`11`, tracking Phase 11's release line.
+to `2.0.0`/`2`; currently `5.1.1`/`12`, tracking Phase 11.5's release line.
 Not done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 
