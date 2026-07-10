@@ -1,16 +1,25 @@
 """Forecasts future weekly rows from a real-log history.
 
-Weight/waist/neck follow a linear trend fit -- either plain OLS (the
-spreadsheet TREND() equivalent) or, since Phase 1.6, a recency-weighted OLS
+Weight follows a linear trend fit -- either plain OLS (the spreadsheet
+TREND() equivalent) or, since Phase 1.6, a recency-weighted OLS
 (``trend_model="weighted_ols"``) that leans more on recent weeks; steps
 default to held-constant but can follow the same trend fit instead
 (``activity_model="trend"``, Phase 1.5); intake is assumed to equal the
 previous row's recommended target calories and is marked as not real, so
 adherence metrics must only be computed over ``intake_is_real=True`` rows.
+
+Phase 9.1 (body composition logging separation, see README): waist/neck no
+longer live on the weekly log history at all -- their trend-fit source
+moves to the sparser, irregularly-dated ``body_measurements`` history
+(``measurement_history``), falling back to holding the last resolved
+waist/neck constant whenever fewer than two measurements exist to fit a
+trend against (the same "static until next update" idea, just extended
+into the future since there's no future update to anchor to yet).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import List, Literal, Optional, Sequence, Tuple
 
@@ -22,6 +31,17 @@ from server.src.services.composition.models import (
     LogInput,
     ProfileParams,
 )
+
+
+@dataclass(frozen=True)
+class MeasurementPoint:
+    """One dated waist/neck reading -- shaped just enough like a
+    `BodyMeasurement` (`.date`/`.waist_cm`/`.neck_cm`) for `_forecast` to fit
+    a trend against, real or forecasted."""
+
+    date: date
+    waist_cm: float
+    neck_cm: float
 
 BaseRegression = Literal["real_only", "real_and_projected"]
 ActivityModel = Literal["constant", "trend"]
@@ -85,6 +105,7 @@ def project_series(
     activity_model: ActivityModel = "constant",
     engine_constants: Optional[EngineConstants] = None,
     trend_model: TrendModel = "ols",
+    measurement_history: Optional[Sequence[MeasurementPoint]] = None,
 ) -> List[CompositionResult]:
     """Forecast ``weeks`` future weekly rows beyond the last real log."""
     return [
@@ -97,6 +118,7 @@ def project_series(
             activity_model,
             engine_constants,
             trend_model,
+            measurement_history,
         )
     ]
 
@@ -109,6 +131,7 @@ def project_series_with_inputs(
     activity_model: ActivityModel = "constant",
     engine_constants: Optional[EngineConstants] = None,
     trend_model: TrendModel = "ols",
+    measurement_history: Optional[Sequence[MeasurementPoint]] = None,
 ) -> List[Tuple[LogInput, CompositionResult]]:
     """Same as ``project_series``, but also returns each forecasted row's raw
     ``LogInput`` (estimated weight/waist/neck) alongside its ``CompositionResult``
@@ -117,11 +140,18 @@ def project_series_with_inputs(
 
     ``activity_model`` controls the forecast's steps assumption: ``"constant"``
     (default) carries the last real log's steps forward unchanged;
-    ``"trend"`` fits the same trend model used for weight/waist/neck.
+    ``"trend"`` fits the same trend model used for weight.
 
     ``trend_model`` controls how the linear trend itself is fit: ``"ols"``
     (default) is plain least-squares; ``"weighted_ols"`` (Phase 1.6) weights
     more recent weeks more heavily (see ``_recency_weights``).
+
+    ``measurement_history`` (Phase 9.1) is the account's real
+    ``body_measurements`` history, sorted or not -- waist/neck are trend-fit
+    against it directly (a strictly sparser, irregularly-dated series) when
+    it has at least two points; otherwise the last resolved waist/neck on
+    ``real_logs`` is held constant for every forecasted week, since there's
+    nothing to fit a trend against yet.
     """
     if weeks <= 0:
         return []
@@ -136,6 +166,17 @@ def project_series_with_inputs(
     prev_weight_kg = ordered_real[-1].weight_kg
     prev_target_calories = real_results[-1].target_calories
 
+    measurement_pts: List[MeasurementPoint] = sorted(
+        (
+            MeasurementPoint(m.date, m.waist_cm, m.neck_cm)
+            for m in (measurement_history or [])
+            if m.waist_cm is not None and m.neck_cm is not None
+        ),
+        key=lambda point: point.date,
+    )
+    last_waist_cm = ordered_real[-1].waist_cm
+    last_neck_cm = ordered_real[-1].neck_cm
+
     projected_pairs: List[Tuple[LogInput, CompositionResult]] = []
     cursor_date = ordered_real[-1].date
 
@@ -145,8 +186,12 @@ def project_series_with_inputs(
             history if base_regression == "real_and_projected" else ordered_real
         )
         forecast_weight = _forecast(regression_source, "weight_kg", cursor_date, trend_model)
-        forecast_waist = _forecast(regression_source, "waist_cm", cursor_date, trend_model)
-        forecast_neck = _forecast(regression_source, "neck_cm", cursor_date, trend_model)
+        if len(measurement_pts) >= 2:
+            forecast_waist = _forecast(measurement_pts, "waist_cm", cursor_date, trend_model)
+            forecast_neck = _forecast(measurement_pts, "neck_cm", cursor_date, trend_model)
+        else:
+            forecast_waist = last_waist_cm
+            forecast_neck = last_neck_cm
         if activity_model == "trend":
             forecast_steps = max(
                 0.0, _forecast(regression_source, "steps", cursor_date, trend_model)
@@ -170,6 +215,10 @@ def project_series_with_inputs(
         projected_pairs.append((projected_log, result))
 
         history.append(projected_log)
+        if base_regression == "real_and_projected" and len(measurement_pts) >= 2:
+            measurement_pts.append(
+                MeasurementPoint(cursor_date, forecast_waist, forecast_neck)
+            )
         prev_weight_kg = projected_log.weight_kg
         prev_target_calories = result.target_calories
 

@@ -12,7 +12,12 @@ from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProjectionDTO import ProjectionDTO
 from server.src.services.composition import Projection
-from server.src.services.LogResampler import is_computable, resample_to_weekly
+from server.src.services.LogResampler import (
+    is_computable,
+    is_input_computable,
+    resample_to_weekly,
+    resolve_measurements,
+)
 
 projection_bp = Blueprint("projection", __name__, url_prefix="/api")
 
@@ -34,6 +39,7 @@ def _forecast_inputs(user_id: int):
     log_manager = current_app.extensions["log_manager"]
     goal_plan_manager = current_app.extensions["goal_plan_manager"]
     engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    measurement_manager = current_app.extensions["body_measurement_manager"]
 
     profile = user_manager.get_profile(user_id)
     goal = goal_plan_manager.get_active(user_id)
@@ -55,10 +61,20 @@ def _forecast_inputs(user_id: int):
     # row missing required fields" here too.
     computable_logs = [log for log in resample_to_weekly(real_logs) if is_computable(log)]
     engine_inputs = log_manager.to_engine_inputs(computable_logs)
+    # Phase 9.1 (see README): resolve waist/neck from body_measurements per
+    # date, then drop any week still missing a measurement as of its date.
+    engine_inputs = resolve_measurements(measurement_manager, user_id, engine_inputs)
+    engine_inputs = [log_input for log_input in engine_inputs if is_input_computable(log_input)]
     engine_constants = engine_settings_manager.to_engine_constants(
         engine_settings_manager.get_active(user_id)
     )
-    return profile_params, engine_inputs, engine_constants
+    # The trend-fit source for waist/neck moves to body_measurements'
+    # own (sparser, irregularly-dated) history -- scoped to the same active
+    # goal period as everything else above.
+    measurement_history = measurement_manager.list_for_user(user_id)
+    if period_start is not None:
+        measurement_history = [m for m in measurement_history if m.date >= period_start]
+    return profile_params, engine_inputs, engine_constants, measurement_history
 
 
 @projection_bp.get("/projection")
@@ -69,7 +85,9 @@ def projection():
     activity_model = _activity_model(request.args.get("activity", default="constant"))
     trend_model = _trend_model(request.args.get("trend_model", default="ols"))
 
-    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
+    profile_params, engine_inputs, engine_constants, measurement_history = _forecast_inputs(
+        g.user_id
+    )
     try:
         pairs = Projection.project_series_with_inputs(
             profile_params,
@@ -79,6 +97,7 @@ def projection():
             activity_model,
             engine_constants,
             trend_model,
+            measurement_history,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -108,7 +127,9 @@ def save_projection():
     )
 
     projection_service = current_app.extensions["projection_service"]
-    profile_params, engine_inputs, engine_constants = _forecast_inputs(g.user_id)
+    profile_params, engine_inputs, engine_constants, measurement_history = _forecast_inputs(
+        g.user_id
+    )
     try:
         run_id, rows = projection_service.save_run(
             g.user_id,
@@ -119,6 +140,7 @@ def save_projection():
             activity_model,
             engine_constants,
             trend_model,
+            measurement_history,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

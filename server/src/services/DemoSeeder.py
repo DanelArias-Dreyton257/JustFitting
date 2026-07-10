@@ -34,7 +34,10 @@ BULK_EMAIL = "admin_bulk@justfitting.local"
 
 
 def _seed_cut_account(
-    user_manager: UserManager, log_manager: LogManager, goal_plan_manager: GoalPlanManager
+    user_manager: UserManager,
+    log_manager: LogManager,
+    goal_plan_manager: GoalPlanManager,
+    measurement_manager,
 ) -> bool:
     """Demo_cut: a cut, default engine settings throughout -- the "no
     customization needed" contrast to the bulk account below. Registers
@@ -56,7 +59,7 @@ def _seed_cut_account(
         weekly_rate=profile_params.weekly_rate,
         goal_start_date=DEMO_FIRST_LOG["date"],
     )
-    log_manager.seed_reference_series(profile.user_id)
+    log_manager.seed_reference_series(profile.user_id, measurement_manager=measurement_manager)
     goal_plan_manager.create_goal_plan(
         profile.user_id, *DEMO_SECOND_GOAL, start_date=DEMO_GOAL_CHANGE_DATE
     )
@@ -68,6 +71,7 @@ def _seed_bulk_account(
     log_manager: LogManager,
     engine_settings_manager: Optional[EngineSettingsManager],
     goal_plan_manager: GoalPlanManager,
+    measurement_manager,
 ) -> bool:
     """Demo_bulk: a bulk, with Mifflin-St Jeor BMR and macro-based TEF turned
     on (Phase 3/3.4) -- the fully-customized counterpart to the cut
@@ -89,7 +93,7 @@ def _seed_bulk_account(
         weekly_rate=profile_params.weekly_rate,
         goal_start_date=DEMO_BULK_FIRST_LOG["date"],
     )
-    log_manager.seed_bulk_reference_series(profile.user_id)
+    log_manager.seed_bulk_reference_series(profile.user_id, measurement_manager=measurement_manager)
     goal_plan_manager.create_goal_plan(
         profile.user_id, *DEMO_BULK_SECOND_GOAL, start_date=DEMO_BULK_GOAL_CHANGE_DATE
     )
@@ -105,17 +109,19 @@ def seed_if_empty(
     log_manager: LogManager,
     goal_plan_manager: GoalPlanManager,
     engine_settings_manager: Optional[EngineSettingsManager] = None,
+    measurement_manager=None,
 ) -> bool:
     """Create the demo accounts and their reference logs if they don't
-    exist yet. ``engine_settings_manager`` is optional so existing callers
-    keep working unchanged; without it, the bulk account is still seeded,
-    just with default (not Mifflin/macros) engine settings.
+    exist yet. ``engine_settings_manager``/``measurement_manager`` are
+    optional so existing callers keep working unchanged; without the
+    latter, both accounts are still seeded, just with no waist/neck history
+    (Phase 9.1 -- see LogManager.seed_reference_series).
 
     Returns True if anything was seeded, False if both accounts already
     existed.
     """
-    seeded_cut = _seed_cut_account(user_manager, log_manager, goal_plan_manager)
+    seeded_cut = _seed_cut_account(user_manager, log_manager, goal_plan_manager, measurement_manager)
     seeded_bulk = _seed_bulk_account(
-        user_manager, log_manager, engine_settings_manager, goal_plan_manager
+        user_manager, log_manager, engine_settings_manager, goal_plan_manager, measurement_manager
     )
     return seeded_cut or seeded_bulk

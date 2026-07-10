@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import date
 
 from server.src.data.db.AuditLogDAO import AuditLogDAO
@@ -31,19 +32,7 @@ class LogManagerTest(unittest.TestCase):
             self.manager.create_log(
                 user_id=self.user_id,
                 log_date=date(2026, 1, 1),
-                weight_kg=90.0,
-                waist_cm=35.0,
-                neck_cm=35.0,
-                intake_kcal=2000,
-                steps=5000,
-            )
-        with self.assertRaises(ValueError):
-            self.manager.create_log(
-                user_id=self.user_id,
-                log_date=date(2026, 1, 1),
                 weight_kg=-1,
-                waist_cm=80.0,
-                neck_cm=35.0,
                 intake_kcal=2000,
                 steps=5000,
             )
@@ -53,8 +42,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 6, 26),
             weight_kg=90.7,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2014.30,
             steps=5000,
         )
@@ -62,9 +49,6 @@ class LogManagerTest(unittest.TestCase):
 
         updated = self.manager.update_log(log.log_id, weight_kg=90.2)
         self.assertAlmostEqual(updated.weight_kg, 90.2)
-
-        with self.assertRaises(ValueError):
-            self.manager.update_log(log.log_id, waist_cm=30.0)
 
         self.manager.delete_log(log.log_id)
         self.assertEqual(self.manager.list_logs(self.user_id), [])
@@ -74,8 +58,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2025, 12, 28),
             weight_kg=97.0,
-            waist_cm=91.0,
-            neck_cm=38.5,
             intake_kcal=2400.0,
             steps=6000,
         )
@@ -83,13 +65,15 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 4),
             weight_kg=96.4,
-            waist_cm=90.5,
-            neck_cm=38.5,
             intake_kcal=2350.0,
             steps=6200,
         )
         logs = self.manager.list_logs(self.user_id)
         engine_inputs = self.manager.to_engine_inputs(logs)
+        # Phase 9.1: waist_cm/neck_cm no longer come from BodyLog -- fill
+        # them in directly here since this test isn't exercising the
+        # body_measurements resolution layer (see MetricsSeriesService_test).
+        engine_inputs = [replace(li, waist_cm=91.0, neck_cm=38.5) for li in engine_inputs]
         results = compute_series(demo_profile_params(), engine_inputs)
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].weight_delta_kg, 0.0)
@@ -99,8 +83,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2025, 12, 28),
             weight_kg=97.0,
-            waist_cm=91.0,
-            neck_cm=38.5,
             intake_kcal=2400.0,
             steps=6000,
             intake_is_real=True,
@@ -109,8 +91,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 4),
             weight_kg=96.4,
-            waist_cm=90.5,
-            neck_cm=38.5,
             intake_kcal=2350.0,
             steps=6200,
             intake_is_real=False,
@@ -118,6 +98,7 @@ class LogManagerTest(unittest.TestCase):
         )
         logs = self.manager.list_logs(self.user_id)
         engine_inputs = self.manager.to_engine_inputs(logs)
+        engine_inputs = [replace(li, waist_cm=91.0, neck_cm=38.5) for li in engine_inputs]
         results = compute_series(demo_profile_params(), engine_inputs)
 
         adherence = self.manager.compute_adherence(logs, results)
@@ -137,8 +118,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 1),
             weight_kg=90.0,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2000,
             steps=5000,
         )
@@ -149,8 +128,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 1),
             weight_kg=90.0,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2000,
             steps=5000,
             granularity="daily",
@@ -163,8 +140,6 @@ class LogManagerTest(unittest.TestCase):
                 user_id=self.user_id,
                 log_date=date(2026, 1, 1),
                 weight_kg=90.0,
-                waist_cm=80.0,
-                neck_cm=35.0,
                 intake_kcal=2000,
                 steps=5000,
                 granularity="monthly",
@@ -175,8 +150,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 1, 1),
             weight_kg=90.0,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2000,
             steps=5000,
         )
@@ -187,8 +160,8 @@ class LogManagerTest(unittest.TestCase):
             self.manager.update_log(log.log_id, granularity="monthly")
 
     def test_create_log_allows_a_partial_row_missing_weight(self):
-        """Phase 7.4 (partial logs, see README): weight_kg/waist_cm/
-        neck_cm/intake_kcal/steps are individually optional now."""
+        """Phase 7.4 (partial logs, see README): weight_kg/intake_kcal/steps
+        are individually optional now."""
         log = self.manager.create_log(
             user_id=self.user_id,
             log_date=date(2026, 1, 1),
@@ -196,8 +169,6 @@ class LogManagerTest(unittest.TestCase):
             intake_kcal=2200,
         )
         self.assertIsNone(log.weight_kg)
-        self.assertIsNone(log.waist_cm)
-        self.assertIsNone(log.neck_cm)
         self.assertEqual(log.steps, 7000)
         self.assertEqual(log.intake_kcal, 2200)
 
@@ -243,13 +214,13 @@ class LogManagerTest(unittest.TestCase):
         a = self.manager.upsert_fields(
             self.user_id,
             date(2026, 1, 1),
-            {"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+            {"weight_kg": 90.0},
         )
 
         self.manager.upsert_fields(
             self.user_id,
             date(2026, 1, 8),
-            {"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+            {"weight_kg": 90.0},
             default_granularity="daily",
         )
         self.manager.upsert_fields(
@@ -260,8 +231,8 @@ class LogManagerTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            (a.weight_kg, a.waist_cm, a.neck_cm, a.intake_kcal, a.steps),
-            (b.weight_kg, b.waist_cm, b.neck_cm, b.intake_kcal, b.steps),
+            (a.weight_kg, a.intake_kcal, a.steps),
+            (b.weight_kg, b.intake_kcal, b.steps),
         )
 
     def test_upsert_fields_only_sets_granularity_on_first_creation(self):
@@ -280,8 +251,6 @@ class LogManagerTest(unittest.TestCase):
             user_id=self.user_id,
             log_date=date(2026, 6, 26),
             weight_kg=90.7,
-            waist_cm=80.0,
-            neck_cm=35.0,
             intake_kcal=2014.30,
             steps=5000,
         )

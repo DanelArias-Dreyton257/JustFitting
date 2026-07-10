@@ -12,6 +12,7 @@ from server.src.data.dto.AdherenceDTO import AdherenceDTO
 from server.src.data.dto.AlertLogDTO import AlertLogDTO
 from server.src.data.dto.AuditEntryDTO import AuditEntryDTO
 from server.src.data.dto.BodyLogDTO import BodyLogDTO
+from server.src.data.dto.BodyMeasurementDTO import BodyMeasurementDTO
 from server.src.data.dto.EnergyReconciliationDTO import EnergyReconciliationDTO
 from server.src.data.dto.GainQualityDTO import GainQualityDTO
 from server.src.data.dto.GoalPlanDTO import GoalPlanDTO
@@ -21,6 +22,10 @@ from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.ProfileDTO import ProfileDTO
 from server.src.data.dto.TefDTO import TefDTO
 from server.src.services.AlertSyncService import sync_alerts
+from server.src.services.BodyMeasurementManager import (
+    MEASUREMENT_FIELDS,
+    BodyMeasurementManagerError,
+)
 from server.src.services.composition import (
     CompositionEngine,
     EnergyReconciliation,
@@ -46,6 +51,10 @@ def _auth_service():
 
 def _log_manager():
     return current_app.extensions["log_manager"]
+
+
+def _measurement_manager():
+    return current_app.extensions["body_measurement_manager"]
 
 
 def _optional_float(value):
@@ -281,12 +290,13 @@ def audit_log():
 def export_data():
     profile_dto = _profile_dto(g.user_id)
     logs = _log_manager().list_logs(g.user_id)
+    measurements = _measurement_manager().list_for_user(g.user_id)
     goal_history = _goal_plan_manager().list_history(g.user_id)
     audit_entries = _audit_log_dao().list_for_user(g.user_id)
 
     # Wave 2's read-side views, computed from the (possibly resampled)
     # weekly series -- informational only, not part of the import contract
-    # below, which only ever reads back "logs" raw rows.
+    # below, which only ever reads back "logs"/"body_measurements" raw rows.
     computed_logs, results = compute_series_for_user(current_app, g.user_id)
     active_goal = _goal_plan_manager().get_active(g.user_id)
 
@@ -294,6 +304,11 @@ def export_data():
         {
             "profile": asdict(profile_dto),
             "logs": [asdict(BodyLogDTO.from_domain(log)) for log in logs],
+            # Phase 9.1: perimeters' own sporadic history, alongside the
+            # weekly logs above.
+            "body_measurements": [
+                asdict(BodyMeasurementDTO.from_domain(m)) for m in measurements
+            ],
             "goal_history": [
                 asdict(GoalPlanDTO.from_domain(goal)) for goal in goal_history
             ],
@@ -347,15 +362,41 @@ def report():
     )
 
 
+def _fields_from_measurement_entry(entry: dict) -> dict:
+    return {key: _optional_float(entry[key]) for key in MEASUREMENT_FIELDS if key in entry}
+
+
+def _import_measurement_from_inline_perimeters(measurement_manager, log_date, entry) -> None:
+    """Phase 9.1 backward compatibility: a pre-Phase-9 export still carries
+    `waist_cm`/`neck_cm` inline on each `logs[]` row -- rather than silently
+    discarding them (they're no longer valid `body_logs` fields), synthesize
+    a `body_measurements` row at that log's own date from them. Best-effort
+    and silent: a date collision or invalid value just means this
+    particular row's perimeters aren't recovered, it never fails the log
+    import itself."""
+    waist_cm = _optional_float(entry.get("waist_cm"))
+    neck_cm = _optional_float(entry.get("neck_cm"))
+    if waist_cm is None and neck_cm is None:
+        return
+    if measurement_manager.get_by_date(g.user_id, log_date) is not None:
+        return
+    try:
+        measurement_manager.create(g.user_id, log_date, waist_cm=waist_cm, neck_cm=neck_cm)
+    except BodyMeasurementManagerError:
+        pass
+
+
 @user_bp.post("/users/me/import")
 @require_auth
 def import_data():
-    """Bulk-import log rows from the same shape `GET /api/users/me/export`
-    produces (JSON) or, client-side, a CSV file translated into it (Phase
-    7.2, README) -- see the README's "Import JSON format reference" for the
-    full field-by-field contract this route implements."""
+    """Bulk-import log rows (and, Phase 9.1, body-measurement rows) from the
+    same shape `GET /api/users/me/export` produces (JSON) or, client-side, a
+    CSV file translated into it (Phase 7.2, README) -- see the README's
+    "Import JSON format reference" for the full field-by-field contract this
+    route implements."""
     payload = request.get_json(force=True) or {}
     log_manager = _log_manager()
+    measurement_manager = _measurement_manager()
     created = []
     skipped = []
     for index, entry in enumerate(payload.get("logs", [])):
@@ -378,8 +419,6 @@ def import_data():
                     # required -- an imported row can be partial too, not
                     # just a synced one.
                     weight_kg=_optional_float(entry.get("weight_kg")),
-                    waist_cm=_optional_float(entry.get("waist_cm")),
-                    neck_cm=_optional_float(entry.get("neck_cm")),
                     intake_kcal=_optional_float(entry.get("intake_kcal")),
                     steps=_optional_float(entry.get("steps")),
                     intake_is_real=bool(entry.get("intake_is_real", True)),
@@ -397,6 +436,28 @@ def import_data():
             )
         except (KeyError, ValueError) as exc:
             skipped.append({"row": index, "reason": str(exc)})
+            continue
+
+        _import_measurement_from_inline_perimeters(measurement_manager, log_date, entry)
+
+    measurements_created = []
+    measurements_skipped = []
+    for index, entry in enumerate(payload.get("body_measurements", [])):
+        try:
+            measurement_date = date.fromisoformat(entry["date"])
+        except (KeyError, ValueError) as exc:
+            measurements_skipped.append({"row": index, "reason": f"invalid date: {exc}"})
+            continue
+        if measurement_manager.get_by_date(g.user_id, measurement_date) is not None:
+            measurements_skipped.append({"row": index, "reason": "duplicate date"})
+            continue
+        fields = _fields_from_measurement_entry(entry)
+        try:
+            measurements_created.append(
+                measurement_manager.create(g.user_id, measurement_date, **fields)
+            )
+        except BodyMeasurementManagerError as exc:
+            measurements_skipped.append({"row": index, "reason": str(exc)})
 
     return (
         jsonify(
@@ -404,6 +465,11 @@ def import_data():
                 "imported": len(created),
                 "skipped": skipped,
                 "logs": [asdict(BodyLogDTO.from_domain(log)) for log in created],
+                "measurements_imported": len(measurements_created),
+                "measurements_skipped": measurements_skipped,
+                "body_measurements": [
+                    asdict(BodyMeasurementDTO.from_domain(m)) for m in measurements_created
+                ],
             }
         ),
         201,

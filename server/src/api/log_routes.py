@@ -42,8 +42,6 @@ def create_log():
             # required -- `_optional_float` treats a missing key the same
             # as an explicit `null`, "not logged yet by any source".
             weight_kg=_optional_float(payload.get("weight_kg")),
-            waist_cm=_optional_float(payload.get("waist_cm")),
-            neck_cm=_optional_float(payload.get("neck_cm")),
             intake_kcal=_optional_float(payload.get("intake_kcal")),
             steps=_optional_float(payload.get("steps")),
             intake_is_real=bool(payload.get("intake_is_real", True)),
@@ -68,8 +66,6 @@ def create_log():
 # the payload is left completely untouched (never reset to null).
 _UPSERT_FLOAT_FIELDS = (
     "weight_kg",
-    "waist_cm",
-    "neck_cm",
     "intake_kcal",
     "steps",
     "cardio_kcal",
@@ -117,8 +113,6 @@ def update_log(log_id: int):
     fields = {}
     for key in (
         "weight_kg",
-        "waist_cm",
-        "neck_cm",
         "intake_kcal",
         "steps",
         "intake_is_real",

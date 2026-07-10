@@ -46,16 +46,16 @@ CREATE TABLE IF NOT EXISTS body_logs (
     -- Phase 7.4 (partial logs & independent-source merging, see README):
     -- nullable, not NOT NULL -- NULL means "not logged yet by any
     -- source" (sync, manual entry, or import), not zero. A row can be
-    -- partial (e.g. steps-only from a Mi Fitness sync, or
-    -- weight/waist/neck-only from a manual body-composition entry) and
-    -- gets completed later by merging in whatever's still missing
+    -- partial (e.g. steps-only from a Mi Fitness sync) and gets
+    -- completed later by merging in whatever's still missing
     -- (LogManager.upsert_fields / PUT /api/logs/by-date, or an ordinary
-    -- edit). The engine only ever computes a row once all five of these
-    -- are present -- see CompositionEngine.compute_row's completeness
-    -- guard and MetricsSeriesService's incomplete-week filtering.
+    -- edit). The engine only ever computes a row once weight/intake/steps
+    -- are present and a body_measurements row can supply waist/neck --
+    -- see CompositionEngine.compute_row's completeness guard and
+    -- MetricsSeriesService's incomplete-week filtering. Phase 9.1: waist_cm
+    -- and neck_cm moved off this table entirely -- see body_measurements
+    -- below.
     weight_kg REAL,
-    waist_cm REAL,
-    neck_cm REAL,
     intake_kcal REAL,
     intake_is_real INTEGER NOT NULL DEFAULT 1,
     steps REAL,
@@ -69,6 +69,31 @@ CREATE TABLE IF NOT EXISTS body_logs (
     UNIQUE(user_id, date)
 );
 CREATE INDEX IF NOT EXISTS idx_body_logs_user_date ON body_logs(user_id, date);
+
+-- Phase 9.1 (body composition logging separation, see README): perimeters
+-- are a sporadically-logged record, decoupled from body_logs' weight/
+-- nutrition/steps cadence -- "static" from one measurement to the next for
+-- every computation in between (BodyMeasurementManager.get_effective).
+-- Phase 9.3 adds nine more record-only columns, never read by the engine.
+CREATE TABLE IF NOT EXISTS body_measurements (
+    measurement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    waist_cm REAL,
+    neck_cm REAL,
+    shoulder_cm REAL,
+    chest_cm REAL,
+    hips_cm REAL,
+    biceps_r_cm REAL,
+    biceps_l_cm REAL,
+    thigh_r_cm REAL,
+    thigh_l_cm REAL,
+    calf_r_cm REAL,
+    calf_l_cm REAL,
+    created_at TEXT NOT NULL,
+    UNIQUE(user_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_body_measurements_user_date ON body_measurements(user_id, date);
 
 CREATE TABLE IF NOT EXISTS goal_plans (
     goal_id INTEGER PRIMARY KEY AUTOINCREMENT,

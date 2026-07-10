@@ -142,8 +142,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
             },
@@ -160,11 +158,6 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(update_response.status_code, 200)
         self.assertAlmostEqual(update_response.get_json()["weight_kg"], 90.2)
-
-        invalid_update = self.client.put(
-            f"/api/logs/{log_id}", json={"waist_cm": 10.0}, headers=headers
-        )
-        self.assertEqual(invalid_update.status_code, 400)
 
         delete_response = self.client.delete(f"/api/logs/{log_id}", headers=headers)
         self.assertEqual(delete_response.status_code, 204)
@@ -208,7 +201,7 @@ class ApiTestCase(unittest.TestCase):
 
         body_response = self.client.put(
             "/api/logs/by-date/2026-02-01",
-            json={"weight_kg": 90.0, "waist_cm": 80.0, "neck_cm": 35.0},
+            json={"weight_kg": 90.0},
             headers=headers,
         )
         self.assertEqual(body_response.status_code, 200)
@@ -254,8 +247,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
                 "cardio_kcal": 300.0,
@@ -279,8 +270,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
             },
@@ -297,8 +286,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
                 "granularity": "daily",
@@ -322,8 +309,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
             },
@@ -340,8 +325,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
                 "granularity": "daily",
@@ -370,8 +353,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
             },
@@ -389,8 +370,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
                 "carbs_g": 200.0,
@@ -406,8 +385,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
                 "granularity": "monthly",
@@ -427,13 +404,23 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-05", "waist_cm": 90.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         daily_weights = [96.0, 95.8, 95.9, 95.7, 95.6, 95.5, 95.4]
         for offset, weight in enumerate(daily_weights):
             day = 5 + offset
@@ -442,8 +429,6 @@ class ApiTestCase(unittest.TestCase):
                 json={
                     "date": f"2026-01-{day:02d}",
                     "weight_kg": weight,
-                    "waist_cm": 90.0,
-                    "neck_cm": 38.5,
                     "intake_kcal": 2300.0,
                     "steps": 6100,
                     "granularity": "daily",
@@ -459,19 +444,15 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(len(series), 2)
         self.assertEqual(series[1]["date"], "2026-01-11")
 
-    def test_log_create_rejects_invalid_navy_ratio(self):
+    def test_body_measurement_create_rejects_invalid_navy_ratio(self):
+        # Phase 9.1: the waist>neck coherence check moved off /api/logs
+        # (which now silently ignores waist_cm/neck_cm) onto
+        # /api/body-measurements, the field's new home.
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
         response = self.client.post(
-            "/api/logs",
-            json={
-                "date": "2026-06-26",
-                "weight_kg": 90.7,
-                "waist_cm": 30.0,
-                "neck_cm": 35.0,
-                "intake_kcal": 2000,
-                "steps": 5000,
-            },
+            "/api/body-measurements",
+            json={"date": "2026-06-26", "waist_cm": 30.0, "neck_cm": 35.0},
             headers=headers,
         )
         self.assertEqual(response.status_code, 400)
@@ -482,8 +463,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
@@ -494,11 +473,19 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-04",
                 "weight_kg": 96.4,
-                "waist_cm": 90.5,
-                "neck_cm": 38.5,
                 "intake_kcal": 2350.0,
                 "steps": 6200,
             },
+            headers=headers,
+        )
+        self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-04", "waist_cm": 90.5, "neck_cm": 38.5},
             headers=headers,
         )
 
@@ -716,8 +703,6 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(body["skipped"], [])
         imported_log = body["logs"][0]
         self.assertIsNone(imported_log["weight_kg"])
-        self.assertIsNone(imported_log["waist_cm"])
-        self.assertIsNone(imported_log["neck_cm"])
         self.assertEqual(imported_log["steps"], 7000)
         self.assertEqual(imported_log["intake_kcal"], 2200)
 
@@ -793,13 +778,17 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": today_iso,
                 "weight_kg": 95.0,
-                "waist_cm": 90.0,
-                "neck_cm": 38.0,
                 "intake_kcal": 2200.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": today_iso, "waist_cm": 90.0, "neck_cm": 38.0},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         after = self.client.get("/api/metrics/series", headers=headers).get_json()
         self.assertEqual(len(after), 1)
@@ -949,8 +938,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-06-26",
                 "weight_kg": 90.7,
-                "waist_cm": 80.0,
-                "neck_cm": 35.0,
                 "intake_kcal": 2014.30,
                 "steps": 5000,
             },
@@ -1078,13 +1065,17 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         # ISO week 2026-W02 (Mon 2026-01-05 .. Sun 2026-01-11): Health
         # Connect syncs steps + nutrition daily, Mon-Wed only (today is
@@ -1113,11 +1104,15 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-08",
                 "weight_kg": 95.0,
-                "waist_cm": 89.0,
-                "neck_cm": 38.0,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-08", "waist_cm": 89.0, "neck_cm": 38.0},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         self.assertEqual(create_response.status_code, 201)
         self.assertIsNone(create_response.get_json()["intake_kcal"])
 
@@ -1203,25 +1198,33 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         self.client.post(
             "/api/logs",
             json={
                 "date": "2026-01-04",
                 "weight_kg": 89.0,  # >8% down in one week
-                "waist_cm": 89.0,
-                "neck_cm": 38.0,
                 "intake_kcal": 2000.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-04", "waist_cm": 89.0, "neck_cm": 38.0},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         response = self.client.get("/api/alerts", headers=headers)
         self.assertEqual(response.status_code, 200)
@@ -1242,13 +1245,17 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-11",
                 "weight_kg": 98.0,
-                "waist_cm": 90.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2300.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-11", "waist_cm": 90.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         response = self.client.get("/api/alerts", headers=headers)
         self.assertEqual(response.status_code, 200)
@@ -1374,8 +1381,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-11",
                 "weight_kg": 96.0,
-                "waist_cm": 90.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2300.0,
                 "steps": 6000,
                 "carbs_g": 200.0,
@@ -1384,6 +1389,12 @@ class ApiTestCase(unittest.TestCase):
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-11", "waist_cm": 90.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         response = self.client.get("/api/metrics/tef", headers=headers)
         rows = response.get_json()
@@ -1422,8 +1433,6 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-11",
                 "weight_kg": 96.0,
-                "waist_cm": 90.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2300.0,
                 "steps": 6000,
                 "carbs_g": 200.0,
@@ -1432,6 +1441,12 @@ class ApiTestCase(unittest.TestCase):
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-11", "waist_cm": 90.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         rows = self.client.get("/api/metrics/macro-targets", headers=headers).get_json()
         macros_row = rows[-1]
         self.assertTrue(macros_row["has_actual"])
@@ -1445,25 +1460,33 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         self.client.post(
             "/api/logs",
             json={
                 "date": "2026-01-04",
                 "weight_kg": 89.0,  # >8% down in one week
-                "waist_cm": 89.0,
-                "neck_cm": 38.0,
                 "intake_kcal": 2000.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-04", "waist_cm": 89.0, "neck_cm": 38.0},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
 
         alerts = self.client.get("/api/alerts", headers=headers).get_json()
         implausible = [a for a in alerts if a["type"] == "implausible_change"][0]
@@ -1495,25 +1518,33 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers_a,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers_a,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         self.client.post(
             "/api/logs",
             json={
                 "date": "2026-01-04",
                 "weight_kg": 89.0,
-                "waist_cm": 89.0,
-                "neck_cm": 38.0,
                 "intake_kcal": 2000.0,
                 "steps": 6000,
             },
             headers=headers_a,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-04", "waist_cm": 89.0, "neck_cm": 38.0},
+            headers=headers_a,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         alerts = self.client.get("/api/alerts", headers=headers_a).get_json()
         alert_id = alerts[0]["alert_id"]
 
@@ -1734,13 +1765,17 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2026-01-11",
                 "weight_kg": 96.0,
-                "waist_cm": 90.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2300.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-11", "waist_cm": 90.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         default_alerts = self.client.get("/api/alerts", headers=headers).get_json()
         self.assertFalse(any(a["type"] == "deviation" for a in default_alerts))
 
@@ -1811,25 +1846,33 @@ class ApiTestCase(unittest.TestCase):
             json={
                 "date": "2025-12-28",
                 "weight_kg": 97.0,
-                "waist_cm": 91.0,
-                "neck_cm": 38.5,
                 "intake_kcal": 2400.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2025-12-28", "waist_cm": 91.0, "neck_cm": 38.5},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         self.client.post(
             "/api/logs",
             json={
                 "date": "2026-01-04",
                 "weight_kg": 89.0,  # implausible swing
-                "waist_cm": 89.0,
-                "neck_cm": 38.0,
                 "intake_kcal": 2000.0,
                 "steps": 6000,
             },
             headers=headers,
         )
+        body_measurement_response = self.client.post(
+            "/api/body-measurements",
+            json={"date": "2026-01-04", "waist_cm": 89.0, "neck_cm": 38.0},
+            headers=headers,
+        )
+        self.assertEqual(body_measurement_response.status_code, 201)
         # This scenario trips both the implausible-change and deviation
         # detectors -- acknowledge everything currently open.
         open_alerts = self.client.get("/api/alerts", headers=headers).get_json()

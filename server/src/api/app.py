@@ -9,6 +9,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from server.src.api.alerts_routes import alerts_bp
+from server.src.api.body_measurement_routes import body_measurement_bp
 from server.src.api.log_routes import log_bp
 from server.src.api.metrics_routes import metrics_bp
 from server.src.api.plan_routes import plan_bp
@@ -18,6 +19,7 @@ from server.src.api.user_routes import user_bp
 from server.src.data.db.AlertLogDAO import AlertLogDAO
 from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
+from server.src.data.db.BodyMeasurementDAO import BodyMeasurementDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.EngineSettingsDAO import EngineSettingsDAO
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
@@ -27,6 +29,7 @@ from server.src.data.db.SessionDAO import SessionDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.services import DemoSeeder
 from server.src.services.AuthService import AuthService
+from server.src.services.BodyMeasurementManager import BodyMeasurementManager
 from server.src.services.EngineSettingsManager import EngineSettingsManager
 from server.src.services.GoalPlanManager import GoalPlanManager
 from server.src.services.LogManager import LogManager
@@ -61,6 +64,9 @@ def create_app(config: Optional[dict] = None) -> Flask:
     log_manager = LogManager(
         BodyLogDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
     )
+    measurement_manager = BodyMeasurementManager(
+        BodyMeasurementDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
+    )
     projection_service = ProjectionService(ProjectionDAO(db))
 
     password_reset_service = PasswordResetService(
@@ -71,6 +77,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.extensions["user_manager"] = user_manager
     app.extensions["auth_service"] = auth_service
     app.extensions["log_manager"] = log_manager
+    app.extensions["body_measurement_manager"] = measurement_manager
     app.extensions["goal_plan_manager"] = goal_plan_manager
     app.extensions["engine_settings_manager"] = engine_settings_manager
     app.extensions["audit_log_dao"] = audit_log_dao
@@ -86,6 +93,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
 
     app.register_blueprint(user_bp)
     app.register_blueprint(log_bp)
+    app.register_blueprint(body_measurement_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(projection_bp)
     app.register_blueprint(plan_bp)
@@ -100,6 +108,12 @@ def create_app(config: Optional[dict] = None) -> Flask:
         "SEED_DEMO", os.environ.get("JUSTFITTING_SEED_DEMO", "false").lower() == "true"
     )
     if seed_demo:
-        DemoSeeder.seed_if_empty(user_manager, log_manager, goal_plan_manager, engine_settings_manager)
+        DemoSeeder.seed_if_empty(
+            user_manager,
+            log_manager,
+            goal_plan_manager,
+            engine_settings_manager,
+            measurement_manager,
+        )
 
     return app

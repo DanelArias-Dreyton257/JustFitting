@@ -14,11 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.src.data.db.AuditLogDAO import AuditLogDAO  # noqa: E402
 from server.src.data.db.BodyLogDAO import BodyLogDAO  # noqa: E402
+from server.src.data.db.BodyMeasurementDAO import BodyMeasurementDAO  # noqa: E402
 from server.src.data.db.DB import DB  # noqa: E402
 from server.src.data.db.EngineSettingsDAO import EngineSettingsDAO  # noqa: E402
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO  # noqa: E402
 from server.src.data.db.UserDAO import UserDAO  # noqa: E402
 from server.src.services import DemoSeeder  # noqa: E402
+from server.src.services.BodyMeasurementManager import BodyMeasurementManager  # noqa: E402
 from server.src.services.EngineSettingsManager import EngineSettingsManager  # noqa: E402
 from server.src.services.GoalPlanManager import GoalPlanManager  # noqa: E402
 from server.src.services.LogManager import LogManager  # noqa: E402
@@ -32,11 +34,16 @@ def main() -> None:
     goal_plan_manager = GoalPlanManager(GoalPlanDAO(db), audit_log_dao=audit_log_dao)
     user_manager = UserManager(UserDAO(db), goal_plan_manager, audit_log_dao=audit_log_dao)
     log_manager = LogManager(BodyLogDAO(db), audit_log_dao=audit_log_dao)
+    measurement_manager = BodyMeasurementManager(
+        BodyMeasurementDAO(db), audit_log_dao=audit_log_dao
+    )
     engine_settings_manager = EngineSettingsManager(
         EngineSettingsDAO(db), audit_log_dao=audit_log_dao
     )
 
-    if DemoSeeder.seed_if_empty(user_manager, log_manager, goal_plan_manager, engine_settings_manager):
+    if DemoSeeder.seed_if_empty(
+        user_manager, log_manager, goal_plan_manager, engine_settings_manager, measurement_manager
+    ):
         print(
             "Created admin_cut/admin_bulk (password adminadmin) and seeded "
             "their Demo_cut (cut) and Demo_bulk (bulk) reference series."

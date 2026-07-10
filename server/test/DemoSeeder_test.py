@@ -10,11 +10,13 @@ import unittest
 from datetime import date
 
 from server.src.data.db.BodyLogDAO import BodyLogDAO
+from server.src.data.db.BodyMeasurementDAO import BodyMeasurementDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.EngineSettingsDAO import EngineSettingsDAO
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.services import DemoSeeder
+from server.src.services.BodyMeasurementManager import BodyMeasurementManager
 from server.src.services.EngineSettingsManager import EngineSettingsManager
 from server.src.services.GoalPlanManager import GoalPlanManager
 from server.src.services.LogManager import (
@@ -33,6 +35,7 @@ class DemoSeederTest(unittest.TestCase):
         self.goal_plan_manager = GoalPlanManager(GoalPlanDAO(self.db))
         self.user_manager = UserManager(UserDAO(self.db), self.goal_plan_manager)
         self.log_manager = LogManager(BodyLogDAO(self.db))
+        self.measurement_manager = BodyMeasurementManager(BodyMeasurementDAO(self.db))
         self.engine_settings_manager = EngineSettingsManager(EngineSettingsDAO(self.db))
 
     def tearDown(self):
@@ -44,6 +47,7 @@ class DemoSeederTest(unittest.TestCase):
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         self.assertTrue(seeded)
         self.assertIsNotNone(self.user_manager.user_dao.get_by_username("admin_cut"))
@@ -55,12 +59,14 @@ class DemoSeederTest(unittest.TestCase):
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         seeded_again = DemoSeeder.seed_if_empty(
             self.user_manager,
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         self.assertFalse(seeded_again)
 
@@ -70,6 +76,7 @@ class DemoSeederTest(unittest.TestCase):
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         cut = self.user_manager.user_dao.get_by_username("admin_cut")
         self.assertEqual(cut.height_cm, 176)
@@ -94,12 +101,23 @@ class DemoSeederTest(unittest.TestCase):
 
         self.assertIsNone(self.engine_settings_manager.get_active(cut.user_id))
 
+        # Phase 9.1: perimeters are now their own sporadic history -- the
+        # last log's date still resolves to the README's documented worked
+        # example (waist=80.0, neck=35.0) via "static until next update".
+        measurements = self.measurement_manager.list_for_user(cut.user_id)
+        self.assertGreater(len(measurements), 0)
+        last_log_date = max(log.date for log in logs)
+        effective = self.measurement_manager.get_effective(cut.user_id, last_log_date)
+        self.assertAlmostEqual(effective.waist_cm, 80.0)
+        self.assertAlmostEqual(effective.neck_cm, 35.0)
+
     def test_bulk_account_matches_the_demo_bulk_profile_and_gets_customized_settings(self):
         DemoSeeder.seed_if_empty(
             self.user_manager,
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         bulk = self.user_manager.user_dao.get_by_username("admin_bulk")
         self.assertEqual(bulk.height_cm, 194)
@@ -129,6 +147,7 @@ class DemoSeederTest(unittest.TestCase):
             self.log_manager,
             self.goal_plan_manager,
             self.engine_settings_manager,
+            self.measurement_manager,
         )
         bulk = self.user_manager.user_dao.get_by_username("admin_bulk")
         logs = self.log_manager.list_logs(bulk.user_id)

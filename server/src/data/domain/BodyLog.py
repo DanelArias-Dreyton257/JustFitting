@@ -15,10 +15,9 @@ class BodyLog:
     # Phase 7.4 (partial logs, see README): individually optional -- a row
     # can be missing any subset of these until completed by a later merge
     # (LogManager.upsert_fields) or edit. `None` means "not logged yet by
-    # any source," distinct from `0.0`.
+    # any source," distinct from `0.0`. Phase 9.1: waist_cm/neck_cm moved
+    # off this model entirely -- see data/domain/BodyMeasurement.py.
     weight_kg: Optional[float]
-    waist_cm: Optional[float]
-    neck_cm: Optional[float]
     intake_kcal: Optional[float]
     intake_is_real: bool
     steps: Optional[float]
@@ -40,8 +39,6 @@ class BodyLog:
             user_id=row["user_id"],
             date=date.fromisoformat(row["date"]),
             weight_kg=row["weight_kg"],
-            waist_cm=row["waist_cm"],
-            neck_cm=row["neck_cm"],
             intake_kcal=row["intake_kcal"],
             intake_is_real=bool(row["intake_is_real"]),
             steps=row["steps"],

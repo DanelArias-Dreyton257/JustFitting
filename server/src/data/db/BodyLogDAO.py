@@ -17,8 +17,6 @@ class BodyLogDAO:
         user_id: int,
         date: date,
         weight_kg: float,
-        waist_cm: float,
-        neck_cm: float,
         intake_kcal: float,
         intake_is_real: bool,
         steps: float,
@@ -33,17 +31,15 @@ class BodyLogDAO:
         cursor = self.db.execute(
             """
             INSERT INTO body_logs
-                (user_id, date, weight_kg, waist_cm, neck_cm, intake_kcal,
+                (user_id, date, weight_kg, intake_kcal,
                  intake_is_real, steps, cardio_kcal, source, created_at, granularity,
                  carbs_g, fat_g, protein_g)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
                 date.isoformat(),
                 weight_kg,
-                waist_cm,
-                neck_cm,
                 intake_kcal,
                 int(intake_is_real),
                 steps,
