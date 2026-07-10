@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-07-10
+
+### Added
+
+Phase 11 (README), the last of `things-to-improve.txt`'s remaining "Small
+Features to add" — closing out every item from all three rounds of
+beta-testing feedback:
+
+- **Goal progress bar on the Dashboard** (Phase 11.1). A full-width bar,
+  `#dashboard-goal-progress`, placed just above the collapsed chart grid,
+  spanning `[active goal's start_date, today + current weeks_to_goal]`
+  with today as the filled portion. The right edge is a deliberate
+  moving target, recomputed from the live `weeks_to_goal` on every
+  dashboard load, same as `weeks_to_goal` itself already behaves
+  elsewhere. Purely client-side (`views.js`'s new `renderGoalProgressBar`),
+  fed by `GET /api/users/me/goals` (now also fetched by
+  `refreshDashboardSummary`) and the already-fetched
+  `GET /api/metrics/latest` — no server/API/DB change.
+- **"Last logged" info line** (Phase 11.2). A small subtitle under the
+  Weight & Body Composition heading (`#summary-last-logged`, e.g. "Last
+  logged: 3 days ago (2026-07-07)"), derived client-side
+  (`renderLastLoggedInfo`) from the max real log date already fetched for
+  the dashboard summary — no new endpoint.
+- **Missing-log alert** (Phase 11.3). A new `stale_log` detector in
+  `Alerts.py` fires once `today - <latest real log's date>` exceeds a
+  new per-account-overridable `missing_log_alert_days` threshold
+  (`EngineConstants`/`EngineSettings`, migration `m0004`, default `7`) —
+  or since the active goal's `start_date` for an account that's never
+  logged at all. The "latest real log" is resolved from every raw logged
+  row (`LogManager.list_logs`), not just a computable week, so a
+  still-partial Health Connect sync row for today counts. The **first**
+  alert detector anchored to wall-clock "now" rather than purely
+  comparing already-logged rows — `AlertSyncService.sync_alerts` gains an
+  explicit `today` parameter (defaults to `date.today()`, injectable for
+  tests). Deduped on `(user_id, type, date)` like every other alert, so
+  dismissing it only silences today's firing and it can re-fire tomorrow.
+- **Excessive cut-rate alert** (Phase 11.4). A new `cut_rate_out_of_range`
+  detector, the direct structural mirror of the existing
+  `bulk_rate_out_of_range` (Phase 3): flags a cut goal whose weekly rate
+  magnitude exceeds a new fixed `constants.MAX_CUT_RATE_PCT` (`1%`, the
+  literature-cited max to avoid inducing excess muscle loss) — kept a
+  fixed module constant rather than promoted to a per-account setting,
+  consistent with the bulk-side bounds it mirrors.
+
+New coverage: `Alerts_test.py` gained `CutRateAlertTest` and
+`StaleLogAlertTest`; `EngineSettingsManager_test.py` and `Api_test.py`
+both gained `missing_log_alert_days` cases; `DB_test.py`'s
+`MigrationRunnerTest` covers the new migration. `Dashboard_test.py`
+gained progress-bar and last-logged-line cases (via a new `_set_goal`
+Plan-tab commit helper, since the account's real auto-assigned default
+goal always has `weekly_rate=0`, which never yields a positive
+`weeks_to_goal`) and extended the existing "fresh account" placeholder
+test to cover both new elements staying empty. 418 server tests, 69
+client tests green.
+
+### Changed
+
+- `android/app/build.gradle`'s `versionName`/`versionCode` bumped to
+  `5.1.0`/`11`, tracking this release per this project's own convention
+  (v5.0.1's own entry above). Phase 11 itself touches no Android-specific
+  code; this keeps the packaged debug APK's version in step with the tag.
+
 ## [5.0.1] - 2026-07-10
 
 ### Fixed
