@@ -1,26 +1,4 @@
-Good improvements:
-1 - Goals should be editable in the aftermath so active goal start date can be adjusted after the fact. Mainly because now plotting and some metrics are computed for only the active goal period. This is a problem if the user was already pursuing a goal and transfers to this app. He syncs or imports but when adding the goal the time is put to today always.
-2 - Dont let incoherence body fat and weekly rates be added as a goal. If user has 20% body fat as last logging and asks for a 15% body fat but increasing weight (weekly rate >0) then it should not let it happen. Same for the other way around. 
-
-Big Remaining Features.
-GAME CHANGER (1): 
-- Body Logging has a separate logging tab separated from nutrition and steps. (Maybe this makes it so DB needs to be changed). The idea is that  Waist and Neck (Body composition logs) are saved as 'sporadic' logs. This means that for any computation this measurements are "static" from the last update to "today". So from 'measurement t-1' until 'measurement t' is assumed that that value is the same.
-- Weight is separated and needs to be logged daily or weekly as nutrititon and steps.
-
-GAME CHANGER (3):
-- Add a today section on the dashboard. This today dashboard section shows: Steps done, kcals eaten, kcals to target, [TEF, NEAT and cardio (EAT) today all in a single block].
-- This today dashboard works well for using the sync option with Health Connect. It should add a type of log 'incomplete' or 'current' for today, so it knows is incomplete info, and is an "upgradable log".
-- This adds the idea for a steps daily goal and/or a cardio goal. So you can track how many steps and cardio have you left. This goals should be log and planned in a similar way to the main goal plan but independently.
-
-GAME CHANGER (2):
-- Add a way of making updates to the DB if necessary when updating the app. In general add a protocol or methods for updating.
-
-
-Small Features to add
-1 - Add a progress bar to the dashboard showing how far since the goal definition to the current date and the projected end date (weeks to goal). The dashboard is should show the progress bar just before the plots occupying in width the same as all page (respect margins)
-2 - Add min info of last log in the dashboard, just show when last log was done as info to the user.
-3 - Add a log missing alert if the user hasnt log in a week.
-4 - Add an alert if the loss of in a cut (the week rate) is bigger than 1% what is indicated in the literature that is the max. possible to not induce in muscle loss over time.
-5 - (when big body log separation update is done). New measurements can be added to the body (do not intervene in computations) but they serve as a record. All measurements include: Neck (cm),Shoulder width (cm), Chest (cm), Waist (cm), Hips (cm), Right Biceps (cm), Left Biceps (cm), Right Thigh (cm), Left Thigh (cm), Right Calf (cm), Left Calf (cm). The idea is that the user can log these measurements and that can work independently, for now user can only log (waist and neck) or (all measurements). When logging only waist and neck, the other measurements stay the same values.
-
+Bugs found:
+(done) - Remaining bug for the Health connect syncing. Even if extended access permission is granted (more than 30 days) it still retrieves only up to 90 days of info from health connect. Info from march was not retrieved (today is 10 july) even if there is data in health connect.
+(done) - Adding the weekly rate into the goal should show whether it asks for the percentage (1 means 1%) or for the value (0.01 means 1%). Anyways a big bug is that in adnroid the text does not let putting a '-' yo need to copy paste it.
 

@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-07-10
+
+### Fixed
+
+Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
+"Bugs found" section:
+
+- **Health Connect sync silently capped at 90 days regardless of granted
+  history permission.** `things-to-improve.txt`: data from ~4 months back
+  never synced even with the extended-access (`READ_HEALTH_DATA_HISTORY`,
+  Phase 7.6) permission granted. Health Connect itself has no additional
+  clamp once that permission is granted -- the real ceiling was this
+  app's own client-side "Sync last N days" input (`max="90"`,
+  `index.html`) and its JS clamp (`Math.min(raw, 90)`,
+  `healthSyncWindowDays()` in `app.js`), both leftover from before that
+  permission existed and never raised once it was added. Both now cap at
+  365 days instead; a device that still declines history access continues
+  to degrade to Health Connect's own real 30-day platform clamp
+  regardless of what's requested, as before. `AndroidManifest.xml`'s
+  explanatory comment and the README's Phase 7.5 description updated to
+  match. Covered by a new `Account_test.py` case mocking the native
+  plugin and asserting the exact requested `sinceDate` for a 200-day
+  window, rather than just the old 90-day ceiling.
+- **The Plan tab's "Weekly rate (%)" field wouldn't accept a typed `-` on
+  Android**, forcing a copy-paste workaround for every cut goal.
+  `type="number"` inputs get a numeric virtual keyboard on Android that,
+  depending on the device/IME, omits the minus key entirely -- a known
+  Chromium/WebView limitation with no `min`/`max`/`step` workaround.
+  `weekly_rate_pct` (Plan tab) and `delta_pct` (Settings' "Fat offset,"
+  the same negative-capable class of field) both switch to
+  `type="text" inputmode="decimal"` with a `-?[0-9]*\.?[0-9]*` pattern,
+  which Android's decimal keyboard does show a minus key for; parsing is
+  unchanged (`Number(...)` on a form value works identically regardless
+  of input type). Also addresses the adjacent report that it wasn't clear
+  whether the field expects a percentage or a fraction (`1` = 1%, not
+  `0.01`) -- the Plan tab now shows an explicit example underneath the
+  field. Covered by a new `Plan_test.py` case asserting the field's
+  `type`/`inputmode` and driving it via `press_sequentially` (real
+  per-character key events, unlike `fill()`) to rule out this app's own
+  JS as a second cause -- the native Android keyboard layout itself isn't
+  reproducible under Playwright/Chromium.
+
+418 server tests unaffected (no server-side change); 71 client tests
+green (2 new).
+
+### Changed
+
+- `android/app/build.gradle`'s `versionName`/`versionCode` bumped to
+  `5.1.1`/`12`, tracking this release.
+
 ## [5.1.0] - 2026-07-10
 
 ### Added
