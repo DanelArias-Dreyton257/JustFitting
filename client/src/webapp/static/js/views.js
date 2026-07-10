@@ -81,6 +81,66 @@ export function renderWeightSummary(container, latest, previousMetrics, gainQual
   ].join("");
 }
 
+// Phase 10.2 (Today dashboard section, see README): steps/intake/kcal-to-
+// target plus a combined TEF/NEAT/EAT estimate block, all held against the
+// most recently *computed* week -- see TodayEstimate.py for what each
+// figure actually means. `todayEstimate` is the GET /api/metrics/today DTO.
+export function renderTodaySummary(container, todayEstimate) {
+  if (!todayEstimate) {
+    container.innerHTML = `<p class="disclaimer">Today's estimate isn't available yet.</p>`;
+    return;
+  }
+  const currentBadge = todayEstimate.is_current
+    ? `<span class="delta tile-subtitle">still logging today -- an estimate</span>`
+    : `<span class="delta tile-subtitle">today's log is complete</span>`;
+
+  const tiles = [
+    statTile(
+      "Steps done",
+      todayEstimate.steps != null ? `${todayEstimate.steps.toFixed(0)}` : "—",
+      todayEstimate.steps_left != null
+        ? `<span class="delta">${Math.max(0, todayEstimate.steps_left).toFixed(0)} left of ${todayEstimate.steps_goal.toFixed(0)}</span>`
+        : currentBadge
+    ),
+    statTile(
+      "Kcals eaten",
+      todayEstimate.intake_kcal != null ? `${todayEstimate.intake_kcal.toFixed(0)} kcal` : "—"
+    ),
+  ];
+  if (todayEstimate.kcal_to_target != null) {
+    tiles.push(
+      statTile(
+        "Kcal to target",
+        `${todayEstimate.kcal_to_target >= 0 ? "+" : ""}${todayEstimate.kcal_to_target.toFixed(0)} kcal`,
+        `<span class="delta tile-subtitle">left to reach target calories</span>`
+      )
+    );
+  }
+  if (todayEstimate.neat_kcal != null || todayEstimate.tef_kcal != null) {
+    const parts = [];
+    if (todayEstimate.tef_kcal != null) parts.push(`TEF ${todayEstimate.tef_kcal.toFixed(0)}`);
+    if (todayEstimate.neat_kcal != null) parts.push(`NEAT ${todayEstimate.neat_kcal.toFixed(0)}`);
+    if (todayEstimate.eat_kcal != null) parts.push(`EAT ${todayEstimate.eat_kcal.toFixed(0)}`);
+    tiles.push(
+      statTile(
+        "TEF / NEAT / EAT today",
+        `${parts.join(" · ")} kcal`,
+        `<span class="delta tile-subtitle">estimate, held vs. last computed week</span>`
+      )
+    );
+  }
+  if (todayEstimate.cardio_left != null) {
+    tiles.push(
+      statTile(
+        "Cardio left today",
+        `${Math.max(0, todayEstimate.cardio_left).toFixed(0)} kcal`,
+        `<span class="delta tile-subtitle">of ${todayEstimate.cardio_kcal_goal.toFixed(0)} kcal goal</span>`
+      )
+    );
+  }
+  container.innerHTML = tiles.join("");
+}
+
 export function renderCaloriesSummary(container, latest, adherence, latestRealLog) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your stats.</p>`;
@@ -324,6 +384,20 @@ export function renderSettingsStatus(container, dto) {
   container.textContent = dto.is_default
     ? "Using default engine constants (no overrides saved yet)."
     : `Custom settings active since ${dto.start_date}.`;
+}
+
+// Phase 10.2 (Today dashboard section, see README): independent of the
+// engine-settings form above -- unset by default, either field alone is
+// fine.
+export function fillActivityGoalForm(form, dto) {
+  form.steps_goal.value = dto.steps_goal != null ? dto.steps_goal : "";
+  form.cardio_kcal_goal.value = dto.cardio_kcal_goal != null ? dto.cardio_kcal_goal : "";
+}
+
+export function renderActivityGoalStatus(container, dto) {
+  container.textContent = dto.is_set
+    ? `Active since ${dto.start_date}.`
+    : "No activity goal set yet.";
 }
 
 export function renderSettingsHistory(tbody, history) {

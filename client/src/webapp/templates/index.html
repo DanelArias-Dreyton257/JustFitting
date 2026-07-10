@@ -105,6 +105,10 @@
       <div class="alerts-panel" id="dashboard-alerts" hidden></div>
 
       <div class="summary-section">
+        <h2>Today</h2>
+        <div class="stat-row" id="summary-today-stats"></div>
+      </div>
+      <div class="summary-section">
         <h2>Weight &amp; Body Composition</h2>
         <div class="stat-row" id="summary-weight-stats"></div>
       </div>
@@ -373,6 +377,20 @@
         </thead>
         <tbody></tbody>
       </table>
+
+      <h2>Daily activity goal</h2>
+      <p class="disclaimer">
+        Independent of the body-fat goal above -- set a daily steps and/or
+        cardio-calorie target to see "left today" on the Dashboard's Today
+        section. Unset by default; either field alone is fine.
+      </p>
+      <p id="activity-goal-status" class="disclaimer"></p>
+      <form id="activity-goal-form" class="stacked-form">
+        <label>Daily steps goal <input name="steps_goal" type="number" step="1" min="0" /></label>
+        <label>Daily cardio (kcal) goal <input name="cardio_kcal_goal" type="number" step="1" min="0" /></label>
+        <button type="submit">Save activity goal</button>
+        <p class="form-error" data-for="activity-goal-form"></p>
+      </form>
     </section>
 
     <section id="view-alert-history" class="view" hidden>

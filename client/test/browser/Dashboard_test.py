@@ -344,6 +344,82 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("Log a week", self.page.inner_text("#summary-calories-stats"))
         self.assertIn("Log a week", self.page.inner_text("#summary-goal-stats"))
 
+    def _set_activity_goal(self, steps_goal=None, cardio_kcal_goal=None):
+        # navigate("plan") calls refreshPlan() unawaited, which fills
+        # #activity-goal-form asynchronously from GET
+        # /api/users/me/activity-goal (alongside the main goal's own data) --
+        # the same navigate()-races-an-unawaited-refresh shape this project
+        # has fixed for every other view (see README/CHANGELOG). Waiting for
+        # that GET to resolve before filling anything avoids the race rather
+        # than reproducing it.
+        self.page.click("#nav-toggle")
+        with self.page.expect_response(
+            lambda r: "/api/users/me/activity-goal" in r.url and r.request.method == "GET"
+        ):
+            self.page.click('.nav-link[data-view="plan"]')
+        self.page.wait_for_selector("#activity-goal-form")
+        if steps_goal is not None:
+            self.page.fill('#activity-goal-form [name="steps_goal"]', str(steps_goal))
+        if cardio_kcal_goal is not None:
+            self.page.fill(
+                '#activity-goal-form [name="cardio_kcal_goal"]', str(cardio_kcal_goal)
+            )
+        with self.page.expect_response(
+            lambda r: "/api/users/me/activity-goal" in r.url and r.request.method == "PUT"
+        ):
+            self.page.click('#activity-goal-form button[type=submit]')
+
+    def test_today_section_shows_partial_log_estimate_and_activity_goal(self):
+        # Phase 10.2 (Today dashboard section, see README): a still-partial
+        # today log (steps only, via the Phase 7.4 by-date upsert route) is
+        # enough to surface an estimate on the Dashboard, without waiting
+        # for a full computable week.
+        self._log_week("2026-06-01", 90.0)
+        self._set_activity_goal(steps_goal=10000, cardio_kcal_goal=400)
+
+        # Local date, matching both app.js's own toIsoDate() helper and the
+        # server's date.today() (both run on this same machine) -- a UTC
+        # ISO string can land on a different calendar day near midnight.
+        today_iso = self.page.evaluate(
+            "() => { const d = new Date(); "
+            "return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-"
+            "${String(d.getDate()).padStart(2, '0')}`; }"
+        )
+        self.page.evaluate(
+            """async (date) => {
+                const token = localStorage.getItem('justfitting.token');
+                await fetch(
+                    `${window.JUSTFITTING_API_BASE_URL}/api/logs/by-date/${date}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ steps: 4000, cardio_kcal: 150 }),
+                    }
+                );
+            }""",
+            today_iso,
+        )
+
+        self._go_to_dashboard()
+        # Content-based wait, not mere-presence (see _wait_for_weight_value's
+        # own comment above): #summary-today-stats already has stat-tiles
+        # from the previous dashboard visit in setUp, so waiting for a
+        # .stat-tile to merely exist would race this test's own fetch and
+        # read stale (pre-today-log) content.
+        self.page.wait_for_function(
+            "document.getElementById('summary-today-stats').innerText.toLowerCase()"
+            ".includes('6000 left of 10000')"
+        )
+        today_text = self.page.inner_text("#summary-today-stats").lower()
+        self.assertIn("steps done", today_text)
+        self.assertIn("6000 left of 10000", today_text)
+        self.assertIn("tef / neat / eat today", today_text)
+        self.assertIn("cardio left today", today_text)
+        self.assertIn("250 kcal", today_text)
+
 
 if __name__ == "__main__":
     unittest.main()

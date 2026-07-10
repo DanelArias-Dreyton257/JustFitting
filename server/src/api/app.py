@@ -8,6 +8,7 @@ from typing import Optional
 from flask import Flask, jsonify
 from flask_cors import CORS
 
+from server.src.api.activity_goal_routes import activity_goal_bp
 from server.src.api.alerts_routes import alerts_bp
 from server.src.api.body_measurement_routes import body_measurement_bp
 from server.src.api.log_routes import log_bp
@@ -16,6 +17,7 @@ from server.src.api.plan_routes import plan_bp
 from server.src.api.projection_routes import projection_bp
 from server.src.api.settings_routes import settings_bp
 from server.src.api.user_routes import user_bp
+from server.src.data.db.ActivityGoalDAO import ActivityGoalDAO
 from server.src.data.db.AlertLogDAO import AlertLogDAO
 from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.BodyLogDAO import BodyLogDAO
@@ -28,6 +30,7 @@ from server.src.data.db.ProjectionDAO import ProjectionDAO
 from server.src.data.db.SessionDAO import SessionDAO
 from server.src.data.db.UserDAO import UserDAO
 from server.src.services import DemoSeeder
+from server.src.services.ActivityGoalManager import ActivityGoalManager
 from server.src.services.AuthService import AuthService
 from server.src.services.BodyMeasurementManager import BodyMeasurementManager
 from server.src.services.EngineSettingsManager import EngineSettingsManager
@@ -68,6 +71,9 @@ def create_app(config: Optional[dict] = None) -> Flask:
         BodyMeasurementDAO(db), audit_log_dao=audit_log_dao, metrics_cache=metrics_cache
     )
     projection_service = ProjectionService(ProjectionDAO(db))
+    activity_goal_manager = ActivityGoalManager(
+        ActivityGoalDAO(db), audit_log_dao=audit_log_dao
+    )
 
     password_reset_service = PasswordResetService(
         user_dao, session_dao, audit_log_dao=audit_log_dao
@@ -85,6 +91,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.extensions["metrics_cache"] = metrics_cache
     app.extensions["projection_service"] = projection_service
     app.extensions["password_reset_service"] = password_reset_service
+    app.extensions["activity_goal_manager"] = activity_goal_manager
 
     cors_origins = app.config.get(
         "CORS_ORIGINS", os.environ.get("JUSTFITTING_CORS_ORIGINS", "*")
@@ -99,6 +106,7 @@ def create_app(config: Optional[dict] = None) -> Flask:
     app.register_blueprint(plan_bp)
     app.register_blueprint(alerts_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(activity_goal_bp)
 
     @app.get("/api/health")
     def health():

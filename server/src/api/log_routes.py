@@ -75,6 +75,23 @@ _UPSERT_FLOAT_FIELDS = (
 )
 
 
+@log_bp.get("/logs/by-date/<log_date>")
+@require_auth
+def get_log_by_date(log_date: str):
+    """Phase 10.2 (Today dashboard section, see README): the read-side
+    counterpart of the upsert route below, both wrapping
+    `LogManager.get_by_date` -- lets the client ask "what does today's
+    (possibly still-partial) row look like" without listing every log."""
+    try:
+        parsed_date = date.fromisoformat(log_date)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    log = _log_manager().get_by_date(g.user_id, parsed_date)
+    if log is None:
+        return jsonify({"error": "no log for that date"}), 404
+    return jsonify(asdict(BodyLogDTO.from_domain(log)))
+
+
 @log_bp.put("/logs/by-date/<log_date>")
 @require_auth
 def upsert_log_by_date(log_date: str):

@@ -238,6 +238,37 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_get_log_by_date_returns_404_when_nothing_logged(self):
+        """Phase 10.2 (Today dashboard section, see README): the read-side
+        counterpart of the upsert route above."""
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        response = self.client.get("/api/logs/by-date/2026-02-01", headers=headers)
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_log_by_date_returns_the_matching_row(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"steps": 7000, "granularity": "daily"},
+            headers=headers,
+        )
+
+        response = self.client.get("/api/logs/by-date/2026-02-01", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["steps"], 7000)
+
+        other_day = self.client.get("/api/logs/by-date/2026-02-02", headers=headers)
+        self.assertEqual(other_day.status_code, 404)
+
+    def test_get_log_by_date_rejects_a_malformed_date(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        response = self.client.get("/api/logs/by-date/not-a-date", headers=headers)
+        self.assertEqual(response.status_code, 400)
+
     def test_log_create_and_update_persist_cardio_kcal(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
@@ -1890,6 +1921,104 @@ class ApiTestCase(unittest.TestCase):
         ).get_json()
         self.assertEqual(len(full_history), len(open_alerts))
         self.assertTrue(all(a["acknowledged_at"] is not None for a in full_history))
+
+    def test_activity_goal_defaults_unset(self):
+        """Phase 10.2 (Today dashboard section, see README): unlike the
+        main body-fat goal, a brand-new account has no activity goal at
+        all until it sets one."""
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/users/me/activity-goal", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertFalse(body["is_set"])
+        self.assertIsNone(body["steps_goal"])
+
+    def test_activity_goal_set_and_update_historizes(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        first = self.client.put(
+            "/api/users/me/activity-goal",
+            json={"steps_goal": 8000},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json()["steps_goal"], 8000)
+        self.assertIsNone(first.get_json()["cardio_kcal_goal"])
+
+        second = self.client.put(
+            "/api/users/me/activity-goal",
+            json={"steps_goal": 10000, "cardio_kcal_goal": 300},
+            headers=headers,
+        )
+        self.assertEqual(second.status_code, 200)
+
+        current = self.client.get("/api/users/me/activity-goal", headers=headers).get_json()
+        self.assertTrue(current["is_set"])
+        self.assertEqual(current["steps_goal"], 10000)
+        self.assertEqual(current["cardio_kcal_goal"], 300)
+
+        history = self.client.get(
+            "/api/users/me/activity-goal/history", headers=headers
+        ).get_json()
+        self.assertEqual(len(history), 2)
+        self.assertFalse(history[1]["active"])
+
+    def test_activity_goal_rejects_empty_and_non_positive(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        empty = self.client.put("/api/users/me/activity-goal", json={}, headers=headers)
+        self.assertEqual(empty.status_code, 400)
+
+        negative = self.client.put(
+            "/api/users/me/activity-goal", json={"steps_goal": -5}, headers=headers
+        )
+        self.assertEqual(negative.status_code, 400)
+
+    def test_today_estimate_with_no_data_at_all(self):
+        token = self._register().get_json()["token"]
+        response = self.client.get(
+            "/api/metrics/today", headers=self._auth_header(token)
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["is_current"])
+        self.assertIsNone(body["steps"])
+        self.assertIsNone(body["neat_kcal"])
+
+    def test_today_estimate_holds_the_latest_computed_week_and_applies_activity_goal(self):
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self._seed_two_logs(headers)
+        self.client.put(
+            "/api/users/me/activity-goal",
+            json={"steps_goal": 10000, "cardio_kcal_goal": 400},
+            headers=headers,
+        )
+
+        today_iso = date.today().isoformat()
+        self.client.put(
+            f"/api/logs/by-date/{today_iso}",
+            json={"steps": 4000, "intake_kcal": 1900, "cardio_kcal": 150},
+            headers=headers,
+        )
+
+        response = self.client.get("/api/metrics/today", headers=headers)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["date"], today_iso)
+        self.assertTrue(body["is_current"])  # no weight_kg logged today
+        self.assertEqual(body["steps"], 4000)
+        self.assertEqual(body["intake_kcal"], 1900)
+        self.assertIsNotNone(body["neat_kcal"])
+        self.assertIsNotNone(body["tef_kcal"])
+        self.assertIsNotNone(body["target_calories"])  # held from latest computed week
+        self.assertAlmostEqual(body["kcal_to_target"], body["target_calories"] - 1900)
+        self.assertEqual(body["steps_left"], 6000)
+        self.assertEqual(body["cardio_left"], 250)
 
 
 if __name__ == "__main__":

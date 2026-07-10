@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 
 from flask import Blueprint, current_app, g, jsonify, request
 
@@ -14,6 +15,7 @@ from server.src.data.dto.IncrementAnalyticsDTO import IncrementAnalyticsDTO
 from server.src.data.dto.MacroTargetsDTO import MacroTargetsDTO
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.data.dto.TefDTO import TefDTO
+from server.src.data.dto.TodayEstimateDTO import TodayEstimateDTO
 from server.src.services.composition import (
     CompositionEngine,
     EnergyReconciliation,
@@ -21,6 +23,7 @@ from server.src.services.composition import (
     IncrementAnalytics,
     MacroTargets,
     Tef,
+    TodayEstimate,
 )
 from server.src.services.MetricsSeriesService import compute_series_for_user
 
@@ -141,6 +144,37 @@ def macro_targets():
     )
     rows = MacroTargets.compute_macro_targets(logs, results, ec)
     return jsonify([asdict(MacroTargetsDTO.from_domain(row)) for row in rows])
+
+
+@metrics_bp.get("/today")
+@require_auth
+def today():
+    """Phase 10.2 (Today dashboard section, see README): a same-day
+    NEAT/TEF/EAT estimate held against the most recently *computed* week,
+    not a persisted metrics row -- today's own log is essentially never
+    complete enough for one yet."""
+    log_manager = current_app.extensions["log_manager"]
+    engine_settings_manager = current_app.extensions["engine_settings_manager"]
+    activity_goal_manager = current_app.extensions["activity_goal_manager"]
+
+    today_date = date.today()
+    today_log = log_manager.get_by_date(g.user_id, today_date)
+    _, results = _compute_results(g.user_id)
+    latest_result = results[-1] if results else None
+    ec = engine_settings_manager.to_engine_constants(
+        engine_settings_manager.get_active(g.user_id)
+    )
+    activity_goal = activity_goal_manager.get_active(g.user_id)
+
+    row = TodayEstimate.compute_today_estimate(
+        today_date,
+        today_log,
+        latest_result,
+        ec,
+        steps_goal=activity_goal.steps_goal if activity_goal else None,
+        cardio_kcal_goal=activity_goal.cardio_kcal_goal if activity_goal else None,
+    )
+    return jsonify(asdict(TodayEstimateDTO.from_domain(row)))
 
 
 @metrics_bp.get("/increment-analytics")
