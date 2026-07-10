@@ -2036,7 +2036,8 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `5.0.0`/`9`, tracking this Phase 10 release. Not
+to `2.0.0`/`2`; currently `5.0.1`/`10` (v5.0.1: a Chaquopy source-set
+packaging fix, see CHANGELOG), tracking Phase 10's release line. Not
 done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 

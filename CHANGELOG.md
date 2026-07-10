@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-07-10
+
 ### Fixed
 
 - **Chaquopy source set bundled stray repo-root build artifacts into the
@@ -24,7 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reproduces the correct ~41MB size, confirmed by inspecting the built
   APK's own zip contents and a real install/launch on a connected
   device. Not part of the CI/release pipeline (the Android APK is only
-  ever built manually via `npm run android:apk`), so no version bump.
+  ever built manually via `npm run android:apk`) — released here purely
+  to keep `android/app/build.gradle`'s `versionName`/`versionCode` in
+  step with a real device build, per this project's own convention.
 
 ## [5.0.0] - 2026-07-10
 
