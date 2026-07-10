@@ -67,3 +67,9 @@ class GoalPlanDAO:
 
     def deactivate(self, goal_id: int) -> None:
         self.db.execute("UPDATE goal_plans SET active = 0 WHERE goal_id = ?", (goal_id,))
+
+    def update_start_date(self, goal_id: int, new_start_date: date) -> None:
+        self.db.execute(
+            "UPDATE goal_plans SET start_date = ? WHERE goal_id = ?",
+            (new_start_date.isoformat(), goal_id),
+        )

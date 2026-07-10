@@ -74,6 +74,12 @@ export const api = {
     request("GET", `/api/plan/preview?${new URLSearchParams(params).toString()}`),
 
   goals: () => request("GET", "/api/users/me/goals"),
+  // Phase 8.1: corrects the active goal's own start_date in place, not a
+  // new historized row.
+  updateGoalStartDate: (startDate) =>
+    request("PUT", "/api/users/me/goals/active/start-date", {
+      body: { start_date: startDate },
+    }),
   report: () => request("GET", "/api/users/me/report"),
 
   getSettings: () => request("GET", "/api/users/me/settings"),

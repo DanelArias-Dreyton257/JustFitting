@@ -14,6 +14,7 @@ from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.models import ProfileParams
+from server.src.services.GoalPlanManager import GoalPlanManagerError, check_goal_coherence
 from server.src.services.LogResampler import is_computable, resample_to_weekly
 
 plan_bp = Blueprint("plan", __name__, url_prefix="/api/plan")
@@ -74,6 +75,17 @@ def preview():
             candidate_profile, engine_inputs[-1], prev_weight_kg, engine_constants
         )
     except (ValueError, ZeroDivisionError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # Phase 8.2: body_fat never depends on target_bf/weekly_rate (see the
+    # README's Composition Model section), so `result.body_fat` is the
+    # account's real current body fat regardless of the candidate params
+    # just computed against it -- reusable here without a second engine
+    # call, and checked before commit rather than only after a coincidental
+    # domain error deep in compute_row.
+    try:
+        check_goal_coherence(result.body_fat, target_bf, weekly_rate)
+    except GoalPlanManagerError as exc:
         return jsonify({"error": str(exc)}), 400
 
     return jsonify(asdict(MetricsDTO.from_domain(result)))

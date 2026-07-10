@@ -5,7 +5,11 @@ from server.src.data.db.AuditLogDAO import AuditLogDAO
 from server.src.data.db.DB import DB
 from server.src.data.db.GoalPlanDAO import GoalPlanDAO
 from server.src.data.db.UserDAO import UserDAO
-from server.src.services.GoalPlanManager import GoalPlanManager, GoalPlanManagerError
+from server.src.services.GoalPlanManager import (
+    GoalPlanManager,
+    GoalPlanManagerError,
+    check_goal_coherence,
+)
 
 
 class GoalPlanManagerTest(unittest.TestCase):
@@ -102,6 +106,105 @@ class GoalPlanManagerTest(unittest.TestCase):
 
         manager = GoalPlanManager(self.goal_plan_dao, metrics_cache=FakeMetricsCache())
         manager.create_goal_plan(self.user_id, 0.15, -0.005)
+        self.assertEqual(calls, [self.user_id])
+
+    # Phase 8.2: sign-coherence between a candidate goal and the account's
+    # actual current body fat.
+
+    def test_check_goal_coherence_skips_entirely_with_no_current_bf(self):
+        check_goal_coherence(None, 0.15, 0.01)  # a "cut" target with a bulk rate
+
+    def test_check_goal_coherence_allows_a_cut_target_with_a_cut_rate(self):
+        check_goal_coherence(0.20, 0.15, -0.005)
+
+    def test_check_goal_coherence_allows_a_bulk_target_with_a_bulk_rate(self):
+        check_goal_coherence(0.15, 0.20, 0.005)
+
+    def test_check_goal_coherence_allows_any_rate_within_epsilon_of_current(self):
+        check_goal_coherence(0.20, 0.201, 0.005)
+        check_goal_coherence(0.20, 0.201, -0.005)
+
+    def test_check_goal_coherence_rejects_a_cut_target_with_a_bulk_rate(self):
+        with self.assertRaises(GoalPlanManagerError):
+            check_goal_coherence(0.20, 0.15, 0.005)
+
+    def test_check_goal_coherence_rejects_a_bulk_target_with_a_cut_rate(self):
+        with self.assertRaises(GoalPlanManagerError):
+            check_goal_coherence(0.15, 0.20, -0.005)
+
+    def test_create_goal_plan_rejects_an_incoherent_goal(self):
+        with self.assertRaises(GoalPlanManagerError):
+            self.manager.create_goal_plan(self.user_id, 0.15, 0.005, current_bf=0.20)
+
+    def test_create_goal_plan_allows_a_coherent_goal(self):
+        goal = self.manager.create_goal_plan(self.user_id, 0.15, -0.005, current_bf=0.20)
+        self.assertEqual(goal.target_bf, 0.15)
+
+    # Phase 8.1: retroactively editing the active goal's start_date.
+
+    def test_update_start_date_moves_the_active_goal_in_place(self):
+        goal = self.manager.create_goal_plan(
+            self.user_id, 0.15, -0.005, start_date=date(2026, 3, 1)
+        )
+        updated = self.manager.update_start_date(self.user_id, date(2026, 1, 1))
+        self.assertEqual(updated.goal_id, goal.goal_id)
+        self.assertEqual(updated.start_date, date(2026, 1, 1))
+        self.assertEqual(self.manager.get_active(self.user_id).start_date, date(2026, 1, 1))
+        self.assertEqual(len(self.manager.list_history(self.user_id)), 1)
+
+    def test_update_start_date_requires_an_active_goal(self):
+        with self.assertRaises(GoalPlanManagerError):
+            self.manager.update_start_date(self.user_id, date(2026, 1, 1))
+
+    def test_update_start_date_rejects_a_future_date(self):
+        self.manager.create_goal_plan(self.user_id, 0.15, -0.005)
+        with self.assertRaises(GoalPlanManagerError):
+            self.manager.update_start_date(self.user_id, date(2999, 1, 1))
+
+    def test_update_start_date_rejects_on_or_before_the_previous_goals_start(self):
+        self.manager.create_goal_plan(
+            self.user_id, 0.15, -0.005, start_date=date(2026, 1, 1)
+        )
+        self.manager.create_goal_plan(
+            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+        )
+        with self.assertRaises(GoalPlanManagerError):
+            self.manager.update_start_date(self.user_id, date(2026, 1, 1))
+        with self.assertRaises(GoalPlanManagerError):
+            self.manager.update_start_date(self.user_id, date(2025, 12, 1))
+
+    def test_update_start_date_allows_a_date_strictly_after_the_previous_goal(self):
+        self.manager.create_goal_plan(
+            self.user_id, 0.15, -0.005, start_date=date(2026, 1, 1)
+        )
+        self.manager.create_goal_plan(
+            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+        )
+        updated = self.manager.update_start_date(self.user_id, date(2026, 1, 2))
+        self.assertEqual(updated.start_date, date(2026, 1, 2))
+
+    def test_update_start_date_is_audited(self):
+        self.manager.create_goal_plan(
+            self.user_id, 0.15, -0.005, start_date=date(2026, 3, 1)
+        )
+        self.manager.update_start_date(self.user_id, date(2026, 1, 1))
+        entries = self.audit_log_dao.list_for_user(self.user_id)
+        start_date_entries = [e for e in entries if e.field == "start_date"]
+        self.assertEqual(len(start_date_entries), 1)
+        self.assertEqual(start_date_entries[0].previous_value, "2026-03-01")
+        self.assertEqual(start_date_entries[0].new_value, "2026-01-01")
+
+    def test_update_start_date_invalidates_the_metrics_cache(self):
+        calls = []
+
+        class FakeMetricsCache:
+            def invalidate_for_user(self, user_id):
+                calls.append(user_id)
+
+        manager = GoalPlanManager(self.goal_plan_dao, metrics_cache=FakeMetricsCache())
+        manager.create_goal_plan(self.user_id, 0.15, -0.005, start_date=date(2026, 3, 1))
+        calls.clear()
+        manager.update_start_date(self.user_id, date(2026, 1, 1))
         self.assertEqual(calls, [self.user_id])
 
 

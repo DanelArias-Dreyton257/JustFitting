@@ -284,6 +284,19 @@
       <h2>Current plan</h2>
       <div class="stat-row" id="plan-current-stats"></div>
 
+      <div id="goal-start-date-section" hidden>
+        <p class="disclaimer">
+          Already mid-cut or mid-bulk before setting this goal up here?
+          Backdate when it actually started so your already-logged history
+          counts toward it.
+        </p>
+        <form id="goal-start-date-form" class="inline-form">
+          <label>Goal start date <input id="goal-start-date-input" name="start_date" type="date" required /></label>
+          <button type="submit">Update start date</button>
+          <p class="form-error" data-for="goal-start-date-form"></p>
+        </form>
+      </div>
+
       <form id="plan-form" class="inline-form">
         <label>Target body fat (%) <input name="target_bf_pct" type="number" step="0.1" required /></label>
         <label>Weekly rate (%) <input name="weekly_rate_pct" type="number" step="0.01" required /></label>

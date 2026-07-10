@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-07-10
+
+### Added
+
+Phase 8 (README), the first of the round-3 beta-testing phases --
+`things-to-improve.txt`'s "Good improvements" section, two goal-plan
+correctness fixes:
+
+- **Retroactively editable goal start date** (Phase 8.1). A new goal's
+  `start_date` was always stamped "today," which since Phase 5.3 scopes
+  every computed series/chart/alert/projection to "this goal's own
+  period" once an account has ever changed goals -- a user already
+  mid-cut or mid-bulk before adopting JustFitting had no way to tell the
+  app their current goal actually started earlier, silently excluding
+  real, already-logged history from its own trajectory/adherence/forecast.
+  A new `GoalPlanManager.update_start_date`, exposed as `PUT
+  /api/users/me/goals/active/start-date`, corrects the *active* goal's
+  `start_date` in place (not a new historized row), bounded to on-or-before
+  today and strictly after any previous goal's own start date, audited
+  and cache-invalidated like every other goal mutation. The Plan tab's
+  "Current plan" section gains an "Edit start date" control, its date
+  input's `min`/`max` mirroring those same bounds.
+- **Reject incoherent target-BF/weekly-rate combinations** (Phase 8.2). A
+  candidate goal was never compared against the account's actual current
+  body fat -- e.g. `target_bf=0.15` (a "lose fat" target) with a positive
+  `weekly_rate` (a bulk rate) was accepted silently. A new
+  `GoalPlanManager.check_goal_coherence` runs in both
+  `GoalPlanManager.create_goal_plan` (before committing a real goal
+  change) and `GET /api/plan/preview` (before commit, not after): a
+  fat-loss target requires a non-positive rate, a fat-gain target
+  requires a non-negative one, and a target within half a percentage
+  point of the current figure allows any rate (maintenance/recomp). The
+  check is skipped entirely for an account with no computable log yet
+  (e.g. a brand-new default goal). Sign coherence only -- magnitude
+  bounds for a bulk rate remain `bulk_rate_out_of_range`'s job (Phase 3).
+
+New coverage: `GoalPlanManager_test.py` gained cases for the coherence
+function, `create_goal_plan`'s new `current_bf` parameter, and
+`update_start_date`'s bounds/audit/cache-invalidation; `Api_test.py`
+gained cases for the new start-date route and for both `PUT
+/api/users/me` and `GET /api/plan/preview` rejecting/allowing a goal
+against a seeded account's real computed body fat; a new
+`client/test/browser/Plan_test.py` (Playwright) covers the start-date
+control's default value and native `max`-date validation, a persisted
+edit, and the preview form's inline error for an incoherent goal. 362
+server tests, 65 client tests green.
+
 ## [3.0.2] - 2026-07-09
 
 ### Fixed
