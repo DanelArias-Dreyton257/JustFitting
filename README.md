@@ -204,7 +204,11 @@ JustFitting/
 Static params: height `H` (cm), sex `g` (1 male / 0 female), `birthdate`,
 target body-fat fraction `tau`, weekly target rate `r` (negative = loss).
 Weekly inputs: date `t_i`, weight `W_i`, waist `c_i`, neck `n_i`, intake
-`E_i`, steps `s_i`.
+`E_i`, steps `s_i` — every formula below is unchanged by Phase 9.1's data-
+model split; `c_i`/`n_i` are resolved from the sporadically-logged
+`body_measurements` history (held "static" from one reading to the next)
+rather than read off the same row as `W_i`/`E_i`/`s_i`, but arrive at
+`compute_row` as the exact same values either way.
 
 ```
 age_i      = floor((t_i - birthdate) / 365.25)
@@ -290,18 +294,21 @@ advice.
   there's no verification. Gating it behind an emailed, single-use,
   short-lived token (and the SMTP/mail-sending infrastructure that needs)
   is the obvious next step, but isn't planned for the near term.
-- **Dashboard perimeter/steps charts don't expand a daily-logged week.**
+- **Dashboard steps chart doesn't expand a daily-logged week.**
   Since Phase 1.2, `app.js`'s `refreshDashboard` merges `GET /api/logs`
   (raw, one row per day for a daily-granularity account) with `GET
   /api/metrics/series` (one row per *week*, by `log_id`, per Phase 3.3's
-  resampling) client-side. A daily-logging week's waist/neck/steps chart
-  point only lands on the resampled week's representative day; the other
-  logged days in that week don't get their own point. This is a known,
-  documented consequence of the engine staying weekly-cadence, not a bug
-  -- fixing it would mean reworking that merge to resolve by ISO week
-  instead of `log_id`, or building a real per-day chart on top of
-  Phase 3.3's now-available `LogResampler.daily_view`. Not scoped into a
-  phase since the raw log table already shows every logged day correctly.
+  resampling) client-side. A daily-logging week's steps chart point only
+  lands on the resampled week's representative day; the other logged days
+  in that week don't get their own point. This is a known, documented
+  consequence of the engine staying weekly-cadence, not a bug -- fixing it
+  would mean reworking that merge to resolve by ISO week instead of
+  `log_id`, or building a real per-day chart on top of Phase 3.3's
+  now-available `LogResampler.daily_view`. Not scoped into a phase since
+  the raw log table already shows every logged day correctly. (Phase 9.2
+  incidentally resolved this exact limitation for perimeters specifically
+  -- the Waist/neck chart no longer merges with `body_logs` at all, since
+  it reads `GET /api/body-measurements` directly.)
 - **`LogResampler.daily_view` has no route or UI yet.** Phase 3.3 shipped
   and unit-tested the symmetric daily-view expansion (a weekly log's
   values carried across the days it covers), but nothing in the app
@@ -1271,7 +1278,7 @@ actually invoked) and threads the result into `renderHealthSyncStatus`
 device's Health Connect can't support history reads yet, instead of the
 toggle just silently being missing.
 
-### Roadmap continuation — Phases 8-11 (v3.1 done; v4.0 → v5.1 planned)
+### Roadmap continuation — Phases 8-11 (v3.1/v4.0 done; v5.0 → v5.1 planned)
 
 `things-to-improve.txt` was reorganized into two categories after a
 third round of beta-testing: "Good improvements" and "Small Features to
@@ -1283,7 +1290,7 @@ requested order: **v3.1** ships the two small goal-editing fixes first
 (lowest risk); **v4.0** ships GAME CHANGER (1) together with the one
 small feature explicitly gated on it; **v5.0** ships GAME CHANGER (2)
 and (3) together; **v5.1** closes out the four remaining small features.
-**Phase 8 (v3.1) is done; Phases 9-11 are still plans, not
+**Phases 8 (v3.1) and 9 (v4.0) are done; Phases 10-11 are still plans, not
 retrospectives**, unlike every "(done)" phase above.
 
 ### Phase 8 — Beta-testing feedback, round 3 (part 1): goal-editing correctness (done, v3.1)
@@ -1385,7 +1392,7 @@ rate), and it was accepted silently.
   `max`-date validation, a persisted edit, and the preview form's inline
   error for an incoherent goal).
 
-### Phase 9 — Big remaining features: body composition logging separation (GAME CHANGER 1) + expanded body measurements (planned, v4.0)
+### Phase 9 — Big remaining features: body composition logging separation (GAME CHANGER 1) + expanded body measurements (done, v4.0)
 
 Source: `things-to-improve.txt`'s "Big Remaining Features" — GAME CHANGER
 (1), plus Small Feature 5, which the note itself gates on GAME CHANGER
@@ -1397,19 +1404,22 @@ weight/intake/steps and become their own **sporadically-logged** record,
 held static from one measurement to the next for every computation in
 between, fully decoupled from the weight/nutrition/steps logging cadence.
 
-#### Phase 9.1 — `body_measurements` table and the "static until next update" resolution layer (planned)
+#### Phase 9.1 — `body_measurements` table and the "static until next update" resolution layer (done)
 
 This sub-phase is pure plumbing — no new UI, foundational for 9.2:
 
 - New table, `body_measurements` (`measurement_id, user_id, date,
   waist_cm, neck_cm, created_at`, `UNIQUE(user_id, date)`, indexed on
-  `(user_id, date)` like `body_logs`) — only `waist_cm`/`neck_cm` for
-  now; 9.3 extends the columns. `body_logs.waist_cm`/`neck_cm` are
-  **dropped** — perimeters are no longer a `body_logs` field at all,
-  addressed exclusively through this new table going forward. (This
-  specific column removal is exactly the kind of change that motivates
-  Phase 10.1's migration protocol — see that phase's backfill-migration
-  note for how a real device's existing data survives this.)
+  `(user_id, date)` like `body_logs`) — since this project has no
+  migration runner yet (Phase 10.1), 9.3's nine extra record-only columns
+  were added to the same `SCHEMA` edit rather than a second one, with no
+  behavior difference: nothing reads them until 9.3's Quick/Full form
+  ships. `body_logs.waist_cm`/`neck_cm` are **dropped** — perimeters are
+  no longer a `body_logs` field at all, addressed exclusively through this
+  new table going forward. (This specific column removal is exactly the
+  kind of change that motivates Phase 10.1's migration protocol — see
+  that phase's backfill-migration note for how a real device's existing
+  data survives this.)
 - A new resolution step, ahead of the engine: given a target date, "the
   most recent `body_measurements` row with `date <= target date`"
   supplies `waist_cm`/`neck_cm` — implemented as
@@ -1452,9 +1462,30 @@ This sub-phase is pure plumbing — no new UI, foundational for 9.2:
   perimeter-less) `body_logs` history to `body_measurements` history — a
   strictly sparser, irregularly-dated series, which the existing
   OLS/recency-weighted fit already handles fine (it fits against real
-  dates, not a week index).
+  dates, not a week index). A new `MeasurementPoint` value object carries
+  it through `project_series_with_inputs`; fewer than two real
+  measurements falls back to holding the last resolved waist/neck
+  constant for every forecasted week (there's nothing yet to fit a trend
+  against), rather than erroring.
+- New/extended test coverage: a new `BodyMeasurementManager_test.py`
+  (CRUD, validation, `get_effective`'s static-until-next-update rule,
+  audit entries, cache invalidation); `DB_test.py` gained
+  `BodyMeasurementDAO` CRUD/cascade-delete cases; `LogManager_test.py`/
+  `LogResampler_test.py`/`MetricsCache_test.py` had `waist_cm`/`neck_cm`
+  removed from their `BodyLog`/`LogInput` fixtures (a couple now build a
+  `LogInput` directly with waist/neck filled in, since those specific
+  tests aren't exercising the resolution layer itself); `LogResampler_test.py`
+  gained a `ResolveMeasurementsTest` for the new resolution helper;
+  `MetricsSeriesService_test.py` gained a case proving a sporadic
+  measurement stays effective for later weight-only weeks;
+  `DemoSeeder_test.py` now seeds measurements too and checks the seeded
+  data resolves to the README's own Demo_cut worked example figures at the
+  last logged date; and `Api_test.py` had `waist_cm`/`neck_cm` removed
+  from every `/api/logs`(`/by-date`) payload across ~30 tests, with a
+  `POST /api/body-measurements` call added wherever a test's assertions
+  depend on a computable week. 376 server tests green.
 
-#### Phase 9.2 — Separate "Body" tab; Log wizard drops perimeters (planned)
+#### Phase 9.2 — Separate "Body" tab; Log wizard drops perimeters (done)
 
 - New nav destination, "Body" (alongside Dashboard/Log/Plan/Alerts/
   Report/Settings/Account in the hamburger menu), backed by a new
@@ -1491,10 +1522,28 @@ This sub-phase is pure plumbing — no new UI, foundational for 9.2:
 - The 4.3 Dashboard forecast toggle's waist/neck overlay
   (`estimated_waist`/`estimated_neck`) is unaffected in shape —
   `GET /api/projection` still returns those fields, just sourced from
-  9.1's relocated trend-fit.
-- `sw.js` cache bump for the new view/route.
+  9.1's relocated trend-fit; the Dashboard appends them as trailing
+  projected points onto the same step-line chart, still marked hollow
+  like every other chart's forecast points.
+- No manual `sw.js` cache bump needed — Phase 5.1's self-hashing service
+  worker already picks up every edit here automatically.
+- New/extended test coverage: `Log_test.py`/`Dashboard_test.py`/
+  `Plan_test.py`/`Views_test.py` (Playwright) updated for the 3-step
+  wizard flow and the Body view; the retired perimeter-prefill test
+  removed (that Phase 5.4 behavior no longer exists once perimeters left
+  the Log wizard); `renderLogTable`'s shifted column indices; two new
+  `Views_test.py` cases for `renderBodyMeasurementTable`'s carry-forward
+  behavior and `fillBodyMeasurementForm`. Also caught and fixed a real
+  bug along the way: navigating to the Body view fired an unawaited
+  `refreshBody()` whose form-defaults reset (including the date input)
+  could land *after* a fast-typing user had already started filling the
+  form, silently clobbering it — the same navigate()-races-an-unawaited-
+  refresh shape already fixed for the Log/Account/Settings views (see
+  their own notes above and v2.0.1's CHANGELOG entry); fixed the same way,
+  by reordering `refreshBody()` to reset synchronously before its fetch.
+  376 server tests, 66 client tests green.
 
-#### Phase 9.3 — Expanded body measurements (Small Feature 5) (planned)
+#### Phase 9.3 — Expanded body measurements (Small Feature 5) (done)
 
 - `body_measurements` gains nine more nullable columns, all
   **record-only, never read by `CompositionEngine`**: `shoulder_cm,
@@ -1511,9 +1560,16 @@ This sub-phase is pure plumbing — no new UI, foundational for 9.2:
   established for waist/neck, so e.g. a Quick entry between two Full
   entries doesn't make Chest/Hips *appear* to reset to blank, it just
   means that date's own row didn't touch them.
-- `BodyMeasurementDTO`/export/import/CSV template extend to the full
-  column set; the nine new fields are always optional on import (a
-  pre-Phase-9.3 export file simply won't have them).
+- `BodyMeasurementDTO` and the JSON export/import contract extend to the
+  full eleven-field column set (`GET /api/users/me/export`'s
+  `body_measurements` array, `POST /api/users/me/import`'s matching
+  key — see `docs/import_format.md`); the nine new fields are always
+  optional on import, so a pre-Phase-9.3 export file (which won't have
+  them at all) still imports cleanly. Deliberately **not** extended to
+  CSV: the Account view's CSV import path only ever produces `{"logs":
+  [...]}` (`csvImport.js`), and there's no case for a second CSV pipeline
+  just for a record-only, low-volume field set the JSON path already
+  covers.
 - No new alerts, no chart beyond the history table for now — purely a
   record-keeping feature, per the note's own "do not intervene in
   computations."
@@ -1888,12 +1944,9 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `3.0.1`/`5` -- same story as Phase 6's own
-`2.0.0` -> `2.0.1` bump: `v3.0.0`'s own CI never passed either (a real
-`navigate()`/`refreshSettings()` race), so `v3.0.1` is Phase 7's first
-release that actually ships. Not done: a release keystore/signed build,
-and an emulator system image (needs admin — use a real device instead,
-see above).
+to `2.0.0`/`2`; currently `4.0.0`/`8`, tracking this Phase 9 release. Not
+done: a release keystore/signed build, and an emulator system image
+(needs admin — use a real device instead, see above).
 
 ### Embedded on-device server (Phase 6, done)
 
