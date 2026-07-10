@@ -131,6 +131,26 @@ class DashboardTest(unittest.TestCase):
     def _go_to_dashboard(self):
         self._navigate("dashboard")
 
+    def _set_goal(self, target_bf_pct="15", weekly_rate_pct="-0.5"):
+        # A brand-new account's auto-assigned default goal has weekly_rate=0
+        # (Phase 5.2), which Trajectory.compute_weeks_to_goal treats
+        # specially (weeks_to_goal stays 0, never a positive figure) -- a
+        # real, deliberately-committed goal is needed to exercise anything
+        # that depends on a positive weeks_to_goal, via the same
+        # preview-then-commit flow the Plan tab always uses (Phase 5.8).
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.page.fill('#plan-form [name="target_bf_pct"]', target_bf_pct)
+        self.page.fill('#plan-form [name="weekly_rate_pct"]', weekly_rate_pct)
+        self.page.click('#plan-form button[type=submit]')
+        self.page.wait_for_selector("#plan-preview-result:not([hidden])")
+        with self.page.expect_response(
+            lambda r: r.url.endswith("/api/users/me") and r.request.method == "PUT"
+        ):
+            self.page.click("#plan-commit-btn")
+
     def test_summary_sections_render_without_expanding_charts(self):
         self._log_week("2026-06-01", 90.0)
         self._log_week("2026-06-08", 89.0)
@@ -318,6 +338,50 @@ class DashboardTest(unittest.TestCase):
         # _log_week logs intake_kcal=2000.
         self.assertIn("2000 kcal", calories_text)
 
+    def test_last_logged_info_shows_the_latest_real_log_date(self):
+        # Phase 11.2 (see README): a small subtitle derived client-side from
+        # the max real-log date already fetched for the dashboard.
+        self._log_week("2026-06-01", 90.0)
+        self._log_week("2026-06-08", 89.0)
+        self._go_to_dashboard()
+        self.page.wait_for_function(
+            "document.getElementById('summary-last-logged').innerText.trim().length > 0"
+        )
+        text = self.page.inner_text("#summary-last-logged")
+        self.assertIn("Last logged:", text)
+        self.assertIn("2026-06-08", text)
+
+    def test_goal_progress_bar_renders_for_a_computable_account(self):
+        # Phase 11.1 (see README): a full-width progress bar over
+        # [goal start_date, today + weeks_to_goal], fed by GET
+        # /api/users/me/goals and GET /api/metrics/latest. The default
+        # auto-assigned goal (weekly_rate=0, Phase 5.2) never has a positive
+        # weeks_to_goal, so a real goal has to be committed first -- and
+        # since committing one (Phase 8.1/5.3) scopes the computed series to
+        # dates on/after the new goal's own start_date (today), the log used
+        # to compute against has to be dated today too, not a fixed past
+        # date like every other test in this file uses.
+        today_iso = self.page.evaluate(
+            "() => { const d = new Date(); "
+            "return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-"
+            "${String(d.getDate()).padStart(2, '0')}`; }"
+        )
+        self._log_week(today_iso, 90.0)
+        self._set_goal()
+        self._go_to_dashboard()
+        self.page.wait_for_selector("#dashboard-goal-progress .goal-progress-bar")
+        progress = self.page.get_attribute(
+            "#dashboard-goal-progress .goal-progress-bar", "aria-valuenow"
+        )
+        self.assertIsNotNone(progress)
+        self.assertGreaterEqual(float(progress), 0.0)
+        fill_width = self.page.eval_on_selector(
+            "#dashboard-goal-progress .goal-progress-bar-fill", "el => el.style.width"
+        )
+        self.assertTrue(fill_width.endswith("%"))
+        labels_text = self.page.inner_text("#dashboard-goal-progress .goal-progress-bar-labels")
+        self.assertIn("weeks left", labels_text)
+
     def test_unconfigured_goal_alert_shows_for_a_fresh_account_and_is_dismissible(self):
         # Phase 5.2 follow-up: a brand-new account's auto-assigned default
         # goal (0% weekly rate) surfaces a reminder to visit the Plan tab --
@@ -343,6 +407,10 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("Log a week", self.page.inner_text("#summary-weight-stats"))
         self.assertIn("Log a week", self.page.inner_text("#summary-calories-stats"))
         self.assertIn("Log a week", self.page.inner_text("#summary-goal-stats"))
+        # Phase 11.1/11.2: neither the progress bar nor the last-logged line
+        # has anything to show yet -- no real log and no computable metrics.
+        self.assertEqual(self.page.inner_text("#summary-last-logged").strip(), "")
+        self.assertEqual(self.page.inner_text("#dashboard-goal-progress").strip(), "")
 
     def _set_activity_goal(self, steps_goal=None, cardio_kcal_goal=None):
         # navigate("plan") calls refreshPlan() unawaited, which fills

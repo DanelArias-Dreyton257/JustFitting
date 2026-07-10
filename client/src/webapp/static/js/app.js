@@ -18,6 +18,8 @@ import {
   renderWeightSummary,
   renderCaloriesSummary,
   renderGoalSummary,
+  renderLastLoggedInfo,
+  renderGoalProgressBar,
   renderAlerts,
   renderAlertHistory,
   renderGoalHistory,
@@ -258,15 +260,17 @@ function navigate(viewName) {
 }
 
 async function refreshDashboardSummary() {
-  const [latest, series, gainQuality, adherence, alerts, logs, todayEstimate] = await Promise.all([
-    api.metricsLatest().catch(() => null),
-    api.metricsSeries().catch(() => []),
-    api.gainQuality().catch(() => []),
-    api.adherence().catch(() => null),
-    api.alerts().catch(() => []),
-    api.listLogs().catch(() => []),
-    api.todayEstimate().catch(() => null),
-  ]);
+  const [latest, series, gainQuality, adherence, alerts, logs, todayEstimate, goals] =
+    await Promise.all([
+      api.metricsLatest().catch(() => null),
+      api.metricsSeries().catch(() => []),
+      api.gainQuality().catch(() => []),
+      api.adherence().catch(() => null),
+      api.alerts().catch(() => []),
+      api.listLogs().catch(() => []),
+      api.todayEstimate().catch(() => null),
+      api.goals().catch(() => []),
+    ]);
   state.series = series;
   state.gainQuality = gainQuality;
   state.latestMetrics = latest;
@@ -275,8 +279,10 @@ async function refreshDashboardSummary() {
   const previousMetrics = realSeries.length > 1 ? realSeries[realSeries.length - 2] : null;
   const realLogs = logs.filter((log) => log.source === "real");
   const latestRealLog = realLogs.length ? realLogs.reduce((a, b) => (b.date > a.date ? b : a)) : null;
+  const activeGoal = goals.find((goal) => goal.active) || null;
 
   renderTodaySummary(document.getElementById("summary-today-stats"), todayEstimate);
+  renderLastLoggedInfo(document.getElementById("summary-last-logged"), latestRealLog);
   renderWeightSummary(
     document.getElementById("summary-weight-stats"),
     latest,
@@ -290,6 +296,7 @@ async function refreshDashboardSummary() {
     latestRealLog
   );
   renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
+  renderGoalProgressBar(document.getElementById("dashboard-goal-progress"), activeGoal, latest);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
 }
@@ -1346,6 +1353,7 @@ document.getElementById("settings-form").addEventListener("submit", async (event
     lean_loss_window_weeks: Number(raw.lean_loss_window_weeks),
     max_lean_mass_loss_share: Number(raw.max_lean_loss_pct) / 100,
     significant_deviation_kg: Number(raw.significant_deviation_kg),
+    missing_log_alert_days: Number(raw.missing_log_alert_days),
     bmr_model: raw.bmr_model,
     w_rfm: Number(raw.w_rfm),
     w_navy: Number(raw.w_navy),
