@@ -25,35 +25,69 @@ class GoalPlanManagerError(Exception):
 #: cleanly describes staying at roughly the same body fat.
 BODY_FAT_COHERENCE_EPSILON = 0.005
 
+#: Phase 12.1: valid, explicit goal directions -- see
+#: docs/composition_spec.md's "Phase 12" section.
+VALID_DIRECTIONS = ("cut", "bulk")
 
-def check_goal_coherence(
-    current_bf: Optional[float], target_bf: float, weekly_rate: float
-) -> None:
-    """Sign-coherence check between a candidate goal and the account's
-    actual current body fat (Phase 8.2): a fat-loss target (`target_bf`
-    below current) paired with a bulk rate (`weekly_rate > 0`), or a
-    fat-gain target paired with a cut rate (`weekly_rate < 0`), is
-    self-contradictory and rejected. `current_bf=None` (no computable log
-    yet, e.g. a brand-new default goal) skips the check entirely -- there's
-    nothing yet to compare against. This checks sign coherence only, not
-    magnitude (see README's Phase 8.2/Phase 11.4 notes for the bulk/cut
-    magnitude checks that already exist/are planned separately).
+#: Below this magnitude, weekly_rate has no sign to validate `direction`
+#: against (the Phase 5.2 placeholder/maintenance case) -- same tolerance
+#: Trajectory.compute_weeks_to_goal already uses for its own zero-rate guard.
+_ZERO_RATE_EPSILON = 1e-9
+
+
+def check_direction_matches_rate(direction: str, weekly_rate: float) -> None:
+    """Phase 12.1: `direction` is now an explicit, user-chosen field (no
+    longer inferred from `weekly_rate`'s sign), but it must still agree
+    with that sign wherever the sign is meaningful -- a `weekly_rate` of
+    exactly `0` (the Phase 5.2 placeholder/maintenance case) has no sign to
+    check against, so any direction is accepted for it (`UserManager.
+    register` stamps `"cut"` there, a documented default, not an arbitrary
+    tie-break)."""
+    if direction not in VALID_DIRECTIONS:
+        raise GoalPlanManagerError(f"direction must be one of {VALID_DIRECTIONS!r}")
+    if abs(weekly_rate) < _ZERO_RATE_EPSILON:
+        return
+    if direction == "bulk" and weekly_rate < 0:
+        raise GoalPlanManagerError(
+            "direction is 'bulk' but weekly_rate is negative -- a bulk goal "
+            "needs weekly_rate > 0"
+        )
+    if direction == "cut" and weekly_rate > 0:
+        raise GoalPlanManagerError(
+            "direction is 'cut' but weekly_rate is positive -- a cut goal "
+            "needs weekly_rate < 0"
+        )
+
+
+def check_goal_coherence(current_bf: Optional[float], target_bf: float) -> None:
+    """Coherence check between a candidate goal's target_bf and the
+    account's actual current body fat (Phase 8.2; sign rule corrected by
+    Phase 12.2 -- see docs/composition_spec.md's "Phase 12" section).
+
+    Under the goal-type-aware trajectory model, a cut and a bulk goal both
+    converge on the same terminal body-fat fraction `target_bf` from
+    ABOVE: a cut gets there by losing fat directly, a bulk by growing lean
+    mass and diluting a fat mass held constant. A `target_bf` above the
+    account's current body fat (beyond the maintenance epsilon) is
+    therefore incoherent for *either* direction -- unlike before Phase
+    12.2, `weekly_rate`/`direction` play no role in this check at all
+    anymore, since there's only one coherent sign regardless of which
+    direction the goal is. `current_bf=None` (no computable log yet, e.g.
+    a brand-new default goal) skips the check entirely -- there's nothing
+    yet to compare against. This checks sign coherence only, not
+    magnitude (see README's Phase 8.2/Phase 3/Phase 11.4 notes for the
+    bulk/cut rate-magnitude checks that exist separately).
     """
     if current_bf is None:
         return
     if abs(target_bf - current_bf) <= BODY_FAT_COHERENCE_EPSILON:
         return
-    if target_bf < current_bf and weekly_rate > 0:
+    if target_bf > current_bf:
         raise GoalPlanManagerError(
-            "target_bf is below your current body fat (a fat-loss target), "
-            "but weekly_rate is positive (a bulk rate) -- a cut target needs "
-            "weekly_rate <= 0"
-        )
-    if target_bf > current_bf and weekly_rate < 0:
-        raise GoalPlanManagerError(
-            "target_bf is above your current body fat (a fat-gain target), "
-            "but weekly_rate is negative (a cut rate) -- a bulk target needs "
-            "weekly_rate >= 0"
+            "target_bf is above your current body fat -- both a cut and a "
+            "bulk goal must target a body fat percentage at or below your "
+            "current one (a bulk goal reaches its target by growing lean "
+            "mass, not by gaining fat)"
         )
 
 
@@ -73,12 +107,14 @@ class GoalPlanManager:
         user_id: int,
         target_bf: float,
         weekly_rate: float,
+        direction: str,
         start_date: Optional[date] = None,
         current_bf: Optional[float] = None,
     ) -> GoalPlan:
         if not (0 < target_bf < 1):
             raise GoalPlanManagerError("target_bf must be a fraction between 0 and 1")
-        check_goal_coherence(current_bf, target_bf, weekly_rate)
+        check_direction_matches_rate(direction, weekly_rate)
+        check_goal_coherence(current_bf, target_bf)
 
         previous = self.goal_plan_dao.get_active(user_id)
         if previous is not None:
@@ -97,10 +133,19 @@ class GoalPlanManager:
             user_id=user_id,
             target_bf=target_bf,
             weekly_rate=weekly_rate,
+            direction=direction,
             start_date=start_date or date.today(),
         )
 
         if self.audit_log_dao is not None:
+            self.audit_log_dao.record(
+                user_id=user_id,
+                entity_type="goal_plan",
+                entity_id=new_plan.goal_id,
+                field="direction",
+                previous_value=previous.direction if previous else None,
+                new_value=direction,
+            )
             self.audit_log_dao.record(
                 user_id=user_id,
                 entity_type="goal_plan",
@@ -205,4 +250,5 @@ class GoalPlanManager:
             birthdate=profile.birthdate,
             target_bf=goal.target_bf,
             weekly_rate=goal.weekly_rate,
+            direction=goal.direction,
         )

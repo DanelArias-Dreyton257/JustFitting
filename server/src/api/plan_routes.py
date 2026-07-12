@@ -14,7 +14,11 @@ from server.src.api.auth import require_auth
 from server.src.data.dto.MetricsDTO import MetricsDTO
 from server.src.services.composition import CompositionEngine
 from server.src.services.composition.models import ProfileParams
-from server.src.services.GoalPlanManager import GoalPlanManagerError, check_goal_coherence
+from server.src.services.GoalPlanManager import (
+    GoalPlanManagerError,
+    check_direction_matches_rate,
+    check_goal_coherence,
+)
 from server.src.services.LogResampler import (
     is_computable,
     is_input_computable,
@@ -71,6 +75,12 @@ def preview():
         weekly_rate = float(request.args.get("weekly_rate", goal.weekly_rate))
     except (TypeError, ValueError):
         return jsonify({"error": "target_bf and weekly_rate must be numbers"}), 400
+    direction = request.args.get("direction", goal.direction)
+
+    try:
+        check_direction_matches_rate(direction, weekly_rate)
+    except GoalPlanManagerError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     candidate_profile = ProfileParams(
         height_cm=profile.height_cm,
@@ -78,6 +88,7 @@ def preview():
         birthdate=profile.birthdate,
         target_bf=target_bf,
         weekly_rate=weekly_rate,
+        direction=direction,
     )
 
     prev_weight_kg = engine_inputs[-2].weight_kg if len(engine_inputs) > 1 else None
@@ -99,7 +110,7 @@ def preview():
     # call, and checked before commit rather than only after a coincidental
     # domain error deep in compute_row.
     try:
-        check_goal_coherence(result.body_fat, target_bf, weekly_rate)
+        check_goal_coherence(result.body_fat, target_bf)
     except GoalPlanManagerError as exc:
         return jsonify({"error": str(exc)}), 400
 

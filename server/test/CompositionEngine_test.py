@@ -341,6 +341,7 @@ class EngineConstantsOverrideTest(unittest.TestCase):
             birthdate=date(2001, 4, 5),
             target_bf=0.15,
             weekly_rate=0.005,
+            direction="bulk",
         )
         prior = LogInput(
             date=date(2026, 6, 19),
@@ -378,6 +379,58 @@ class EngineConstantsOverrideTest(unittest.TestCase):
         # Wobj_i = W_{i-1}*(1+rho) > W_{i-1} for rho > 0.
         self.assertLess(result.weight_to_shed_kg, 0)
         self.assertLess(result.daily_deficit_kcal, 0)
+
+    def test_bulk_final_weight_holds_fat_mass_constant_not_lean_mass(self):
+        """Phase 12.2 (see docs/composition_spec.md's "Phase 12" section):
+        a bulk goal's final_weight_kg assumes fat mass stays put while lean
+        mass grows to dilute it down to target_bf -- FatMass / target_bf --
+        not the cut formula's LeanMass / (1 - target_bf), which would
+        silently assume every kg gained is fat. A cut row computed against
+        the exact same body still uses the unbranched cut formula."""
+        bulk_profile = ProfileParams(
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+            target_bf=0.15,
+            weekly_rate=0.005,
+            direction="bulk",
+        )
+        cut_profile = ProfileParams(
+            height_cm=176,
+            sex=1,
+            birthdate=date(2001, 8, 22),
+            target_bf=0.15,
+            weekly_rate=-0.005,
+            direction="cut",
+        )
+        log = LogInput(
+            date=date(2026, 6, 26),
+            weight_kg=90.7,
+            waist_cm=80.0,
+            neck_cm=35.0,
+            intake_kcal=2500.0,
+            steps=5000,
+        )
+        bulk_result = CompositionEngine.compute_row(bulk_profile, log, prev_weight_kg=None)
+        cut_result = CompositionEngine.compute_row(cut_profile, log, prev_weight_kg=None)
+
+        # Same log, same body_fat/fat_mass/lean_mass either way (Wfinal is
+        # the only thing direction changes) -- both derive from the same
+        # RFM/Navy/Deurenberg/BF chain, independent of direction/target_bf.
+        self.assertAlmostEqual(bulk_result.fat_mass_kg, cut_result.fat_mass_kg, delta=0.001)
+        self.assertAlmostEqual(bulk_result.lean_mass_kg, cut_result.lean_mass_kg, delta=0.001)
+
+        self.assertAlmostEqual(
+            bulk_result.final_weight_kg, bulk_result.fat_mass_kg / 0.15, delta=0.01
+        )
+        self.assertAlmostEqual(
+            cut_result.final_weight_kg, cut_result.lean_mass_kg / 0.85, delta=0.01
+        )
+        # The two formulas give genuinely different answers -- confirming
+        # the bulk row isn't silently reusing the cut formula anymore.
+        self.assertNotAlmostEqual(
+            bulk_result.final_weight_kg, cut_result.final_weight_kg, delta=1.0
+        )
 
     def test_cardio_kcal_raises_tdee_and_target_calories(self):
         """Phase 3.1, F2: cardio_kcal (EAT) folds into TDEE/target-calories

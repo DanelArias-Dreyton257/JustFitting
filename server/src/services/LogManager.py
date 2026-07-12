@@ -44,6 +44,7 @@ class DemoProfile:
     birthdate: date
     target_bf: float
     weekly_rate: float
+    direction: str
 
 
 #: The verified reference profile and its two documented boundary logs
@@ -59,6 +60,7 @@ DEMO_PROFILE = DemoProfile(
     birthdate=date(2001, 8, 22),
     target_bf=0.17,
     weekly_rate=-0.005,
+    direction="cut",
 )
 DEMO_FIRST_LOG = {
     "date": date(2025, 12, 28),
@@ -88,7 +90,7 @@ DEMO_MEASUREMENT_INTERVAL_WEEKS = 4
 #: A steeper -1%/week (not +1%): pairing this 15% target with a positive
 #: rate would ask the engine to "get leaner" and "gain weight" at once,
 #: producing a nonsensical target-calories/weeks-to-goal figure.
-DEMO_SECOND_GOAL = (0.15, -0.01)
+DEMO_SECOND_GOAL = (0.15, -0.01, "cut")
 DEMO_GOAL_CHANGE_WEEKS_BEFORE_END = 8
 DEMO_GOAL_CHANGE_DATE = DEMO_LAST_LOG["date"] - timedelta(weeks=DEMO_GOAL_CHANGE_WEEKS_BEFORE_END)
 
@@ -102,8 +104,18 @@ DEMO_BULK_PROFILE = DemoProfile(
     height_cm=194,
     sex=1,
     birthdate=date(2001, 4, 5),
-    target_bf=0.20,
+    # Phase 12.2 (see README): a bulk goal's Wfinal now assumes fat mass
+    # holds constant while lean mass grows to dilute it down to target_bf,
+    # so target_bf must be a body-fat percentage the account can plausibly
+    # still be *above* -- Demo_bulk's actual reference series computes to
+    # 16.3-17.2% body fat throughout, so the old 0.20 (always above the
+    # real series) is incoherent under the corrected model and produced a
+    # nonsensical negative weeks_to_goal. 0.15 keeps a clear margin below
+    # the observed range and matches Demo_cut's own active target for a
+    # tidy narrative parallel.
+    target_bf=0.15,
     weekly_rate=0.02,
+    direction="bulk",
 )
 DEMO_BULK_FIRST_LOG = {
     "date": date(2026, 1, 4),
@@ -122,8 +134,16 @@ DEMO_BULK_STEPS_END = 7500
 DEMO_BULK_INTAKE_START = 3000.0
 DEMO_BULK_INTAKE_END = 3450.0
 #: Demo_bulk's *second* (active) goal -- same Phase 5.3 demo-history purpose
-#: as Demo_cut's DEMO_SECOND_GOAL above.
-DEMO_BULK_SECOND_GOAL = (0.18, 0.0005)
+#: as Demo_cut's DEMO_SECOND_GOAL above. 0.14, like DEMO_BULK_PROFILE's
+#: 0.15 above, keeps a clear margin below the reference series' real
+#: computed body fat (16.3-17.2%) -- a tightened, still-coherent second
+#: target under Phase 12.2's corrected bulk Wfinal formula. The original
+#: 0.0005 weekly rate (already below BULK_RATE_MIN) combined with the old,
+#: incoherent 0.18 target to produce a nonsensical negative weeks_to_goal;
+#: 0.003 (within the recommended [0.25%, 0.5%] bulk range) gives a
+#: presentable ~69-week figure instead, since this account is showcased
+#: directly in the README/live demo.
+DEMO_BULK_SECOND_GOAL = (0.14, 0.003, "bulk")
 DEMO_BULK_GOAL_CHANGE_WEEKS_BEFORE_END = 8
 DEMO_BULK_GOAL_CHANGE_DATE = DEMO_BULK_LAST_LOG["date"] - timedelta(weeks=DEMO_BULK_GOAL_CHANGE_WEEKS_BEFORE_END)
 #: Cardio/exercise activity thermogenesis (Phase 3.1, F2) -- tapered down
@@ -515,6 +535,7 @@ def demo_profile_params() -> ProfileParams:
         birthdate=DEMO_PROFILE.birthdate,
         target_bf=DEMO_PROFILE.target_bf,
         weekly_rate=DEMO_PROFILE.weekly_rate,
+        direction=DEMO_PROFILE.direction,
     )
 
 
@@ -525,4 +546,5 @@ def bulk_demo_profile_params() -> ProfileParams:
         birthdate=DEMO_BULK_PROFILE.birthdate,
         target_bf=DEMO_BULK_PROFILE.target_bf,
         weekly_rate=DEMO_BULK_PROFILE.weekly_rate,
+        direction=DEMO_BULK_PROFILE.direction,
     )

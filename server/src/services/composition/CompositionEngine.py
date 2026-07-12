@@ -34,7 +34,14 @@ from server.src.services.composition.models import (
 #: macros now uses an additive (not divisor) TDEE/target-calories formula --
 #: old snapshots at version 1 can't be reinterpreted under the new fields,
 #: so they're left untouched and every log recomputes fresh at version 2.
-ENGINE_VERSION = 2
+#: Bumped 2 -> 3 for Phase 12.2 (goal-type-aware trajectory model, see
+#: README/docs/composition_spec.md's "Phase 12" section):
+#: `Trajectory.compute_final_weight` now branches on `profile.direction`,
+#: genuinely changing `final_weight_kg` (and, through it, `weeks_to_goal`)
+#: for every bulk-direction row -- a real compute-chain change, not a
+#: read-side view. Every cut-direction row computes byte-for-byte
+#: identically; only bulk rows' cached snapshots need to recompute.
+ENGINE_VERSION = 3
 
 #: A week-over-week weight swing beyond this fraction of body weight is
 #: implausible for a single week and gets flagged (not blocked). Kept as a
@@ -151,7 +158,9 @@ def compute_row(
 
     ffmi = Anthropometry.compute_ffmi(lean_mass_kg, profile.height_cm)
     ffmi_adj = Anthropometry.compute_ffmi_adjusted(ffmi, profile.height_cm, ec.ffmi_coef)
-    final_weight_kg = Trajectory.compute_final_weight(lean_mass_kg, profile.target_bf)
+    final_weight_kg = Trajectory.compute_final_weight(
+        profile.direction, lean_mass_kg, fat_mass_kg, profile.target_bf
+    )
     if ec.bmr_model == "mifflin":
         bmr = EnergyModel.compute_bmr_mifflin(
             log.weight_kg, profile.height_cm, age, profile.sex

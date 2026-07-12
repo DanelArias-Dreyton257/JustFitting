@@ -18,7 +18,7 @@ from server.src.services.composition.constants import (
     SEX_MALE,
 )
 
-GOAL_FIELDS = ("target_bf", "weekly_rate")
+GOAL_FIELDS = ("target_bf", "weekly_rate", "direction")
 
 PBKDF2_ITERATIONS = 260_000
 SALT_BYTES = 16
@@ -69,6 +69,7 @@ class UserManager:
         birthdate: date,
         target_bf: Optional[float] = None,
         weekly_rate: Optional[float] = None,
+        direction: Optional[str] = None,
         units: str = "metric",
         goal_start_date: Optional[date] = None,
     ) -> UserProfile:
@@ -89,6 +90,13 @@ class UserManager:
             target_bf = DEFAULT_TARGET_BF_MALE if sex == SEX_MALE else DEFAULT_TARGET_BF_FEMALE
         if weekly_rate is None:
             weekly_rate = DEFAULT_WEEKLY_RATE
+        if direction is None:
+            # Phase 12.1: the auto-assigned placeholder goal is always
+            # stamped "cut" -- a documented default for the "maintain" case
+            # (weekly_rate=0.0 has no sign to infer a direction from), not
+            # an arbitrary tie-break. See docs/composition_spec.md's
+            # "Phase 12" section.
+            direction = "cut"
 
         if not (0 < target_bf < 1):
             raise UserManagerError("target_bf must be a fraction between 0 and 1")
@@ -119,7 +127,11 @@ class UserManager:
         # goal to when it actually started. birthdate is the one date that
         # can never legitimately need to be backdated past.
         self.goal_plan_manager.create_goal_plan(
-            profile.user_id, target_bf, weekly_rate, start_date=goal_start_date or birthdate
+            profile.user_id,
+            target_bf,
+            weekly_rate,
+            direction,
+            start_date=goal_start_date or birthdate,
         )
         return profile
 
@@ -157,8 +169,16 @@ class UserManager:
             weekly_rate = goal_fields.get(
                 "weekly_rate", active_goal.weekly_rate if active_goal else None
             )
+            # Phase 12.1: falls back to the active goal's own direction when
+            # only target_bf/weekly_rate change without it -- an actual
+            # direction flip (e.g. cut -> bulk) must be passed explicitly,
+            # and a mismatch against the new weekly_rate's sign is caught by
+            # check_direction_matches_rate below, not silently accepted.
+            direction = goal_fields.get(
+                "direction", active_goal.direction if active_goal else "cut"
+            )
             self.goal_plan_manager.create_goal_plan(
-                user_id, target_bf, weekly_rate, current_bf=current_bf
+                user_id, target_bf, weekly_rate, direction, current_bf=current_bf
             )
 
         if self.audit_log_dao is not None:

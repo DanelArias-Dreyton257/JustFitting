@@ -17,6 +17,7 @@ class GoalPlanDAO:
         user_id: int,
         target_bf: float,
         weekly_rate: float,
+        direction: str,
         start_date: date,
         active: bool = True,
     ) -> GoalPlan:
@@ -24,13 +25,14 @@ class GoalPlanDAO:
         cursor = self.db.execute(
             """
             INSERT INTO goal_plans
-                (user_id, target_bf, weekly_rate, start_date, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, target_bf, weekly_rate, direction, start_date, active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
                 target_bf,
                 weekly_rate,
+                direction,
                 start_date.isoformat(),
                 int(active),
                 created_at,

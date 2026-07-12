@@ -879,7 +879,7 @@ class ApiTestCase(unittest.TestCase):
         headers = self._auth_header(token)
         update_response = self.client.put(
             "/api/users/me",
-            json={"weekly_rate": 0.003},
+            json={"weekly_rate": 0.003, "direction": "bulk"},
             headers=headers,
         )
         self.assertEqual(update_response.get_json()["direction"], "bulk")
@@ -1006,7 +1006,7 @@ class ApiTestCase(unittest.TestCase):
         headers = self._auth_header(token)
         response = self.client.put(
             "/api/users/me",
-            json={"target_bf": 0.15, "weekly_rate": 0.005},
+            json={"target_bf": 0.15, "weekly_rate": 0.005, "direction": "bulk"},
             headers=headers,
         )
         self.assertEqual(response.status_code, 200)
@@ -1837,7 +1837,9 @@ class ApiTestCase(unittest.TestCase):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
         self.client.put(
-            "/api/users/me", json={"weekly_rate": 0.02}, headers=headers
+            "/api/users/me",
+            json={"weekly_rate": 0.02, "direction": "bulk"},
+            headers=headers,
         )
         alerts = self.client.get("/api/alerts", headers=headers).get_json()
         bulk_alerts = [a for a in alerts if a["type"] == "bulk_rate_out_of_range"]

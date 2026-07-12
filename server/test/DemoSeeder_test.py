@@ -133,7 +133,7 @@ class DemoSeederTest(unittest.TestCase):
         history = self.goal_plan_manager.list_history(bulk.user_id)
         self.assertEqual(len(history), 2)
         first_goal = next(g for g in history if g.goal_id != goal.goal_id)
-        self.assertAlmostEqual(first_goal.target_bf, 0.20)
+        self.assertAlmostEqual(first_goal.target_bf, 0.15)
         self.assertAlmostEqual(first_goal.weekly_rate, 0.02)
 
         settings = self.engine_settings_manager.get_active(bulk.user_id)

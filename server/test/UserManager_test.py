@@ -76,7 +76,7 @@ class UserManagerTest(unittest.TestCase):
         # Commit a real goal, replacing the placeholder -- same as the
         # Plan tab's preview -> commit flow, which never passes start_date
         # itself (GoalPlanManager.create_goal_plan defaults it to today).
-        self.goal_plan_manager.create_goal_plan(profile.user_id, 0.15, -0.01)
+        self.goal_plan_manager.create_goal_plan(profile.user_id, 0.15, -0.01, "cut")
 
         # Backdate it to reflect a cut that actually started years before
         # registering -- used to fail here, since the placeholder's
@@ -171,7 +171,7 @@ class UserManagerTest(unittest.TestCase):
     def test_register_still_accepts_explicit_goal_fields(self):
         # Explicitly passing target_bf/weekly_rate (e.g. a future signup flow
         # that still wants to set one) must keep working exactly as before.
-        profile = self._register(target_bf=0.18, weekly_rate=0.003)
+        profile = self._register(target_bf=0.18, weekly_rate=0.003, direction="bulk")
         active = self.goal_plan_manager.get_active(profile.user_id)
         self.assertAlmostEqual(active.target_bf, 0.18)
         self.assertAlmostEqual(active.weekly_rate, 0.003)

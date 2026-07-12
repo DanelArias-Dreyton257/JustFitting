@@ -26,6 +26,7 @@ from server.src.data.db.migrations import (
     m0002_body_measurements_catchup,
     m0003_activity_goals,
     m0004_missing_log_alert_days,
+    m0005_goal_plan_direction,
 )
 
 
@@ -46,6 +47,7 @@ MIGRATIONS: List[Migration] = sorted(
         _migration(m0002_body_measurements_catchup),
         _migration(m0003_activity_goals),
         _migration(m0004_missing_log_alert_days),
+        _migration(m0005_goal_plan_direction),
     ],
     key=lambda m: m.version,
 )

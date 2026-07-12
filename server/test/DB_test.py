@@ -256,6 +256,7 @@ class DBTestCase(unittest.TestCase):
             user_id=profile.user_id,
             target_bf=0.15,
             weekly_rate=-0.005,
+            direction="cut",
             start_date=date(2026, 1, 1),
         )
         self.assertTrue(goal_dao.get_active(profile.user_id).goal_id == first.goal_id)
@@ -265,6 +266,7 @@ class DBTestCase(unittest.TestCase):
             user_id=profile.user_id,
             target_bf=0.18,
             weekly_rate=-0.004,
+            direction="cut",
             start_date=date(2026, 2, 1),
         )
         active = goal_dao.get_active(profile.user_id)
@@ -308,6 +310,10 @@ class MigrationRunnerTest(unittest.TestCase):
                 row["name"] for row in db.query("PRAGMA table_info(engine_settings)")
             }
             self.assertIn("missing_log_alert_days", engine_settings_columns)
+            goal_plan_columns = {
+                row["name"] for row in db.query("PRAGMA table_info(goal_plans)")
+            }
+            self.assertIn("direction", goal_plan_columns)
         finally:
             db.close()
 
@@ -480,6 +486,48 @@ class MigrationRunnerTest(unittest.TestCase):
             self.assertNotIn("waist_cm", columns)
         finally:
             conn.close()
+
+    def test_goal_plan_direction_backfill_matches_weekly_rate_sign(self):
+        """Phase 12.1 (see README): a real device already at user_version=4
+        (goal_plans has no `direction` column yet) upgrades via m0005 --
+        every existing row must backfill the same value
+        `GoalPlan.direction`'s old, pre-Phase-12 derived `@property` would
+        have produced (bulk for a positive weekly_rate, cut otherwise),
+        including the exact-zero placeholder case."""
+        path = tempfile.mktemp(suffix=".db")
+        try:
+            legacy_conn = sqlite3.connect(path)
+            legacy_conn.executescript(DBModule.SCHEMA)
+            legacy_conn.execute("PRAGMA user_version = 4")
+            now = datetime.now(timezone.utc).isoformat()
+            legacy_conn.execute(
+                "INSERT INTO users (user_id, username, email, password_hash, height_cm, "
+                "sex, birthdate, created_at) VALUES (1, 'demo', 'demo@example.com', 'x', "
+                "176, 1, '2001-08-22', ?)",
+                (now,),
+            )
+            legacy_conn.executemany(
+                "INSERT INTO goal_plans (user_id, target_bf, weekly_rate, start_date, "
+                "active, created_at) VALUES (1, 0.15, ?, '2026-01-01', 1, ?)",
+                [(-0.005, now), (0.02, now), (0.0, now)],
+            )
+            legacy_conn.commit()
+            legacy_conn.close()
+
+            db = DB(path)
+            try:
+                rows = db.query(
+                    "SELECT weekly_rate, direction FROM goal_plans ORDER BY goal_id"
+                )
+                self.assertEqual(
+                    [(row["weekly_rate"], row["direction"]) for row in rows],
+                    [(-0.005, "cut"), (0.02, "bulk"), (0.0, "cut")],
+                )
+            finally:
+                db.close()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
 
     def test_failed_migration_batch_rolls_back_atomically(self):
         """If any migration in the pending batch raises, none of the

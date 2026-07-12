@@ -57,6 +57,7 @@ def _seed_cut_account(
         birthdate=profile_params.birthdate,
         target_bf=profile_params.target_bf,
         weekly_rate=profile_params.weekly_rate,
+        direction=profile_params.direction,
         goal_start_date=DEMO_FIRST_LOG["date"],
     )
     log_manager.seed_reference_series(profile.user_id, measurement_manager=measurement_manager)
@@ -91,6 +92,7 @@ def _seed_bulk_account(
         birthdate=profile_params.birthdate,
         target_bf=profile_params.target_bf,
         weekly_rate=profile_params.weekly_rate,
+        direction=profile_params.direction,
         goal_start_date=DEMO_BULK_FIRST_LOG["date"],
     )
     log_manager.seed_bulk_reference_series(profile.user_id, measurement_manager=measurement_manager)

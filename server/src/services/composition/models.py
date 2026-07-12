@@ -77,6 +77,13 @@ class ProfileParams:
     target_bf: float  # tau, fraction e.g. 0.15
     weekly_rate: float  # r, fraction/week e.g. -0.005
 
+    # Phase 12.1 -- explicit, no longer inferred from weekly_rate's sign
+    # (see docs/composition_spec.md's "Phase 12" section). Defaults to
+    # "cut" so every pre-Phase-12 call site (mostly test fixtures) keeps
+    # constructing a valid profile without passing it; the engine itself
+    # doesn't yet branch on this value -- that's Phase 12.2.
+    direction: str = "cut"
+
 
 @dataclass(frozen=True)
 class LogInput:

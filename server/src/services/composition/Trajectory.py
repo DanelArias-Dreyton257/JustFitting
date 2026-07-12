@@ -56,7 +56,26 @@ def compute_daily_deficit(weekly_deficit_kcal: float) -> float:
     return weekly_deficit_kcal / 7
 
 
-def compute_final_weight(lean_mass_kg: float, target_bf: float) -> float:
+def compute_final_weight(
+    direction: str, lean_mass_kg: float, fat_mass_kg: float, target_bf: float
+) -> float:
+    """Weight at the goal, branched by direction (Phase 12.2, see
+    docs/composition_spec.md's "Phase 12" section):
+
+    - cut: fat shrinks to `target_bf`, lean mass held constant --
+      ``lean_mass_kg / (1 - target_bf)``.
+    - bulk: lean mass grows until it dilutes a *held-constant* fat mass's
+      share of the total down to `target_bf` -- ``fat_mass_kg /
+      target_bf``. Reusing the cut formula for a bulk (the pre-Phase-12.2
+      behavior) silently assumed every kilogram gained past today was fat,
+      which is backwards for a bulk goal.
+
+    Both directions converge on the same terminal body-fat fraction
+    `target_bf`; they just get there by moving the opposite mass
+    component.
+    """
+    if direction == "bulk":
+        return fat_mass_kg / target_bf
     return lean_mass_kg / (1 - target_bf)
 
 

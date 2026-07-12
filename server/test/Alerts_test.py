@@ -23,6 +23,7 @@ def make_goal(weekly_rate: float, **overrides) -> GoalPlan:
         user_id=1,
         target_bf=0.15,
         weekly_rate=weekly_rate,
+        direction="bulk" if weekly_rate > 0 else "cut",
         start_date=BASE_DATE,
         active=True,
         created_at=BASE_DATE,

@@ -69,7 +69,7 @@ class MetricsSeriesServiceTest(unittest.TestCase):
         self._log(date(2026, 1, 1))
         self._log(date(2026, 1, 8))
         self.goal_plan_manager.create_goal_plan(
-            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+            self.user_id, 0.18, 0.003, "bulk", start_date=date(2026, 3, 1)
         )
         self._log(date(2026, 3, 8))
         self._log(date(2026, 3, 15))
@@ -80,7 +80,7 @@ class MetricsSeriesServiceTest(unittest.TestCase):
 
     def test_log_on_the_exact_start_date_is_included(self):
         self.goal_plan_manager.create_goal_plan(
-            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+            self.user_id, 0.18, 0.003, "bulk", start_date=date(2026, 3, 1)
         )
         self._log(date(2026, 3, 1))
 
@@ -90,7 +90,7 @@ class MetricsSeriesServiceTest(unittest.TestCase):
     def test_all_logs_before_the_goal_change_returns_an_empty_series(self):
         self._log(date(2026, 1, 1))
         self.goal_plan_manager.create_goal_plan(
-            self.user_id, 0.18, 0.003, start_date=date(2026, 3, 1)
+            self.user_id, 0.18, 0.003, "bulk", start_date=date(2026, 3, 1)
         )
 
         logs, results = compute_series_for_user(self.app, self.user_id)

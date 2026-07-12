@@ -138,6 +138,7 @@ def register():
             birthdate=date.fromisoformat(payload["birthdate"]),
             target_bf=float(payload["target_bf"]) if "target_bf" in payload else None,
             weekly_rate=float(payload["weekly_rate"]) if "weekly_rate" in payload else None,
+            direction=payload.get("direction"),
             units=payload.get("units", "metric"),
         )
     except (UserManagerError, GoalPlanManagerError) as exc:
@@ -206,7 +207,7 @@ def me():
 def update_me():
     payload = request.get_json(force=True) or {}
     fields = {}
-    for key in ("height_cm", "sex", "target_bf", "weekly_rate", "units", "email"):
+    for key in ("height_cm", "sex", "target_bf", "weekly_rate", "direction", "units", "email"):
         if key in payload:
             fields[key] = payload[key]
     if "birthdate" in payload:
@@ -217,7 +218,7 @@ def update_me():
     # `None` (no computable log yet) skips GoalPlanManager's coherence check
     # entirely, same as a brand-new default goal at registration.
     current_bf = None
-    if "target_bf" in fields or "weekly_rate" in fields:
+    if "target_bf" in fields or "weekly_rate" in fields or "direction" in fields:
         _, results = compute_series_for_user(current_app, g.user_id)
         if results:
             current_bf = results[-1].body_fat
