@@ -7,6 +7,169 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+Phase 12.1 (README), the first sub-phase of the goal-type-aware
+trajectory model (v6.0.0): a goal's `direction` (cut vs. bulk) becomes an
+explicit, stored, user-set field instead of being silently inferred from
+`weekly_rate`'s sign. This is pure plumbing -- it fixes nothing about the
+engine's math yet (that's Phase 12.2's real correctness fix, below) --
+but is the foundation the rest of Phase 12 needs.
+
+- `goal_plans` gains a real `direction` column (`CHECK (direction IN
+  ('cut', 'bulk'))`, new migration `m0005`), backfilled for every existing
+  row from its own `weekly_rate` sign. `GoalPlan.direction` is now a plain
+  stored field, not the old sign-derived `@property`.
+- `GoalPlanManager.create_goal_plan` requires `direction` explicitly and
+  validates it against `weekly_rate`'s sign (a new
+  `check_direction_matches_rate`) -- except an exact `weekly_rate=0.0`
+  (the Phase 5.2 placeholder/maintenance goal), which has no sign to
+  check and accepts any direction; the auto-assigned placeholder is
+  stamped `direction="cut"` at registration, a documented default rather
+  than an arbitrary tie-break. `direction` changes are audited like every
+  other goal-plan field.
+- `ProfileParams` gains a `direction` field (default `"cut"`); `PUT
+  /api/users/me`, `POST /api/users`, and `GET /api/plan/preview` all
+  accept it. `app.js`'s Plan tab commit handler computes `direction` from
+  the typed weekly-rate's sign as a temporary client-side bridge, since
+  there's no visible Cut/Bulk selector in the UI yet -- today's Plan tab
+  keeps working exactly as before. (Replaced by a real selector in Phase
+  12.3, below.)
+
+New coverage: `GoalPlanManager_test.py` gained direction-storage and
+`check_direction_matches_rate` cases; `DB_test.py`'s `MigrationRunnerTest`
+gained a case for `m0005`'s backfill against a legacy pre-migration DB.
+430 server tests (7 new), 74 client tests green.
+
+Phase 12.2 (README), the real correctness fix Phase 12.1 set up: a bulk
+goal's target weight (`final_weight_kg`) was computed with the exact same
+formula as a cut's (`LeanMass / (1 - target_bf)`), which holds today's
+lean mass fixed and lets fat mass grow to close the gap to the target
+body-fat percentage -- backwards for a bulk, whose whole point is that
+lean mass grows while fat mass stays put. Fixed by branching the formula
+on the goal's (now-explicit, Phase 12.1) `direction`.
+
+- `Trajectory.compute_final_weight` now takes `direction`/`fat_mass_kg`
+  and branches: cut unchanged (`LeanMass / (1 - target_bf)`), bulk
+  `FatMass / target_bf` (lean mass grows to dilute a held-constant fat
+  mass's share of the total down to `target_bf`). `CompositionEngine.
+  compute_row` threads `profile.direction` through.
+  `CompositionEngine.ENGINE_VERSION` bumps `2 -> 3` -- every bulk-direction
+  row's cached `final_weight_kg`/`weeks_to_goal` recomputes under the
+  corrected formula; every cut-direction row stays byte-for-byte
+  identical.
+- `GoalPlanManager.check_goal_coherence`'s sign rule is corrected: a
+  bulk's body-fat percentage now falls toward its target via dilution
+  (lean mass growing), the same direction a cut's already falls in, so
+  both directions now require `target_bf <= current_bf` -- not opposite
+  signs per direction as before. The check no longer depends on
+  `weekly_rate` at all, so that parameter was dropped:
+  `check_goal_coherence(current_bf, target_bf)`.
+
+New coverage: `Trajectory_test.py` and `CompositionEngine_test.py` gained
+bulk-direction cases (the latter computing the same log under both a cut
+and a bulk profile, confirming identical fat/lean mass but genuinely
+different `final_weight_kg`); `GoalPlanManager_test.py`'s coherence tests
+were rewritten for the single-sign rule, including a case proving a bulk
+goal targeting *below* current body fat -- rejected before this phase --
+is now accepted. `client/test/browser/Plan_test.py`'s existing incoherent
+-preview test was built on the old sign rule and now uses a target
+genuinely above current instead; a new test covers the flipped bulk case
+explicitly. 431 server tests (1 new), 75 client tests green.
+
+Phase 12.3 (README): the Plan tab gets a real, explicit Cut/Bulk selector,
+replacing Phase 12.1's client-side sign-inference bridge. Client-only --
+no server/API/DB change.
+
+- `#plan-form` gains a Cut/Bulk radio toggle (`#plan-direction-toggle`,
+  mirroring the Body view's existing Quick/Full radio pattern), defaulting
+  to the account's actual active-goal direction. The target-percentage
+  field relabels live per direction via a new `views.js` export,
+  `renderPlanDirectionUI` -- "Target body fat (%)" for cut, "Target lean
+  mass (%)" for bulk. The stored `target_bf` fraction never changes shape:
+  new `app.js` helpers (`planTargetPctFromFraction`/
+  `planTargetFractionFromPct`) convert between it and whichever percentage
+  is currently displayed, and toggling the radio re-converts whatever's
+  already typed under the new framing (15% body fat becomes 85% lean mass
+  on flipping to Bulk) instead of leaving a number under a label it no
+  longer matches.
+- The weekly-rate field's helper text adapts per direction too. A new
+  client-side check mirrors `GoalPlanManager.check_direction_matches_rate`
+  (same `weekly_rate=0` exception), so a mismatched sign shows a fast
+  inline error instead of a round trip to the server.
+
+New coverage: `client/test/browser/Plan_test.py` gained cases for the
+selector's default state, the live target-field relabeling and conversion
+on toggle (both directions), and the client-side sign-mismatch inline
+error. Its two existing Phase 12.2 coherence-check cases needed updating
+too -- one relied on the retired sign-inference bridge to reach a bulk
+direction, the other's rate needed to stay sign-matched with the default
+Cut selection so it isolates the server's coherence rejection from this
+phase's own client-side sign check. 431 server tests unaffected
+(client-only change), 78 client tests green.
+
+Phase 12.4 (README), the last sub-phase: Dashboard and Report reframing,
+plus the Phase 5.2 placeholder's own UI treatment deferred here since
+Phase 12.1. **Closes out Phase 12 (goal-type-aware trajectory model,
+v6.0.0) entirely.**
+
+- `renderGoalSummary`'s "Target weight (keep lean)" tile becomes "Target
+  weight (keep fat steady)" for a bulk goal; its "Target body fat" tile
+  fully relabels to "Target lean mass". The Report view is more
+  conservative -- "Target body fat" keeps its label for every direction
+  but gains a `(N% lean mass)` suffix for bulk rows, in both the profile
+  summary and the goal-history table.
+- The Phase 5.2 placeholder goal (never a real, chosen goal) no longer
+  renders tiles built from its own unedited `target_bf`: `renderGoalSummary`
+  (Dashboard) and `renderPlanStats` (Plan tab) both detect the same
+  condition the `unconfigured_goal` alert already uses and show "Maintain
+  (no goal set yet)" instead. That alert's own message stops echoing the
+  placeholder's stored values back as fact and now reads as a pure
+  recommendation.
+- **Fallout worth noting**: hiding the placeholder's tiles broke three
+  pre-existing Playwright tests that had implicitly relied on them
+  rendering *something*. Fixing the target-weight-tile test surfaced an
+  unrelated, pre-existing interaction: Phase 5.3 scopes computed series to
+  a freshly-committed goal's own `start_date` (today by default), so a log
+  dated in the past falls outside its period once that goal exists -- the
+  fix logs against today's date instead, the same pattern an existing
+  goal-progress-bar test already used for the identical reason.
+
+New coverage: `Dashboard_test.py` gained
+`test_goal_summary_shows_maintain_placeholder_for_a_fresh_account` and
+`test_goal_summary_reframes_tiles_for_a_bulk_goal` (verified end-to-end
+against a real committed bulk goal -- "Target lean mass" 85.0% with a
+`+4.8% to goal` delta, "Target weight (keep fat steady)" with a positive
+`to goal` delta, confirming the full Phase 12.1-12.4 pipeline through the
+real UI); `Plan_test.py` gained
+`test_current_plan_shows_maintain_placeholder_before_a_real_goal_is_set`.
+431 server tests unaffected (client-only change), 81 client tests green.
+
+### Fixed
+
+- **`admin_bulk`'s live Dashboard showed a negative "weeks to goal."**
+  Found while spot-checking the demo account's own numbers after Phase
+  12.2, per that phase's own README note. `admin_bulk`'s seeded goals
+  (`target_bf` `0.20`, then `0.18`) were never actually coherent with its
+  reference series' real computed body fat, which only ranges 16.3-17.2%
+  throughout -- under the corrected `Wfinal = FatMass / target_bf`, a
+  `target_bf` above the account's real body fat produces a finish weight
+  *below* current weight while still gaining, which
+  `Trajectory.compute_weeks_to_goal` turns into a negative number
+  (confirmed directly: -87.98 weeks on the series' last row). Neither goal
+  was ever coherence-checked at seed time (`DemoSeeder.py` never passes
+  `current_bf` to `create_goal_plan`), so this shipped unnoticed -- a real
+  user could never have set either value themselves, since `GET
+  /api/plan/preview` would reject them today. Fixed by retargeting both
+  goals below the series' real range in `LogManager.py`:
+  `DEMO_BULK_PROFILE.target_bf` `0.20 -> 0.15`, `DEMO_BULK_SECOND_GOAL`
+  `(0.18, 0.0005) -> (0.14, 0.003)` -- the original rate was also below
+  `BULK_RATE_MIN`, compounding the blow-up; `0.003` sits inside the
+  recommended bulk range and gives a presentable ~69-week figure instead.
+  `DemoSeeder_test.py`'s hardcoded `target_bf == 0.20` assertion updated
+  to `0.15`. 431 server tests green (no new tests -- a seed-data fix, not
+  a new code path).
+
 ## [5.1.2] - 2026-07-12
 
 ### Fixed

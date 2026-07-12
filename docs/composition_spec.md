@@ -225,9 +225,11 @@ Pi_i    = W_{i-1} - W_i^obj = -rho * W_{i-1}   # unchanged from Demo_cut's Pi_i;
 ```
 
 `rho` is the same signed weekly-rate field as Demo_cut's `r`
-(`GoalPlan.weekly_rate`); `rho > 0` is a bulk goal, `rho < 0` a cut goal —
-no new field needed for the rate itself, only a derived `direction =
-"bulk" | "cut"` label from its sign. Validate `rho` against the
+(`GoalPlan.weekly_rate`); `rho > 0` is a bulk goal, `rho < 0` a cut goal.
+**Superseded by Phase 12.1 (done)**: `direction` is no longer just a label
+derived from `rho`'s sign at read time -- it's a real, explicitly-chosen
+`goal_plans` column, validated to agree with `rho`'s sign at write time
+instead (see the "Phase 12" section below). Validate `rho` against the
 recommended range `[0.25%, 0.5%]` when `direction == "bulk"` and surface a
 (non-blocking) warning outside it, mirroring
 `IMPLAUSIBLE_WEEKLY_CHANGE_PCT`'s flag-not-block pattern.
@@ -371,9 +373,18 @@ spreadsheet, not a transcription error — implementers should expect not
 to exactly reproduce the PDF's own worked total once this fix is applied,
 and that's by design.
 
-`Wfinal_i = LeanMass_i / (1 - tau)` and `Weeks_i = ln(W_i / Wfinal_i) /
-ln(1 - rho)` are unchanged from the Demo_cut spec and apply as-is to
-`rho > 0` (the source doc doesn't redefine either).
+`Weeks_i = ln(W_i / Wfinal_i) / ln(1 - rho)` is unchanged from the
+Demo_cut spec and applies as-is to `rho > 0` -- it only ever consumes
+whichever `Wfinal_i` the goal's direction resolves to, and was already
+general enough for either sign of `rho`. **`Wfinal_i` itself is *not*
+simply `LeanMass_i / (1 - tau)` for a bulk goal, despite what an earlier
+version of this section claimed** -- reusing Demo_cut's lean-preserving
+formula for a bulk holds today's `LeanMass_i` fixed and lets `FatMass_i`
+grow to close the gap to `tau`, i.e. it silently assumes every kilogram
+gained past today is fat. That's backwards for a bulk, and is exactly the
+inconsistency **Phase 12** (below) fixes with a direction-branched
+`Wfinal_i` -- see that section for the corrected formula and its full
+derivation.
 
 Everything in this reconciliation is about the best estimate of TEF
 *without* macro data — a percentage-of-TDEE approximation, justified
@@ -752,6 +763,247 @@ gained a stacked-bar chart (`drawMacroSplitBars`, a new `charts.js`
 primitive) comparing the target split against the actual split in kcal,
 per the project's dataviz guidance (a stacked bar is the recommended
 form for part-to-whole comparison, in preference to a pie/donut chart).
+
+## Phase 12 — goal-type-aware final weight: cut vs bulk (done, v6.0.0)
+
+Source: product direction, not either Wave 2 PDF. The Wave 2 "Formula
+reconciliation" section above used to state `Wfinal_i = LeanMass_i / (1 -
+tau)` "applies as-is to `rho > 0`" -- true of the formula's *plumbing*
+(nothing crashes), false of its *meaning*: reusing the cut's
+lean-preserving `Wfinal_i` for a bulk goal holds today's `LeanMass_i`
+fixed and lets `FatMass_i` grow to close the gap to `tau`, i.e. it
+silently assumes **every kilogram gained past today is fat**. That's
+backwards for a bulk, whose entire point is the opposite assumption: fat
+mass stays put, lean mass is what grows. Phase 12 fixes this by branching
+`Wfinal_i` on the goal's `direction`, mirroring the cut case exactly
+instead of reusing it.
+
+### The `direction` field becomes explicit, not inferred (Phase 12.1, done)
+
+Before Phase 12, `GoalPlan.direction` was a derived `@property` --
+`"bulk"` for `weekly_rate > 0`, `"cut"` otherwise, no stored column. Phase
+12.1 makes it a real, explicitly-chosen field set when the goal is created,
+persisted on `goal_plans.direction` (new column, migration `m0005`, `CHECK
+(direction IN ('cut', 'bulk'))`). The Plan tab itself doesn't have a real
+Cut/Bulk selector yet -- `app.js`'s goal-commit handler computes `direction`
+from the typed weekly-rate's sign as a temporary bridge, since the server
+now requires the field; Phase 12.3 replaces that bridge with a real,
+user-facing selector. `GoalPlanManager.create_goal_plan` requires it and
+validates it agrees with `weekly_rate`'s sign (a bulk direction needs
+`weekly_rate > 0`, a cut needs `weekly_rate < 0`) -- the sign itself
+still matters, since `Wobj_i`/`Pi_i` below are still driven by
+`weekly_rate`'s literal value, not by `direction`; `direction` only
+selects which `Wfinal_i` formula applies. Every existing `goal_plans` row
+backfills `direction` from its own `weekly_rate`'s sign (`m0005`) --
+correct for every historical row, since sign and intended direction have
+always coincided; the bug Phase 12 fixes is in what `Wfinal_i` did with
+that direction, not in which rows are which direction.
+`ProfileParams` (`services/composition/models.py`) gains a `direction:
+str` field alongside `target_bf`/`weekly_rate`, threaded through
+`GoalPlanManager.build_profile_params` and every route that constructs a
+candidate `ProfileParams` (`plan_routes.py`'s `/api/plan/preview`).
+
+**The `weekly_rate=0.0` placeholder is a special case, not a third
+direction.** `UserManager.register`'s auto-assigned default goal (Phase
+5.2) has no sign to validate `direction` against -- `create_goal_plan`
+accepts `direction` as given rather than sign-checking it when
+`weekly_rate == 0.0`. `UserManager.register` stamps this placeholder
+`direction="cut"` specifically, a documented default rather than an
+arbitrary tie-break, since "cut at 0%/week" (i.e. maintain) is the
+intended reading -- the placeholder's `target_bf` still defaults to
+`DEFAULT_TARGET_BF_MALE`/`_FEMALE` (the schema requires some fraction),
+but is never surfaced to the user as an established target: the
+`unconfigured_goal` alert (Phase 11.3) recommends those per-sex figures
+as a starting point rather than echoing the placeholder's own stored
+value back as if it had been chosen, and the Dashboard/Plan tab render
+"Maintain (no goal set yet)" instead of a target-body-fat figure while
+this placeholder is still the account's only-ever goal.
+
+### Branched final weight (Phase 12.2, done)
+
+```
+Wfinal_i^cut  = LeanMass_i / (1 - tau)      # unchanged -- fat shrinks to tau, lean held
+Wfinal_i^bulk = FatMass_i / tau              # new -- lean grows to dilute fat's share down to tau, fat held
+```
+
+Derivation, symmetric to the cut case already in this document: at the
+goal, a cut holds `LeanMass` fixed and wants `FatMass_final / Wfinal =
+tau`, i.e. `Wfinal = LeanMass / (1 - tau)` (already above). A bulk holds
+`FatMass` fixed instead and wants the same terminal condition,
+`FatMass_final / Wfinal = tau` -- but now `FatMass_final = FatMass_i`
+(today's, not a shrinking one), so `Wfinal = FatMass_i / tau` directly.
+Both directions converge on the same terminal body-fat fraction `tau`;
+they just get there by moving the opposite mass component. This also
+means `AJ_i = BF_i - tau` (unchanged formula) is now a coherent "distance
+to goal" signal for *both* directions -- positive and shrinking toward
+zero, whether the shrinkage comes from losing fat (cut) or gaining lean
+(bulk) -- which it wasn't cleanly before this fix (a bulk's `BF_i` was
+expected to *rise* toward `tau` under the old, buggy `Wfinal_i`, the
+opposite sense).
+
+**Everything else in the compute chain is unchanged**, and this is
+deliberate, not an oversight -- it's why this phase is "not so much
+[change] internally," per the product direction that motivated it:
+
+- `Wobj_i = W_{i-1} * (1 + r)`, `Pi_i = W_{i-1} - Wobj_i`,
+  `WeeklyDeficit_i`, `DailyDeficit_i`, `TargetCal_i` -- all still driven by
+  the literal weekly weight-rate `r` (`weekly_rate`), exactly as Wave 2's
+  F1 already established (`Pi_i` negative => surplus for a bulk). Phase 12
+  doesn't touch the calorie-prescription chain at all, only the "how far
+  away is the finish line, and what does it weigh" chain (`Wfinal_i`,
+  `Weeks_i`).
+- `Weeks_i = ln(W_i / Wfinal_i) / ln(1 - r)` -- unchanged formula, now fed
+  the correct `Wfinal_i` for either direction. It was already general
+  enough (Wave 2's F1 confirmed it "applies as-is to `rho > 0`") -- the
+  bug was entirely in what `Wfinal_i` computed, not in how `Weeks_i` uses
+  it.
+- `AJ_i = BF_i - tau` -- unchanged formula, corrected meaning (see above).
+
+### Why `check_goal_coherence`'s sign rule flips for bulk (Phase 12.2, done)
+
+Phase 8.2's `check_goal_coherence` used to require a bulk goal
+(`weekly_rate > 0`) to have `target_bf >= current_bf` -- "gaining weight
+means fat should be allowed to rise toward the target." That rule was
+correct under the old (buggy) `Wfinal_i`, where a bulk's `BF_i` was
+modeled as rising toward `tau`. Under Phase 12's corrected model, a
+bulk's `BF_i` *falls* toward `tau` (dilution, not gain) -- exactly the
+same direction a cut's `BF_i` falls in. **`check_goal_coherence` now
+requires `target_bf <= current_bf` for both directions** (within the
+existing `BODY_FAT_COHERENCE_EPSILON` maintenance band), not opposite
+signs per direction as before. This was a real behavior change to an
+already-shipped validation rule, not just a new check alongside it;
+`plan_routes.py`'s `/api/plan/preview` picks it up automatically since it
+calls the same function. Since there's now only one coherent sign
+regardless of direction, the check no longer needs `weekly_rate` at all
+to decide anything -- its signature dropped that parameter entirely,
+narrowing to `check_goal_coherence(current_bf, target_bf)`.
+
+### `ENGINE_VERSION` bump (2 -> 3) (Phase 12.2, done)
+
+`Trajectory.compute_final_weight` genuinely branches on `direction` now,
+changing `CompositionResult.final_weight_kg` (and therefore
+`weeks_to_goal`, which is derived from it) for every **bulk**-direction
+row -- a real compute-chain change, not a read-side view, so
+`CompositionEngine.ENGINE_VERSION` bumps `2 -> 3` per this project's own
+versioning rule. Every **cut**-direction row computes byte-for-byte
+identically (its formula is untouched), the same "no drift unless you're
+the row the change actually applies to" pattern F9's `1 -> 2` bump
+established. `metrics_snapshots` needs no new columns for this bump
+(unlike F9's, which added `tef_kcal`/`tef_mode`) -- only the cached
+`final_weight_kg`/`weeks_to_goal` values themselves change, and the
+version bump alone forces every bulk row to recompute rather than serve a
+stale cached figure.
+
+### UI implications
+
+Purely a display/framing change, not a new computation -- the client
+already has `direction` (via `GoalPlanDTO`/`ProfileDTO`) and
+`final_weight_kg` (via `MetricsDTO`), so no new endpoint or field is
+needed for any of the below:
+
+- **Plan tab (Phase 12.3, done)**: goal creation/edit gains an explicit
+  Cut/Bulk selector (`#plan-direction-toggle`, mirroring the Body view's
+  Quick/Full radio pattern), replacing Phase 12.1's client-side
+  sign-inference bridge; the target-percentage field relabels live per
+  selection via a new `views.js` export, `renderPlanDirectionUI` --
+  "Target body fat %" for cut (unchanged), "Target lean mass %" for bulk
+  (`100 - target_bf*100` on display, inverted back to `target_bf` on
+  submit via `app.js`'s `planTargetPctFromFraction`/
+  `planTargetFractionFromPct` -- the stored fraction is unchanged, only
+  its on-screen framing flips, and toggling direction re-converts
+  whatever's already typed rather than leaving a stale, now-mislabeled
+  number). The weekly-rate field's helper text adapts ("a weekly
+  weight-loss rate" vs "a weekly weight-gain rate"); a client-side
+  rate/direction coherence check mirrors
+  `GoalPlanManager.check_direction_matches_rate` (same `weekly_rate=0`
+  exception), catching a mismatched sign before any round trip.
+- **Dashboard Goal summary (Phase 12.4, done)**: `renderGoalSummary`
+  (`views.js`)'s "Target weight (keep lean)" tile (Phase 5.9) becomes
+  "Target weight (keep fat steady)" for a bulk goal -- same
+  `final_weight_kg` value, corrected label, since the assumption it names
+  has flipped. The "Target body fat" tile fully relabels to "Target lean
+  mass" for a bulk, mirroring the Plan tab's own input-field reframing
+  (Phase 12.3) -- an interactive summary reads better fully reframed than
+  the Report's more conservative treatment below.
+- **Report view / goal history (Phase 12.4, done)**: `goal.direction`
+  renders the same "Cut"/"Bulk" badge as today (Phase 3), now sourced from
+  the stored field. Unlike the Dashboard tile, the profile summary's
+  "Target body fat" row keeps that label for every direction but gains a
+  complementary `(N% lean mass)` suffix for a bulk account's active goal;
+  the goal-history table's Target BF column gets the same suffix on
+  bulk-direction rows -- a printable technical document reads better
+  showing both numbers next to the original label than fully reframing
+  it.
+- **The Phase 5.2 placeholder's "Maintain" reframing (Phase 12.4, done)**:
+  `renderGoalSummary` (Dashboard) and `renderPlanStats` (Plan tab's
+  "Current plan" section) both detect the same unconfigured-placeholder
+  condition the `unconfigured_goal` alert already uses
+  (`goal_history_count == 1` and `weekly_rate == 0`) and render "Maintain
+  (no goal set yet)" instead of tiles built from a `target_bf` the user
+  never chose. `Alerts.py`'s `unconfigured_goal` message itself stops
+  echoing the placeholder's stored `target_bf`/`weekly_rate` back as fact
+  and now reads as a pure recommendation.
+- `DemoSeeder.py`'s `admin_bulk` seed stamps an explicit `direction` on
+  both of its historized goals (Phase 12.1). **The spot-check found a real
+  bug**: both goals' `target_bf` (`0.20`, then `0.18`) were never coherent
+  with the reference series' actual computed body fat, which only ranges
+  16.3-17.2% throughout -- under the corrected `Wfinal = FatMass /
+  target_bf`, a `target_bf` above the account's real body fat produces a
+  finish weight *below* current weight while `rho > 0` (weight still
+  growing), which `Trajectory.compute_weeks_to_goal` turns into a negative
+  result (confirmed directly: -87.98 weeks on the series' last row).
+  Neither goal was ever coherence-checked at seed time (`DemoSeeder.py`
+  never passes `current_bf` to `create_goal_plan`), so this shipped
+  unnoticed. Fixed by retargeting both goals below the series' real range:
+  `DEMO_BULK_PROFILE.target_bf` `0.20 -> 0.15`,
+  `DEMO_BULK_SECOND_GOAL` `(0.18, 0.0005) -> (0.14, 0.003)` (the original
+  rate was also below `BULK_RATE_MIN`, compounding the blow-up; `0.003`
+  sits inside the recommended range and yields a presentable ~69-week
+  figure). `DemoSeeder_test.py`'s hardcoded `target_bf == 0.20` assertion
+  updated to `0.15`.
+
+### New/updated test coverage
+
+**Phase 12.1/12.2 (done)**: `Trajectory_test.py` gained a bulk-direction
+case for `compute_final_weight`; `CompositionEngine_test.py` gained an
+end-to-end case computing the same log under both a cut and a bulk
+profile (identical fat/lean mass, genuinely different `final_weight_kg`);
+`GoalPlanManager_test.py` gained cases for the required `direction`
+param, `check_direction_matches_rate`'s sign/zero-rate/unknown-direction
+handling, and `check_goal_coherence`'s single-sign rule (including a
+bulk-goal-targeting-below-current case that used to be rejected and is
+now accepted); `DB_test.py`'s `MigrationRunnerTest` gained a case for
+`m0005`'s backfill against a legacy pre-migration DB; `Api_test.py` and
+`UserManager_test.py` were updated for `direction` now being required on
+every goal-creating call.
+
+**Phase 12.3 (done)**: `client/test/browser/Plan_test.py` gained cases for
+the selector's default state (matching the account's real `direction`),
+the live target-field relabeling and value conversion on toggle (both
+directions), and the client-side sign-mismatch inline error. Its two
+existing coherence-check cases (Phase 12.2) needed updating too: one
+relied on the pre-12.3 sign-inference bridge to reach a bulk direction and
+now checks the selector explicitly; the incoherent-target case switched
+its rate to stay sign-matched with the default Cut selection, so it
+isolates the server's coherence rejection from Phase 12.3's own
+client-side sign check rather than triggering either ambiguously.
+
+**Phase 12.4 (done)**: `Dashboard_test.py` gained
+`test_goal_summary_shows_maintain_placeholder_for_a_fresh_account` and
+`test_goal_summary_reframes_tiles_for_a_bulk_goal` (verified end-to-end
+against a real committed bulk goal); `Plan_test.py` gained
+`test_current_plan_shows_maintain_placeholder_before_a_real_goal_is_set`.
+Hiding the goal tiles behind the "Maintain" message broke three
+pre-existing tests that had implicitly relied on the placeholder always
+rendering *something* -- fixing them surfaced a real, independent
+interaction: Phase 5.3 scopes computed series to dates on/after the
+*active* goal's own `start_date` (which committing a goal defaults to
+today), so a log dated in the past falls outside a freshly-committed
+goal's period. Both fixed tests, and the new bulk-goal test, now log
+against today's date via a new `_today_iso()` Dashboard-test helper, the
+same pattern an existing goal-progress-bar test already used for the
+identical reason. 431 server tests unaffected (client-only change), 81
+client tests green.
 
 ## Health disclaimer
 
