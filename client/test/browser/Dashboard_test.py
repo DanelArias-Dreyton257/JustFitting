@@ -131,17 +131,37 @@ class DashboardTest(unittest.TestCase):
     def _go_to_dashboard(self):
         self._navigate("dashboard")
 
-    def _set_goal(self, target_bf_pct="15", weekly_rate_pct="-0.5"):
+    def _today_iso(self):
+        # Committing a real goal (Phase 8.1/5.3) scopes the computed series
+        # to dates on/after that goal's own start_date, which _set_goal
+        # defaults to today -- any test that logs a week and then commits a
+        # goal (without separately backdating it) needs that log dated
+        # today too, or it falls outside the new goal's period and the
+        # series comes back empty.
+        return self.page.evaluate(
+            "() => { const d = new Date(); "
+            "return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-"
+            "${String(d.getDate()).padStart(2, '0')}`; }"
+        )
+
+    def _set_goal(self, target_bf_pct="15", weekly_rate_pct="-0.5", direction="cut"):
         # A brand-new account's auto-assigned default goal has weekly_rate=0
         # (Phase 5.2), which Trajectory.compute_weeks_to_goal treats
         # specially (weeks_to_goal stays 0, never a positive figure) -- a
         # real, deliberately-committed goal is needed to exercise anything
         # that depends on a positive weeks_to_goal, via the same
         # preview-then-commit flow the Plan tab always uses (Phase 5.8).
+        # Phase 12.3: direction now comes from the explicit selector, not
+        # weekly_rate's sign -- target_bf_pct is read as "target body fat"
+        # for a cut but "target lean mass" for a bulk (Phase 12.3's own
+        # display convention), so a bulk caller should pass the lean-mass
+        # equivalent (e.g. 85 for a 15% body fat target).
         self._navigate("plan")
         self.page.wait_for_function(
             "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
         )
+        if direction == "bulk":
+            self.page.check("#plan-direction-bulk")
         self.page.fill('#plan-form [name="target_bf_pct"]', target_bf_pct)
         self.page.fill('#plan-form [name="weekly_rate_pct"]', weekly_rate_pct)
         self.page.click('#plan-form button[type=submit]')
@@ -170,13 +190,15 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("target calories", calories_text)
         self.assertIn("tdee", calories_text)
 
+        # Phase 12.4: this account never commits a real goal (still on the
+        # Phase 5.2 placeholder), so the Goal summary shows the "maintain"
+        # message rather than target-body-fat/weight tiles built from a
+        # value the user never chose -- see
+        # test_target_weight_tile_shows_goal_weight_and_remaining_distance_delta
+        # and test_goal_summary_reframes_tiles_for_a_bulk_goal below for the
+        # real-goal tile content this used to assert here.
         goal_text = self.page.inner_text("#summary-goal-stats").lower()
-        self.assertIn("weeks to goal", goal_text)
-        self.assertIn("target body fat", goal_text)
-        self.assertIn("target weight", goal_text)
-        self.assertIn("keep lean", goal_text)
-        # A goal not yet reached should surface an arrowed "to goal" delta.
-        self.assertIn("to goal", goal_text)
+        self.assertIn("maintain (no goal set yet)", goal_text)
 
     def test_chart_grid_is_collapsed_and_lazy_loaded(self):
         self._log_week("2026-06-01", 90.0)
@@ -353,7 +375,12 @@ class DashboardTest(unittest.TestCase):
         # distance to final_weight_kg. Phase 5.9 then flipped the tile to
         # lead with the target weight itself, with the remaining distance
         # as an arrowed subtitle -- verify both halves against the API.
-        self._log_week("2026-06-01", 95.0)
+        # Phase 12.4: the tile only renders once a real goal is committed
+        # (the Phase 5.2 placeholder shows a "maintain" message instead),
+        # so this now needs _set_goal(), with the log dated today to stay
+        # inside the new goal's scoped period (see _today_iso).
+        self._log_week(self._today_iso(), 95.0)
+        self._set_goal()
         self._go_to_dashboard()
         self._wait_for_weight_value("95.0")
         metrics = self._fetch_metrics_latest()
@@ -367,6 +394,38 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertAlmostEqual(self._target_weight_kg(), expected_target_weight, places=1)
         self.assertAlmostEqual(self._target_weight_delta_kg(), expected_remaining, places=1)
+
+    def test_goal_summary_shows_maintain_placeholder_for_a_fresh_account(self):
+        # Phase 12.4: the account's auto-assigned placeholder goal (Phase
+        # 5.2, weekly_rate=0.0) is never a real, deliberately-chosen goal --
+        # the Goal summary must say so plainly instead of showing a
+        # target-body-fat figure built from a value the user never picked.
+        self._log_week("2026-06-01", 90.0)
+        self._go_to_dashboard()
+        self._wait_for_weight_value("90.0")
+        self.page.wait_for_selector("#summary-goal-stats")
+        goal_text = self.page.inner_text("#summary-goal-stats")
+        self.assertIn("Maintain (no goal set yet)", goal_text)
+        self.assertNotIn("Target body fat", goal_text)
+
+    def test_goal_summary_reframes_tiles_for_a_bulk_goal(self):
+        # Phase 12.4: a bulk goal's Goal summary reframes to "Target lean
+        # mass" (the complement of the stored target_bf) and "Target weight
+        # (keep fat steady)" (final_weight_kg now assumes fat mass, not
+        # lean mass, stays constant -- see docs/composition_spec.md's
+        # "Phase 12" section). Log dated today to stay inside the new
+        # goal's scoped period (see _today_iso).
+        self._log_week(self._today_iso(), 90.0)
+        self._set_goal(target_bf_pct="85", weekly_rate_pct="0.5", direction="bulk")
+        self._go_to_dashboard()
+        self.page.wait_for_selector("#summary-goal-stats .stat-tile")
+        # `.stat-tile .label` renders all-caps via CSS text-transform, so
+        # compare case-insensitively rather than against the source casing.
+        goal_text = self.page.inner_text("#summary-goal-stats").lower()
+        self.assertIn("target lean mass", goal_text)
+        self.assertIn("target weight (keep fat steady)", goal_text)
+        self.assertNotIn("target body fat", goal_text)
+        self.assertNotIn("target weight (keep lean)", goal_text)
 
     def test_calories_summary_has_subtitles_and_logged_intake_tile(self):
         self._log_week("2026-06-01", 90.0)

@@ -233,7 +233,16 @@ def _unconfigured_goal_alerts(
     rate, and re-committing via the Plan tab always historizes a new
     goal row (`GoalPlanManager.create_goal_plan`), so this can never
     re-trigger once the user has actually visited the Plan tab, even if
-    they land on the same numbers again."""
+    they land on the same numbers again.
+
+    Phase 12.4 (see docs/composition_spec.md's "Phase 12" section): the
+    message no longer echoes the placeholder's own stored `target_bf`/
+    `weekly_rate` back as if they'd been meaningfully chosen -- they were
+    never a real goal, just a harmless "maintain" stand-in (Phase 12.1
+    stamps the placeholder `direction="cut"`, `weekly_rate=0.0` for
+    exactly this reason). The per-sex defaults are surfaced purely as a
+    *recommendation*, not as this account's current setting.
+    """
     if goal is None or goal_history_count != 1:
         return []
     if abs(goal.weekly_rate) >= _ZERO_RATE_EPSILON:
@@ -244,10 +253,11 @@ def _unconfigured_goal_alerts(
             severity="info",
             date=goal.start_date,
             message=(
-                f"This account's first goal was auto-assigned as a placeholder "
-                f"({goal.target_bf:.0%} body fat and {goal.weekly_rate:.0%} weekly "
-                f"rate). Visit the Plan tab to set your own target body fat and "
-                f"weekly rate."
+                "This account doesn't have a real goal set yet -- it's "
+                "currently just maintaining. Visit the Plan tab to set your "
+                "own cut or bulk goal; a common starting target is "
+                f"{constants.DEFAULT_TARGET_BF_MALE:.0%} body fat for men, "
+                f"{constants.DEFAULT_TARGET_BF_FEMALE:.0%} for women."
             ),
             value=goal.weekly_rate,
             threshold=0.0,

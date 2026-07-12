@@ -240,24 +240,50 @@ export function renderCaloriesSummary(container, latest, adherence, latestRealLo
   ].join("");
 }
 
-export function renderGoalSummary(container, latest, profile) {
+//: Phase 12.1/12.4: the auto-assigned placeholder goal (Phase 5.2) is only
+//: ever the account's one-and-only goal plan with an exact 0% weekly rate
+//: -- the same condition the server's `unconfigured_goal` alert already
+//: uses -- never a deliberately-chosen goal, so its own target_bf/
+//: weekly_rate shouldn't be rendered as if the user had picked them.
+const _GOAL_ZERO_RATE_EPSILON = 1e-9;
+
+function isUnconfiguredPlaceholderGoal(profile, goalHistoryCount) {
+  return (
+    !!profile &&
+    goalHistoryCount === 1 &&
+    Math.abs(profile.weekly_rate) < _GOAL_ZERO_RATE_EPSILON
+  );
+}
+
+export function renderGoalSummary(container, latest, profile, goalHistoryCount) {
   if (!latest) {
     container.innerHTML = `<p class="disclaimer">Log a week to see your goal progress.</p>`;
     return;
   }
+  if (isUnconfiguredPlaceholderGoal(profile, goalHistoryCount)) {
+    container.innerHTML = `<p class="disclaimer">Maintain (no goal set yet) -- visit the
+      Plan tab to set a real cut or bulk goal.</p>`;
+    return;
+  }
   const isBulk = profile && profile.direction === "bulk";
   const hasTarget = profile && profile.target_bf != null;
-  const targetBodyFatValue = hasTarget
-    ? `${(profile.target_bf * 100).toFixed(1)}%`
-    : `${(latest.body_fat * 100).toFixed(1)}%`;
-  const targetBodyFatDelta = hasTarget
-    ? formatGoalDelta((profile.target_bf - latest.body_fat) * 100, "%")
+  const targetLabel = isBulk ? "Target lean mass" : "Target body fat";
+  const targetValue = hasTarget
+    ? `${((isBulk ? 1 - profile.target_bf : profile.target_bf) * 100).toFixed(1)}%`
+    : `${((isBulk ? 1 - latest.body_fat : latest.body_fat) * 100).toFixed(1)}%`;
+  const targetDelta = hasTarget
+    ? formatGoalDelta(
+        (isBulk
+          ? latest.body_fat - profile.target_bf
+          : profile.target_bf - latest.body_fat) * 100,
+        "%"
+      )
     : "";
   const currentWeightKg = latest.fat_mass_kg + latest.lean_mass_kg;
   const tiles = [
-    statTile("Target body fat", targetBodyFatValue, targetBodyFatDelta),
+    statTile(targetLabel, targetValue, targetDelta),
     statTile(
-      "Target weight (keep lean)",
+      isBulk ? "Target weight (keep fat steady)" : "Target weight (keep lean)",
       `${latest.final_weight_kg.toFixed(1)} kg`,
       formatGoalDelta(latest.final_weight_kg - currentWeightKg, " kg")
     ),
@@ -497,7 +523,16 @@ export function renderGoalHistory(tbody, goals) {
       (goal) => `
       <tr>
         <td>${goal.start_date}</td>
-        <td>${(goal.target_bf * 100).toFixed(1)}%</td>
+        <td>${(goal.target_bf * 100).toFixed(1)}%${
+          // Phase 12.4: same complementary lean-mass-% suffix the Report
+          // view's goal-history table gets, for a bulk row -- the stored
+          // target_bf is a body-fat fraction either way, but a bulk goal's
+          // own target-percentage field displays its complement (Phase
+          // 12.3), so the history table should read consistently with it.
+          goal.direction === "bulk"
+            ? ` (${((1 - goal.target_bf) * 100).toFixed(1)}% lean)`
+            : ""
+        }</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
         <td><span class="badge ${goal.direction === "bulk" ? "active" : "inactive"}">${
           goal.direction
@@ -645,9 +680,18 @@ export function renderLogReview(container, values) {
     .join("");
 }
 
-export function renderPlanStats(container, metrics, direction) {
+export function renderPlanStats(container, metrics, direction, isUnconfiguredPlaceholder = false) {
   if (!metrics) {
     container.innerHTML = `<p class="disclaimer">Log a week to preview a plan.</p>`;
+    return;
+  }
+  // Phase 12.1/12.4: the "Current plan" call site passes this for the
+  // account's still-untouched, auto-assigned placeholder goal (Phase 5.2)
+  // -- never for a candidate preview, which is always a real, just-typed
+  // choice worth showing in full.
+  if (isUnconfiguredPlaceholder) {
+    container.innerHTML = `<p class="disclaimer">Maintain (no goal set yet) -- fill in the
+      form below to set a real cut or bulk goal.</p>`;
     return;
   }
   // A bulk goal's Pi_i/daily_deficit_kcal goes negative by construction
@@ -693,13 +737,25 @@ export function renderReport(container, report) {
     generated_at,
   } = report;
 
+  // Phase 12.4: for a bulk goal, "Target body fat" stays the row's label
+  // (unlike the Dashboard's Goal summary tile, which fully relabels to
+  // "Target lean mass") but gains the complementary lean-mass-% figure
+  // alongside it -- the Report is a technical/print document where
+  // showing both numbers next to the original label reads better than
+  // reframing it.
+  const profileIsBulk = profile.direction === "bulk";
   const profileRows = [
     ["Height", `${profile.height_cm} cm`],
     ["Sex", profile.sex === 1 ? "Male" : "Female"],
     ["Birthdate", profile.birthdate],
     [
       "Target body fat",
-      profile.target_bf != null ? `${(profile.target_bf * 100).toFixed(1)}%` : "—",
+      profile.target_bf != null
+        ? `${(profile.target_bf * 100).toFixed(1)}%` +
+          (profileIsBulk
+            ? ` (${((1 - profile.target_bf) * 100).toFixed(1)}% lean mass)`
+            : "")
+        : "—",
     ],
     [
       "Weekly rate",
@@ -737,7 +793,11 @@ export function renderReport(container, report) {
       (goal) => `
       <tr>
         <td>${goal.start_date}</td>
-        <td>${(goal.target_bf * 100).toFixed(1)}%</td>
+        <td>${(goal.target_bf * 100).toFixed(1)}%${
+          goal.direction === "bulk"
+            ? ` (${((1 - goal.target_bf) * 100).toFixed(1)}% lean)`
+            : ""
+        }</td>
         <td>${(goal.weekly_rate * 100).toFixed(2)}%</td>
         <td>${goal.direction}</td>
         <td><span class="badge ${goal.active ? "active" : "inactive"}">${
