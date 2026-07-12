@@ -1546,6 +1546,40 @@ Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
 
 418 server tests unaffected, 71 client tests green (2 new).
 
+#### Phase 11.6 — Two more real-usage bugs: Health Connect sync vs. manual logging (done, v5.1.2)
+
+Two bugs reported after real-world use, both hit by a fresh account that
+had just run its first Health Connect sync (a week of daily-granularity
+steps/nutrition rows) and then went to manage its logs:
+
+- **500 error saving a weekly log with only weight.** `body_logs` has a
+  `UNIQUE(user_id, date)` constraint, but the log wizard's "create" path
+  (`POST /api/logs`) always inserted a brand-new row -- the moment its
+  date already had a row (e.g. a Health Connect-synced day), it raised an
+  unhandled `sqlite3.IntegrityError`, a raw 500. Phase 7.4/7.5 already
+  built the right primitive for this -- the by-date upsert
+  (`PUT /api/logs/by-date/<date>`, `LogManager.upsert_fields`) Health
+  Connect sync itself uses -- but the wizard was never switched over to
+  it; it now is, merging into any existing row instead of colliding with
+  it (a brand-new date still creates a fresh row exactly as before), and
+  only sending the fields the user actually filled in so a save can't
+  silently blank out a synced day's steps/intake. `POST /api/logs` also
+  gained a duplicate-date guard (the same check the import route already
+  had) returning a clean 400 instead of a 500 for any other caller.
+- **Day view sometimes showed a week's data on a single day.** The Log
+  view's day/week navigator (Phase 4.4) correctly shows a "weekly" log
+  across every day of its ISO week in day view (Phase 3.3) -- but applied
+  that rule unconditionally, even to a day that already had its own more
+  specific "daily" log. A week that's both Health Connect-synced and has
+  one real "weekly" log (e.g. a manually-logged weigh-in) showed that
+  same weekly row stacked on every single day on top of that day's own
+  real data. `filteredLogs()` now gives a day's own "daily" log
+  precedence over a merely-covering "weekly" one, the same "a weekly row
+  only fills in what's still missing" rule `LogResampler.resample_to_weekly`
+  already applies server-side (Phase 3.0.2).
+
+419 server tests (1 new), 73 client tests green (2 new).
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
@@ -1711,7 +1745,7 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `5.1.1`/`12`, tracking Phase 11.5's release line.
+to `2.0.0`/`2`; currently `5.1.2`/`13`, tracking Phase 11.6's release line.
 Not done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 
