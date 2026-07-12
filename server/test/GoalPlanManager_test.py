@@ -80,10 +80,10 @@ class GoalPlanManagerTest(unittest.TestCase):
         self.assertIsNone(self.manager.active_period_start(self.user_id))
 
     def test_active_period_start_is_none_for_a_never_changed_goal(self):
-        # A same-day backdated log (or any log dated before the account's
-        # very first goal, always created with start_date=today at
-        # registration) must never be spuriously excluded when the account
-        # has never actually changed its goal.
+        # A log dated before the account's very first goal (created with
+        # start_date=birthdate at registration, UserManager.register) must
+        # never be spuriously excluded when the account has never actually
+        # changed its goal.
         self.manager.create_goal_plan(self.user_id, 0.15, -0.005)
         self.assertIsNone(self.manager.active_period_start(self.user_id))
 

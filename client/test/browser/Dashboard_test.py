@@ -261,6 +261,52 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(marker_titles, ["Last logged"])
 
+    def test_goal_trajectory_marker_shows_a_real_goal_change(self):
+        # The account's very first-ever goal (the Phase 5.2 placeholder)
+        # never gets a "Plan changed" marker (the test above) -- but a
+        # real, deliberately-committed goal change (via the Plan tab,
+        # _set_goal here) is a genuine change and must still get one.
+        self._log_week("2026-06-01", 90.0)
+        self._log_week("2026-06-08", 89.0)
+        self._set_goal()
+        # _set_goal's own commit handler awaits refreshPlan() after its PUT
+        # resolves, which re-fetches the goal list and only then repopulates
+        # #goal-start-date-input with the new goal's real start_date (today)
+        # -- wait for that settled value before touching the field, so this
+        # fill() below isn't racing that in-flight refresh and getting
+        # silently overwritten once it lands.
+        today_iso = self.page.evaluate(
+            "() => { const d = new Date(); "
+            "return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-"
+            "${String(d.getDate()).padStart(2, '0')}`; }"
+        )
+        self.page.wait_for_function(
+            f"document.getElementById('goal-start-date-input').value === '{today_iso}'"
+        )
+        # Committing a goal (Phase 8.1/5.3) scopes computed series to dates
+        # on/after its own start_date, which _set_goal defaults to today --
+        # after the two fixed 2026-06-xx logs above. Backdating it (Phase
+        # 8.1's own "Edit start date" control, already on the Plan tab) to
+        # match them is exactly the real workflow this exists for, and
+        # keeps those logs inside the new goal's active period so the
+        # chart actually has real data to render.
+        self.page.fill("#goal-start-date-input", "2026-06-01")
+        self.page.click("#goal-start-date-form button[type=submit]")
+        self.page.wait_for_function(
+            "document.getElementById('goal-start-date-input').value === '2026-06-01'"
+        )
+
+        self._go_to_dashboard()
+        self.page.click("#dashboard-details > summary")
+        self.page.wait_for_function(
+            "document.getElementById('chart-weight').childElementCount > 0"
+        )
+
+        marker_titles = self.page.eval_on_selector_all(
+            "#chart-goal-trajectory .chart-marker-line title", "els => els.map(e => e.textContent)"
+        )
+        self.assertTrue(any(t.startswith("Plan changed") for t in marker_titles))
+
     def _target_weight_kg(self):
         text = self.page.locator(
             "#summary-goal-stats .stat-tile", has_text="Target weight"

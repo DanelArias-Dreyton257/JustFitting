@@ -104,9 +104,22 @@ class UserManager:
         )
         # `goal_start_date` lets a caller backdate the very first goal
         # (e.g. demo seeding, to match a reference series' actual start)
-        # instead of always stamping it "today" -- see DemoSeeder.py.
+        # instead of the default below -- see DemoSeeder.py.
+        #
+        # That default is the account's own birthdate, not "today". This
+        # goal is always the harmless, auto-assigned placeholder (Phase
+        # 5.2) a brand-new account starts from -- never a real, deliberately
+        # -chosen goal -- but GoalPlanManager.update_start_date (Phase 8.1)
+        # still treats it as "the previous goal" once a real goal replaces
+        # it, requiring the real goal's own (retroactively editable) start
+        # date to fall strictly after it. Stamping the placeholder "today"
+        # made that floor the registration date, blocking the exact case
+        # Phase 8.1 exists for -- a user who was already mid-cut/mid-bulk
+        # for months before finding this app backdating their first real
+        # goal to when it actually started. birthdate is the one date that
+        # can never legitimately need to be backdated past.
         self.goal_plan_manager.create_goal_plan(
-            profile.user_id, target_bf, weekly_rate, start_date=goal_start_date or date.today()
+            profile.user_id, target_bf, weekly_rate, start_date=goal_start_date or birthdate
         )
         return profile
 

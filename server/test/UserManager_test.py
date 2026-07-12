@@ -58,6 +58,34 @@ class UserManagerTest(unittest.TestCase):
         )
         self.assertEqual(by_email.user_id, profile.user_id)
 
+    def test_initial_goal_starts_on_the_accounts_birthdate_not_registration_day(self):
+        # A real bug: the auto-assigned placeholder goal (Phase 5.2) used
+        # to start "today" (registration day), which became the floor
+        # GoalPlanManager.update_start_date (Phase 8.1) enforced against
+        # once a real goal replaced it -- blocking a user who was already
+        # mid-cut/mid-bulk for months before finding the app from
+        # backdating their first real goal to when it actually started.
+        # birthdate is the one date a real goal never legitimately needs
+        # to precede.
+        profile = self._register(birthdate=date(1995, 3, 10))
+        initial_goal = self.goal_plan_manager.get_active(profile.user_id)
+        self.assertEqual(initial_goal.start_date, date(1995, 3, 10))
+
+    def test_backdating_the_first_real_goal_past_registration_day_now_works(self):
+        profile = self._register(birthdate=date(1995, 3, 10))
+        # Commit a real goal, replacing the placeholder -- same as the
+        # Plan tab's preview -> commit flow, which never passes start_date
+        # itself (GoalPlanManager.create_goal_plan defaults it to today).
+        self.goal_plan_manager.create_goal_plan(profile.user_id, 0.15, -0.01)
+
+        # Backdate it to reflect a cut that actually started years before
+        # registering -- used to fail here, since the placeholder's
+        # start_date (registration day) was the enforced floor.
+        updated = self.goal_plan_manager.update_start_date(
+            profile.user_id, date(2020, 1, 1)
+        )
+        self.assertEqual(updated.start_date, date(2020, 1, 1))
+
         self.assertIsNone(self.manager.authenticate("demo_cut", "wrong password"))
 
     def test_register_rejects_duplicate_username_or_email(self):

@@ -1546,6 +1546,86 @@ Two bugs reported after real-world use of v5.1.0, `things-to-improve.txt`'s
 
 418 server tests unaffected, 71 client tests green (2 new).
 
+#### Phase 11.6 — Two more real-usage bugs: Health Connect sync vs. manual logging (done, v5.1.2)
+
+Two bugs reported after real-world use, both hit by a fresh account that
+had just run its first Health Connect sync (a week of daily-granularity
+steps/nutrition rows) and then went to manage its logs:
+
+- **500 error saving a weekly log with only weight.** `body_logs` has a
+  `UNIQUE(user_id, date)` constraint, but the log wizard's "create" path
+  (`POST /api/logs`) always inserted a brand-new row -- the moment its
+  date already had a row (e.g. a Health Connect-synced day), it raised an
+  unhandled `sqlite3.IntegrityError`, a raw 500. Phase 7.4/7.5 already
+  built the right primitive for this -- the by-date upsert
+  (`PUT /api/logs/by-date/<date>`, `LogManager.upsert_fields`) Health
+  Connect sync itself uses -- but the wizard was never switched over to
+  it; it now is, merging into any existing row instead of colliding with
+  it (a brand-new date still creates a fresh row exactly as before), and
+  only sending the fields the user actually filled in so a save can't
+  silently blank out a synced day's steps/intake. `POST /api/logs` also
+  gained a duplicate-date guard (the same check the import route already
+  had) returning a clean 400 instead of a 500 for any other caller.
+- **Day view sometimes showed a week's data on a single day.** The Log
+  view's day/week navigator (Phase 4.4) correctly shows a "weekly" log
+  across every day of its ISO week in day view (Phase 3.3) -- but applied
+  that rule unconditionally, even to a day that already had its own more
+  specific "daily" log. A week that's both Health Connect-synced and has
+  one real "weekly" log (e.g. a manually-logged weigh-in) showed that
+  same weekly row stacked on every single day on top of that day's own
+  real data. `filteredLogs()` now gives a day's own "daily" log
+  precedence over a merely-covering "weekly" one, the same "a weekly row
+  only fills in what's still missing" rule `LogResampler.resample_to_weekly`
+  already applies server-side (Phase 3.0.2).
+
+419 server tests (1 new), 73 client tests green (2 new).
+
+#### Phase 11.7 — Fix goal start-date backdating blocked by the placeholder's registration-day floor (done, v5.1.2)
+
+Problem: the account's auto-assigned placeholder goal (Phase 5.2) had its
+`start_date` stamped "today" (registration day). Since
+`GoalPlanManager.update_start_date` (Phase 8.1) requires a backdated start
+date to fall strictly after the *previous* goal's own `start_date`, once a
+real goal replaced the placeholder, that registration-day stamp became
+the enforced floor for it -- blocking the exact case Phase 8.1 exists
+for: a user already mid-cut/mid-bulk for months before finding the app,
+backdating their first real goal to when it actually started.
+
+- `UserManager.register` now stamps the placeholder's `start_date` with
+  the account's own birthdate instead of `date.today()` -- the one date a
+  real goal never legitimately needs to precede -- so that floor is
+  effectively gone. `DemoSeeder`'s explicit `goal_start_date` (matching
+  each reference series' own real start) is unaffected either way.
+- Two knock-on fixes needed to keep this consistent, both places that
+  used to lean on the placeholder's `start_date` coinciding with
+  registration day: the `stale_log` alert's "never logged at all" case
+  (Phase 11.3) anchored to the active goal's `start_date`, which would
+  otherwise now flag every brand-new zero-log account as stale (a
+  birthdate is typically decades in the past) -- it's anchored to the
+  account's own creation date (`UserProfile.created_at`) instead,
+  threaded through `AlertSyncService.sync_alerts` -> `detect_alerts` ->
+  `_stale_log_alerts`. The Dashboard's goal-trajectory chart marked every
+  goal in an account's history as a "Plan changed" point on
+  `goal.start_date`, including the very first-ever one, which (now dated
+  at birth, not registration) would otherwise always land inside the
+  chart's real-data domain and render a spurious marker -- the account's
+  first-ever goal (lowest `goal_id`, chronologically) is now excluded from
+  `goalMarkers` (`app.js`), since it never represents a change from a
+  prior goal, whether it's the auto-assigned placeholder or a real goal
+  set explicitly at signup. Both fixes mirror the same "only a genuinely
+  different, deliberately-chosen prior period counts" rule
+  `GoalPlanManager.active_period_start` already applies server-side
+  (Phase 5.3).
+
+New coverage: `UserManager_test.py` gained cases for the placeholder's
+birthdate `start_date` and for backdating a real goal past registration
+day now working; `Api_test.py` gained an end-to-end case for the same;
+`Alerts_test.py`'s stale-log cases were updated for the new
+`account_created_at` anchor, plus a case confirming a goal dated at birth
+is never mistaken for "account created decades ago"; `Dashboard_test.py`
+gained a case confirming a real goal change still gets its own "Plan
+changed" marker. 423 server tests (4 new), 74 client tests green (1 new).
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
@@ -1711,7 +1791,7 @@ environment variables anywhere in the chain. `android/app/build.gradle`'s
 `versionName`/`versionCode` now track the repo's own `vX.Y.Z` release
 tags (README's Versioning section), having never previously been bumped
 past their Phase-2-scaffold defaults (`1.0`/`1`) until Phase 6 moved them
-to `2.0.0`/`2`; currently `5.1.1`/`12`, tracking Phase 11.5's release line.
+to `2.0.0`/`2`; currently `5.1.2`/`13`, tracking Phase 11.6's release line.
 Not done: a release keystore/signed build, and an emulator system image
 (needs admin — use a real device instead, see above).
 

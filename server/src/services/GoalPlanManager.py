@@ -180,14 +180,17 @@ class GoalPlanManager:
 
         Returns `None` whenever there's nothing to exclude: no active goal,
         or the account has never changed its goal (`list_history` length
-        <= 1). Every account's very first goal is created with
-        `start_date=date.today()` at registration (`UserManager.register`),
-        so naively filtering to `date >= active_goal.start_date`
-        unconditionally would drop any log dated before signup -- including
-        a same-day backdated entry -- even for an account that has never
-        touched its goal. Only once a goal change has actually happened
-        (a second `goal_plans` row exists) is there a genuinely different
-        prior period to exclude.
+        <= 1). Every account's very first goal is the harmless, auto-
+        assigned placeholder (Phase 5.2) created at registration with
+        `start_date=birthdate` (`UserManager.register`) -- never a real,
+        deliberately-chosen period -- so naively filtering to
+        `date >= active_goal.start_date` unconditionally would be a no-op
+        at best for an account that's never touched its goal, and at worst
+        (before the placeholder's start_date was the account's birthdate)
+        dropped real logged history that predated it. Only once a goal
+        change has actually happened (a second `goal_plans` row exists) is
+        there a genuinely different, deliberately-chosen prior period to
+        exclude.
         """
         goal = self.get_active(user_id)
         if goal is None or len(self.list_history(user_id)) <= 1:

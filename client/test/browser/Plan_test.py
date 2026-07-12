@@ -121,15 +121,20 @@ class PlanTest(unittest.TestCase):
         self.page.click("#body-save")
         self.page.wait_for_selector(f'#body-table tbody tr td:text-is("{iso_date}")')
 
-    def test_goal_start_date_defaults_to_today_and_is_editable(self):
-        today_iso = datetime.date.today().isoformat()
+    def test_goal_start_date_defaults_to_birthdate_and_is_editable(self):
+        # The account's very first-ever goal (the auto-assigned placeholder,
+        # Phase 5.2) starts on the account's own birthdate ("2001-08-22"
+        # here, per _register_payload) rather than "today" (Phase 11.6) --
+        # otherwise that registration-day floor blocks backdating a real
+        # goal to reflect a cut/bulk that actually started months before
+        # the user found the app.
         self._navigate("plan")
         self.page.wait_for_function(
             "document.getElementById('goal-start-date-section').hidden === false"
         )
         self.assertEqual(
             self.page.eval_on_selector("#goal-start-date-input", "el => el.value"),
-            today_iso,
+            "2001-08-22",
         )
 
         backdated = (datetime.date.today() - datetime.timedelta(days=60)).isoformat()

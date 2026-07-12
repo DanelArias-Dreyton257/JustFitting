@@ -167,6 +167,32 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(missing_update.status_code, 404)
 
+    def test_create_log_on_a_date_that_already_has_a_row_400s_instead_of_500ing(self):
+        """A real bug (see CHANGELOG): body_logs has a UNIQUE(user_id, date)
+        constraint, but POST /api/logs never checked for an existing row
+        before inserting -- a date already synced (e.g. Health Connect's
+        steps/nutrition upsert) raised an unhandled sqlite3.IntegrityError,
+        a 500, the moment a second POST /api/logs targeted the same date.
+        The route now guards this the same way the import route already
+        does, returning a clean 400 instead."""
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+
+        self.client.put(
+            "/api/logs/by-date/2026-02-01",
+            json={"steps": 7000, "granularity": "daily"},
+            headers=headers,
+        )
+        conflict_response = self.client.post(
+            "/api/logs",
+            json={"date": "2026-02-01", "weight_kg": 90.0, "granularity": "weekly"},
+            headers=headers,
+        )
+        self.assertEqual(conflict_response.status_code, 400)
+
+        list_response = self.client.get("/api/logs", headers=headers)
+        self.assertEqual(len(list_response.get_json()), 1)
+
     def test_upsert_by_date_creates_a_partial_row_then_merges_more_fields_in(self):
         """Phase 7.4 (partial logs & independent-source merging, see
         README): PUT /api/logs/by-date/<date> is the order-independent
@@ -827,8 +853,8 @@ class ApiTestCase(unittest.TestCase):
 
     def test_metrics_series_unaffected_for_an_account_that_never_changes_its_goal(self):
         # The no-op guarantee: a never-changed goal (even one whose
-        # start_date is "today", from registration) must never exclude a
-        # log dated before it.
+        # start_date is the account's own birthdate, from registration)
+        # must never exclude a log dated before it.
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
         self._seed_two_logs(headers)
@@ -894,18 +920,42 @@ class ApiTestCase(unittest.TestCase):
     def test_update_active_goal_start_date_rejects_before_the_previous_goal(self):
         token = self._register().get_json()["token"]
         headers = self._auth_header(token)
-        # The account's second goal (registration's is the first, dated
-        # today) -- update_profile only historizes target_bf/weekly_rate,
-        # so this goal's own start_date is "today" too.
+        # The account's second goal (registration's placeholder is the
+        # first, dated the account's own birthdate -- "2001-08-22" here,
+        # UserManager.register) -- update_profile only historizes
+        # target_bf/weekly_rate, so this goal's own start_date defaults to
+        # today. Any date before the placeholder's birthdate floor is
+        # still rejected.
         self.client.put(
             "/api/users/me", json={"target_bf": 0.2}, headers=headers
         )
         response = self.client.put(
             "/api/users/me/goals/active/start-date",
-            json={"start_date": "2020-01-01"},
+            json={"start_date": "2000-01-01"},
             headers=headers,
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_update_active_goal_start_date_allows_backdating_past_registration_day(self):
+        # A real bug (see CHANGELOG): the placeholder's start_date used to
+        # be stamped "today" (registration day), which became the enforced
+        # floor for the real goal that replaces it -- blocking a user who
+        # was already mid-cut/mid-bulk for months before finding the app
+        # from backdating their first real goal to when it actually
+        # started. The placeholder now starts on the account's own
+        # birthdate ("2001-08-22" here) instead, so a real start date years
+        # before registration -- but still after birthdate -- now works.
+        token = self._register().get_json()["token"]
+        headers = self._auth_header(token)
+        self.client.put("/api/users/me", json={"target_bf": 0.2}, headers=headers)
+
+        response = self.client.put(
+            "/api/users/me/goals/active/start-date",
+            json={"start_date": "2020-01-01"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["start_date"], "2020-01-01")
 
     def test_update_active_goal_start_date_rejects_an_invalid_payload(self):
         token = self._register().get_json()["token"]

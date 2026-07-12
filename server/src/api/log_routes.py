@@ -35,9 +35,23 @@ def list_logs():
 def create_log():
     payload = request.get_json(force=True) or {}
     try:
+        log_date = date.fromisoformat(payload["date"])
+    except (KeyError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    # `body_logs` has a UNIQUE(user_id, date) constraint -- without this
+    # guard, a date that already has a row (e.g. a Health Connect-synced
+    # day) raises an unhandled sqlite3.IntegrityError here, a 500 instead
+    # of a clean error. Same guard the import route (user_routes.py) already
+    # uses for the same reason. The client's own log wizard no longer hits
+    # this at all (it upserts by date instead, see app.js), but this stays
+    # as defense-in-depth for any other caller of this "strictly create a
+    # new row" route.
+    if _log_manager().get_by_date(g.user_id, log_date) is not None:
+        return jsonify({"error": "a log already exists for this date"}), 400
+    try:
         log = _log_manager().create_log(
             user_id=g.user_id,
-            log_date=date.fromisoformat(payload["date"]),
+            log_date=log_date,
             # Phase 7.4 (partial logs, see README): optional, not
             # required -- `_optional_float` treats a missing key the same
             # as an explicit `null`, "not logged yet by any source".

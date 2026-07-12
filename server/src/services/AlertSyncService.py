@@ -30,6 +30,9 @@ def sync_alerts(
     goal_plan_manager = app.extensions["goal_plan_manager"]
     goal = goal_plan_manager.get_active(user_id)
     goal_history_count = len(goal_plan_manager.list_history(user_id))
+    user_manager = app.extensions["user_manager"]
+    profile = user_manager.get_profile(user_id)
+    account_created_at = profile.created_at.date() if profile is not None else None
     gain_quality = GainQuality.compute_gain_quality(results) if results else []
     reconciliation = (
         EnergyReconciliation.compute_energy_reconciliation(logs, results, thresholds)
@@ -52,6 +55,7 @@ def sync_alerts(
         goal_history_count=goal_history_count,
         today=today,
         all_logs=all_logs,
+        account_created_at=account_created_at,
     )
     alert_log_dao = app.extensions["alert_log_dao"]
     alert_log_dao.record_detected(user_id, detected)

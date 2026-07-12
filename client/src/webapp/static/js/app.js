@@ -437,14 +437,28 @@ async function renderDashboardCharts() {
   );
 
   // A goal's start_date is set from the real wall-clock date it was
-  // created/changed, which can fall after the last logged week (e.g. the
-  // very first goal, dated at registration). Previously that always
-  // landed off the chart's real-only date domain and got silently
-  // clamped to the right edge; now that the forecast toggle can widen the
-  // domain past it, it would otherwise reappear mid-chart looking like an
-  // unrelated second "Last logged" line -- so it's excluded once it's no
-  // longer describing a change within the real data itself.
+  // created/changed, which can fall after the last logged week (e.g. a
+  // just-committed goal change dated today, on an account whose logs
+  // stop earlier). Previously that always landed off the chart's real-
+  // only date domain and got silently clamped to the right edge; now that
+  // the forecast toggle can widen the domain past it, it would otherwise
+  // reappear mid-chart looking like an unrelated second "Last logged"
+  // line -- so it's excluded once it's no longer describing a change
+  // within the real data itself.
+  //
+  // The account's very first-ever goal (lowest goal_id, chronologically
+  // -- Phase 11.6 stamps it with the account's own birthdate as its
+  // start_date, not "today") never represents a real "change" either way,
+  // since there's no prior goal it changed *from* -- whether it's the
+  // Phase 5.2 auto-assigned placeholder or a real goal set explicitly at
+  // signup. Same "only a genuinely different, deliberately-chosen prior
+  // period counts" rule GoalPlanManager.active_period_start already
+  // applies server-side.
+  const firstEverGoalId = goals.length
+    ? goals.reduce((min, goal) => Math.min(min, goal.goal_id), goals[0].goal_id)
+    : null;
   const goalMarkers = goals
+    .filter((goal) => goal.goal_id !== firstEverGoalId)
     .filter((goal) => !lastLoggedDate || goal.start_date <= lastLoggedDate)
     .map((goal) => ({
       date: goal.start_date,
@@ -662,6 +676,23 @@ function filteredLogs() {
   // own literal logged date (which is often the day it happened to be
   // entered, e.g. a Sunday). A "daily" log still only matches its own
   // exact date, since it genuinely represents just that one day.
+  //
+  // But that only holds for a day that has no more specific data of its
+  // own -- body_logs' UNIQUE(user_id, date) means at most one row can
+  // ever be dated exactly `selectedDate`, so if that row is a real
+  // "daily" entry (e.g. a Health Connect-synced day), it takes precedence
+  // over any "weekly" log merely covering the week, the same "a weekly
+  // row only fills in whatever's still missing" rule
+  // LogResampler.resample_to_weekly already applies server-side (see
+  // README's Phase 3.0.2 fix). Without this, a week that's both Health
+  // Connect-synced (a "daily" row per day) and has one manually-entered
+  // "weekly" log would show that same weekly row stacked on every single
+  // day alongside that day's own real data, instead of just that day's
+  // own log.
+  const ownDailyLog = state.logs.find(
+    (log) => log.date === selectedDate && log.granularity === "daily"
+  );
+  if (ownDailyLog) return [ownDailyLog];
   return state.logs.filter((log) => {
     if (log.granularity === "weekly") {
       const { start, end } = isoWeekRange(log.date);
@@ -1110,9 +1141,34 @@ document.getElementById("log-form").addEventListener("submit", async (event) => 
       await api.updateLog(state.editingLogId, measurements);
       exitEditMode();
     } else {
-      await api.createLog({
-        ...measurements,
-        date: raw.date,
+      // Phase 7.4/7.5 (partial logs & Health Connect sync, see README)
+      // already established the by-date upsert as the order-/source-
+      // independent primitive for "this date might already have a row" --
+      // health sync uses it, but the wizard never switched over and kept
+      // calling the strict POST /api/logs create route, which 500s with a
+      // raw sqlite3.IntegrityError (UNIQUE(user_id, date)) the moment a
+      // synced day (e.g. today's steps/nutrition) already has a row and
+      // the user tries to log onto that same date -- a fresh account that
+      // just synced a week of Health Connect data hits this on its very
+      // first manual log. Using the upsert here merges the wizard's
+      // fields into any existing row instead of colliding with it; a
+      // brand-new date still creates a fresh row exactly as before,
+      // seeded with the wizard's chosen granularity.
+      //
+      // Only the fields actually filled in are sent -- unlike edit mode
+      // (which sends every field, including an explicit null for one the
+      // user deliberately blanked on a row they can already see), a fresh
+      // "create" wizard always starts blank with no idea an existing row
+      // (e.g. a synced day) might already have real steps/intake/macros.
+      // Sending those as explicit nulls would wipe that data out via the
+      // merge instead of just adding what the user actually typed; a
+      // brand-new row is unaffected either way, since an omitted field
+      // there just falls back to create_log's own null default.
+      const filledFields = Object.fromEntries(
+        Object.entries(measurements).filter(([, value]) => value !== null)
+      );
+      await api.upsertLogByDate(raw.date, {
+        ...filledFields,
         granularity: raw.granularity || "weekly",
       });
     }
