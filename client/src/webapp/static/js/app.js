@@ -28,6 +28,7 @@ import {
   showWizardStep,
   renderLogReview,
   renderPlanStats,
+  renderPlanDirectionUI,
   renderReport,
   renderSexDisclaimer,
   fillSettingsForm,
@@ -295,7 +296,12 @@ async function refreshDashboardSummary() {
     adherence,
     latestRealLog
   );
-  renderGoalSummary(document.getElementById("summary-goal-stats"), latest, state.profile);
+  renderGoalSummary(
+    document.getElementById("summary-goal-stats"),
+    latest,
+    state.profile,
+    goals.length
+  );
   renderGoalProgressBar(document.getElementById("dashboard-goal-progress"), activeGoal, latest);
   renderAlerts(document.getElementById("dashboard-alerts"), alerts);
   renderSexDisclaimer(document.getElementById("sex-disclaimer"), state.profile);
@@ -856,6 +862,19 @@ function enterBodyEditMode(measurement) {
   document.getElementById("body-cancel-edit").hidden = false;
 }
 
+// Phase 12.3: the same stored target_bf fraction displays as "target body
+// fat %" for a cut but its complement, "target lean mass %", for a bulk --
+// see docs/composition_spec.md's "Phase 12" section for why. These convert
+// between the stored fraction and whichever framing is currently shown.
+function planTargetPctFromFraction(targetBf, direction) {
+  return ((direction === "bulk" ? 1 - targetBf : targetBf) * 100).toFixed(1);
+}
+
+function planTargetFractionFromPct(displayPct, direction) {
+  const value = Number(displayPct) / 100;
+  return direction === "bulk" ? 1 - value : value;
+}
+
 async function refreshPlan() {
   const [profile, current, goals, activityGoal] = await Promise.all([
     api.me(),
@@ -868,9 +887,17 @@ async function refreshPlan() {
   renderActivityGoalStatus(document.getElementById("activity-goal-status"), activityGoal);
   setFormError("activity-goal-form", "");
   const form = document.getElementById("plan-form");
-  form.target_bf_pct.value = (profile.target_bf * 100).toFixed(1);
+  form.direction.value = profile.direction;
+  renderPlanDirectionUI(profile.direction);
+  form.target_bf_pct.value = planTargetPctFromFraction(profile.target_bf, profile.direction);
   form.weekly_rate_pct.value = (profile.weekly_rate * 100).toFixed(2);
-  renderPlanStats(document.getElementById("plan-current-stats"), current, profile.direction);
+  const isUnconfiguredPlaceholder = goals.length === 1 && Math.abs(profile.weekly_rate) < 1e-9;
+  renderPlanStats(
+    document.getElementById("plan-current-stats"),
+    current,
+    profile.direction,
+    isUnconfiguredPlaceholder
+  );
   renderGoalHistory(document.querySelector("#goal-history-table tbody"), goals);
 
   // Phase 8.1: the active goal's start date is only editable bounded
@@ -1296,20 +1323,63 @@ document.getElementById("goal-start-date-form").addEventListener("submit", async
   }
 });
 
+// Phase 12.3: switching Cut/Bulk relabels the target field and re-reads the
+// currently-typed number under the new framing, so the underlying target_bf
+// fraction stays whatever it already was -- only its on-screen framing
+// flips (e.g. 15% body fat <-> 85% lean mass), matching refreshPlan()'s own
+// initial-load conversion below.
+function handlePlanDirectionChange(newDirection) {
+  renderPlanDirectionUI(newDirection);
+  const targetInput = document.querySelector('#plan-form [name="target_bf_pct"]');
+  if (targetInput.value !== "") {
+    const targetBf = planTargetFractionFromPct(
+      targetInput.value,
+      newDirection === "bulk" ? "cut" : "bulk"
+    );
+    targetInput.value = planTargetPctFromFraction(targetBf, newDirection);
+  }
+}
+
+document.getElementById("plan-direction-cut").addEventListener("change", () => {
+  handlePlanDirectionChange("cut");
+});
+
+document.getElementById("plan-direction-bulk").addEventListener("change", () => {
+  handlePlanDirectionChange("bulk");
+});
+
 document.getElementById("plan-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormError("plan-form", "");
   setFormError("plan-commit", "");
   const raw = formToJson(event.target);
+  const direction = raw.direction;
+  const weekly_rate = Number(raw.weekly_rate_pct) / 100;
+
+  // Mirrors GoalPlanManager.check_direction_matches_rate server-side --
+  // catches a mismatched sign with a fast inline error instead of a round
+  // trip. weekly_rate=0 (the maintenance case) has no sign to check, same
+  // exception the server makes.
+  if (Math.abs(weekly_rate) > 1e-9) {
+    if (direction === "bulk" && weekly_rate < 0) {
+      setFormError("plan-form", "Weekly rate must be positive for a bulk goal.");
+      return;
+    }
+    if (direction === "cut" && weekly_rate > 0) {
+      setFormError("plan-form", "Weekly rate must be negative for a cut goal.");
+      return;
+    }
+  }
+
   const params = {
-    target_bf: Number(raw.target_bf_pct) / 100,
-    weekly_rate: Number(raw.weekly_rate_pct) / 100,
+    target_bf: planTargetFractionFromPct(raw.target_bf_pct, direction),
+    weekly_rate,
+    direction,
   };
   try {
     const proposed = await api.planPreview(params);
     state.planPreviewParams = params;
-    const direction = params.weekly_rate > 0 ? "bulk" : "cut";
-    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed, direction);
+    renderPlanStats(document.getElementById("plan-proposed-stats"), proposed, params.direction);
     document.getElementById("plan-preview-result").hidden = false;
   } catch (err) {
     state.planPreviewParams = null;

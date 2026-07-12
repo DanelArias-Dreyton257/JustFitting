@@ -15,6 +15,25 @@ export function setFormError(formId, message) {
   if (el) el.textContent = message || "";
 }
 
+// Phase 12.3: the Plan tab's goal-type selector replaces the Phase 12.1
+// sign-inference bridge -- the target-percentage field's label and the
+// weekly-rate field's helper text relabel live per direction, since the
+// same stored target_bf fraction reads as "target body fat" for a cut but
+// "target lean mass" (its complement) for a bulk.
+export function renderPlanDirectionUI(direction) {
+  const isBulk = direction === "bulk";
+  const labelText = document.getElementById("plan-target-label-text");
+  if (labelText) labelText.textContent = isBulk ? "Target lean mass" : "Target body fat";
+  const help = document.getElementById("plan-weekly-rate-help");
+  if (help) {
+    help.innerHTML = isBulk
+      ? 'Enter a percentage, not a fraction -- e.g. <code>0.5</code> for a ' +
+        "+0.5%/week bulk (a weekly weight-gain rate)."
+      : 'Enter a percentage, not a fraction -- e.g. <code>-1</code> for a ' +
+        "-1%/week cut (a weekly weight-loss rate).";
+  }
+}
+
 function formatAdherence(adherence, withPerDay = true) {
   if (!adherence || adherence.mean_intake_diff_kcal == null) {
     return "No real-intake logs yet";

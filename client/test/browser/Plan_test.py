@@ -121,6 +121,16 @@ class PlanTest(unittest.TestCase):
         self.page.click("#body-save")
         self.page.wait_for_selector(f'#body-table tbody tr td:text-is("{iso_date}")')
 
+    def test_current_plan_shows_maintain_placeholder_before_a_real_goal_is_set(self):
+        # Phase 12.4: the "Current plan" section must not present the
+        # auto-assigned placeholder's own target_bf/weekly_rate (Phase 5.2)
+        # as if they were a real, deliberately-chosen goal.
+        self._log_a_real_week()
+        self._navigate("plan")
+        self.page.wait_for_selector("#plan-current-stats")
+        current_text = self.page.inner_text("#plan-current-stats")
+        self.assertIn("Maintain (no goal set yet)", current_text)
+
     def test_goal_start_date_defaults_to_birthdate_and_is_editable(self):
         # The account's very first-ever goal (the auto-assigned placeholder,
         # Phase 5.2) starts on the account's own birthdate ("2001-08-22"
@@ -169,21 +179,114 @@ class PlanTest(unittest.TestCase):
         )
         self.assertFalse(is_valid)
 
+    def test_plan_direction_selector_defaults_to_cut_with_matching_label(self):
+        # Phase 12.3: the account's auto-assigned placeholder goal (Phase
+        # 5.2) is always direction="cut" -- the selector and target-field
+        # label must reflect that on first load, not the pre-12.3
+        # sign-inference default.
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.assertTrue(self.page.is_checked("#plan-direction-cut"))
+        self.assertFalse(self.page.is_checked("#plan-direction-bulk"))
+        self.assertEqual(
+            self.page.inner_text("#plan-target-label-text"), "Target body fat"
+        )
+
+    def test_toggling_direction_relabels_and_converts_the_target_field(self):
+        # Phase 12.3: the same stored target_bf fraction displays as
+        # "target body fat %" for a cut and its complement, "target lean
+        # mass %", for a bulk -- toggling must re-convert whatever's
+        # already typed, not just relabel a now-stale number.
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.page.fill('#plan-form [name="target_bf_pct"]', "15")
+        self.page.check("#plan-direction-bulk")
+        self.assertEqual(
+            self.page.inner_text("#plan-target-label-text"), "Target lean mass"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#plan-form [name="target_bf_pct"]', "el => el.value"),
+            "85.0",
+        )
+
+        # Toggling back to cut converts it right back to 15.
+        self.page.check("#plan-direction-cut")
+        self.assertEqual(
+            self.page.inner_text("#plan-target-label-text"), "Target body fat"
+        )
+        self.assertEqual(
+            self.page.eval_on_selector('#plan-form [name="target_bf_pct"]', "el => el.value"),
+            "15.0",
+        )
+
+    def test_mismatched_direction_and_rate_shows_a_client_side_inline_error(self):
+        # Phase 12.3: mirrors GoalPlanManager.check_direction_matches_rate
+        # server-side -- a bulk direction with a negative rate is caught
+        # client-side, before any network round trip (the preview panel
+        # never appears).
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.page.check("#plan-direction-bulk")
+        self.page.fill('#plan-form [name="target_bf_pct"]', "15")
+        self.page.fill('#plan-form [name="weekly_rate_pct"]', "-0.5")
+        self.page.click('#plan-form button[type=submit]')
+        self.page.wait_for_function(
+            "document.querySelector('.form-error[data-for=\"plan-form\"]').textContent !== ''"
+        )
+        self.assertIn(
+            "positive",
+            self.page.inner_text('.form-error[data-for="plan-form"]'),
+        )
+        self.assertTrue(self.page.is_hidden("#plan-preview-result"))
+
     def test_incoherent_plan_preview_shows_an_inline_error(self):
         self._log_a_real_week()
         self._navigate("plan")
         self.page.wait_for_function(
             "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
         )
-        # The logged week's real body fat is well above 15% -- pairing that
-        # cut target with a positive (bulk) weekly rate is incoherent.
-        self.page.fill('#plan-form [name="target_bf_pct"]', "15")
-        self.page.fill('#plan-form [name="weekly_rate_pct"]', "0.5")
+        # Phase 12.2: both a cut and a bulk goal must target a body fat
+        # percentage at or below the account's current one (a bulk reaches
+        # it by growing lean mass, diluting a fixed fat mass, not by
+        # gaining fat) -- 30% is well above the logged week's real body
+        # fat, so this is incoherent regardless of direction. Rate stays
+        # negative (matching the default Cut selection) so this exercises
+        # the server's coherence rejection specifically, not Phase 12.3's
+        # client-side sign-mismatch check (covered separately below).
+        self.page.fill('#plan-form [name="target_bf_pct"]', "30")
+        self.page.fill('#plan-form [name="weekly_rate_pct"]', "-0.5")
         self.page.click('#plan-form button[type=submit]')
         self.page.wait_for_function(
             "document.querySelector('.form-error[data-for=\"plan-form\"]').textContent !== ''"
         )
         self.assertTrue(self.page.is_hidden("#plan-preview-result"))
+
+    def test_coherent_bulk_plan_preview_targeting_below_current_now_works(self):
+        # Phase 12.2: a bulk goal targeting a body fat percentage below the
+        # account's current one used to be rejected (the pre-12.2 sign rule
+        # required a bulk target at or above current) -- it's coherent now,
+        # since a bulk reaches its target by growing lean mass while fat
+        # mass holds steady, the same "target <= current" rule a cut
+        # already followed. Phase 12.3: direction now comes from the
+        # explicit selector, and the target field reads as lean-mass % for
+        # a bulk -- "85" here means target_bf=0.15, the same target this
+        # test exercised before 12.3 added the conversion.
+        self._log_a_real_week()
+        self._navigate("plan")
+        self.page.wait_for_function(
+            "document.querySelector('#plan-form [name=\"target_bf_pct\"]').value !== ''"
+        )
+        self.page.check("#plan-direction-bulk")
+        self.page.fill('#plan-form [name="target_bf_pct"]', "85")
+        self.page.fill('#plan-form [name="weekly_rate_pct"]', "0.5")
+        self.page.click('#plan-form button[type=submit]')
+        self.page.wait_for_selector("#plan-preview-result:not([hidden])")
 
     def test_coherent_plan_preview_still_works(self):
         self._log_a_real_week()
