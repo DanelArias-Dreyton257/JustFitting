@@ -222,6 +222,43 @@ class LogNavTest(unittest.TestCase):
         self._jump_to_date(day_after)
         self.page.wait_for_selector("#log-list-empty:visible")
 
+    def test_a_days_own_daily_log_takes_precedence_over_a_covering_weekly_log(self):
+        # A real bug (see CHANGELOG): the rule above ("a weekly log covers
+        # every day of its week in day view") was applied unconditionally,
+        # even for a day that already has its own more specific "daily"
+        # log (e.g. a Health Connect-synced day) -- so a week that's both
+        # daily-synced *and* has one real weekly log (a common real-world
+        # mix: synced steps/nutrition plus a manually-logged weigh-in)
+        # showed that same weekly row stacked on every single day, on top
+        # of that day's own real data. Day view should show a day's own
+        # daily log alone, the same "a weekly row only fills in what's
+        # still missing" rule LogResampler.resample_to_weekly already
+        # applies server-side.
+        iso_monday = _MONDAY.isoformat()
+        iso_tuesday = _TUESDAY.isoformat()
+
+        self.page.click("#log-nav-week")  # week view defaults new logs to "weekly"
+        self._log_on(iso_monday, 90.0)
+        self.page.click("#log-nav-day")
+        self._log_on(iso_tuesday, 89.0)  # day view defaults new logs to "daily"
+
+        self._jump_to_date(iso_tuesday)
+        self.page.wait_for_function(
+            "document.querySelectorAll('#log-table tbody tr').length === 1"
+        )
+        rows = self.page.locator("#log-table tbody tr")
+        self.assertEqual(rows.first.locator("td").first.inner_text(), iso_tuesday)
+        self.assertIn("daily", rows.first.inner_text().lower())
+
+        # Monday itself is unaffected -- still shows its own weekly log.
+        self._jump_to_date(iso_monday)
+        self.page.wait_for_function(
+            "document.querySelectorAll('#log-table tbody tr').length === 1"
+        )
+        self.assertEqual(
+            self.page.locator("#log-table tbody tr td").first.inner_text(), iso_monday
+        )
+
     def test_daily_log_only_covers_its_own_day(self):
         # Unlike a weekly log, a "daily" log genuinely represents just that
         # one day -- it must not spill over into neighboring days.
@@ -231,6 +268,47 @@ class LogNavTest(unittest.TestCase):
         iso_tuesday = _TUESDAY.isoformat()
         self._jump_to_date(iso_tuesday)
         self.page.wait_for_selector("#log-list-empty:visible")
+
+    def test_saving_a_weight_only_log_onto_an_already_logged_date_merges_not_500s(self):
+        # A real bug (see CHANGELOG): body_logs has a UNIQUE(user_id, date)
+        # constraint, so a date that already has a row (e.g. one upserted
+        # by Health Connect sync -- api.upsertLogByDate, the same primitive
+        # used here) used to 500 the moment the wizard's "create" path
+        # (POST /api/logs) tried to save onto that same date. Saving
+        # weight-only onto an already-synced day is exactly the scenario a
+        # fresh account hits right after its first Health Connect sync.
+        iso_date = _MONDAY.isoformat()
+        self.page.evaluate(
+            """
+            async (date) => {
+                const token = localStorage.getItem('justfitting.token');
+                await fetch(window.JUSTFITTING_API_BASE_URL + '/api/logs/by-date/' + date, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ steps: 7000, intake_kcal: 2200, granularity: 'daily' }),
+                });
+            }
+            """,
+            iso_date,
+        )
+
+        self._jump_to_date(iso_date)
+        self.page.fill('#log-form [name="weight_kg"]', "90.0")
+        self.page.click("#log-next")
+        self.page.click("#log-next")  # Energy step left blank on purpose
+        self.page.click("#log-save")
+        self.page.wait_for_selector(f'#log-table tbody tr td:text-is("{iso_date}")')
+
+        # No error, exactly one (merged) row, and the pre-existing
+        # steps/intake sync data survived -- not wiped out by the wizard's
+        # own blank fields.
+        self.assertEqual(self.page.inner_text('.form-error[data-for="log-form"]'), "")
+        rows = self.page.locator("#log-table tbody tr")
+        self.assertEqual(rows.count(), 1)
+        row_text = rows.first.inner_text()
+        self.assertIn("90", row_text)
+        self.assertIn("7000", row_text)
+        self.assertIn("2200", row_text)
 
     def _set_show_projected(self, checked: bool):
         # Phase 4.5: the preference lives in Settings (a localStorage-backed
