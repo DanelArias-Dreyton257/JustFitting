@@ -437,14 +437,28 @@ async function renderDashboardCharts() {
   );
 
   // A goal's start_date is set from the real wall-clock date it was
-  // created/changed, which can fall after the last logged week (e.g. the
-  // very first goal, dated at registration). Previously that always
-  // landed off the chart's real-only date domain and got silently
-  // clamped to the right edge; now that the forecast toggle can widen the
-  // domain past it, it would otherwise reappear mid-chart looking like an
-  // unrelated second "Last logged" line -- so it's excluded once it's no
-  // longer describing a change within the real data itself.
+  // created/changed, which can fall after the last logged week (e.g. a
+  // just-committed goal change dated today, on an account whose logs
+  // stop earlier). Previously that always landed off the chart's real-
+  // only date domain and got silently clamped to the right edge; now that
+  // the forecast toggle can widen the domain past it, it would otherwise
+  // reappear mid-chart looking like an unrelated second "Last logged"
+  // line -- so it's excluded once it's no longer describing a change
+  // within the real data itself.
+  //
+  // The account's very first-ever goal (lowest goal_id, chronologically
+  // -- Phase 11.6 stamps it with the account's own birthdate as its
+  // start_date, not "today") never represents a real "change" either way,
+  // since there's no prior goal it changed *from* -- whether it's the
+  // Phase 5.2 auto-assigned placeholder or a real goal set explicitly at
+  // signup. Same "only a genuinely different, deliberately-chosen prior
+  // period counts" rule GoalPlanManager.active_period_start already
+  // applies server-side.
+  const firstEverGoalId = goals.length
+    ? goals.reduce((min, goal) => Math.min(min, goal.goal_id), goals[0].goal_id)
+    : null;
   const goalMarkers = goals
+    .filter((goal) => goal.goal_id !== firstEverGoalId)
     .filter((goal) => !lastLoggedDate || goal.start_date <= lastLoggedDate)
     .map((goal) => ({
       date: goal.start_date,

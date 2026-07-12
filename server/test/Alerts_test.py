@@ -492,8 +492,10 @@ class StaleLogAlertTest(unittest.TestCase):
     """Phase 11.3: the first detector anchored to wall-clock "now" rather
     than purely comparing already-logged rows against each other -- fires
     once too many days have passed since the account's latest raw log (or
-    since the goal's own start_date, for an account that's never logged at
-    all)."""
+    since the account's own creation date, for an account that's never
+    logged at all -- not the goal's own start_date, since Phase 11.6 stamps
+    a brand-new account's auto-assigned placeholder goal with its
+    birthdate rather than "today")."""
 
     @dataclass
     class FakeLog:
@@ -522,22 +524,41 @@ class StaleLogAlertTest(unittest.TestCase):
         alerts = Alerts.detect_alerts([], goal=make_goal(0.0), today=today, all_logs=logs)
         self.assertFalse(any(a.type == "stale_log" for a in alerts))
 
-    def test_never_logged_falls_back_to_goal_start_date(self):
+    def test_never_logged_falls_back_to_account_created_at(self):
         today = BASE_DATE + timedelta(days=10)
-        alerts = Alerts.detect_alerts([], goal=make_goal(0.0), today=today, all_logs=[])
+        alerts = Alerts.detect_alerts(
+            [], goal=make_goal(0.0), today=today, all_logs=[], account_created_at=BASE_DATE
+        )
         flagged = [a for a in alerts if a.type == "stale_log"]
         self.assertEqual(len(flagged), 1)
 
+    def test_never_logged_with_no_account_created_at_is_never_flagged(self):
+        # A real bug (see CHANGELOG): the placeholder goal's start_date is
+        # now the account's birthdate (Phase 11.6), not "today" -- using it
+        # here as a fallback would immediately flag every brand-new,
+        # zero-log account as stale. A goal whose start_date is decades in
+        # the past must not be mistaken for "account created decades ago."
+        today = BASE_DATE + timedelta(days=10)
+        alerts = Alerts.detect_alerts(
+            [],
+            goal=make_goal(0.0, start_date=date(1995, 3, 10)),
+            today=today,
+            all_logs=[],
+        )
+        self.assertFalse(any(a.type == "stale_log" for a in alerts))
+
     def test_no_goal_is_never_flagged(self):
         today = BASE_DATE + timedelta(days=100)
-        alerts = Alerts.detect_alerts([], goal=None, today=today, all_logs=[])
+        alerts = Alerts.detect_alerts(
+            [], goal=None, today=today, all_logs=[], account_created_at=BASE_DATE
+        )
         self.assertFalse(any(a.type == "stale_log" for a in alerts))
 
     def test_omitting_today_defaults_to_the_real_today(self):
-        # A goal whose start_date is far in the past with no logs at all
-        # should be flagged regardless of when this test runs.
+        # An account created far in the past with no logs at all should be
+        # flagged regardless of when this test runs.
         alerts = Alerts.detect_alerts(
-            [], goal=make_goal(0.0, start_date=date(2020, 1, 1)), all_logs=[]
+            [], goal=make_goal(0.0), all_logs=[], account_created_at=date(2020, 1, 1)
         )
         self.assertTrue(any(a.type == "stale_log" for a in alerts))
 

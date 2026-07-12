@@ -393,21 +393,32 @@ def _stale_log_alerts(
     thresholds: EngineConstants,
     today: date_type,
     all_logs: Optional[Sequence[_LogLike]],
+    account_created_at: Optional[date_type] = None,
 ) -> List[Alert]:
     """Flag (not block) an account that hasn't logged anything in too long
     (Phase 11.3) -- the first detector anchored to wall-clock "now" rather
     than purely comparing already-logged rows against each other. Anchored
     to the latest *raw* log's date across the whole account (including a
     still-partial, not-yet-computable row, e.g. a Health Connect sync --
-    any of it counts as "the user did something"), or the active goal's own
-    `start_date` for an account that's never logged at all. Deduped on
-    `(user_id, type, date)` like every other alert with `date=today`, so
-    dismissing it only silences *today's* firing -- it re-fires (and can be
-    re-dismissed) again tomorrow if the account is still stale."""
+    any of it counts as "the user did something"), or the account's own
+    creation date for an account that's never logged at all -- not the
+    active goal's `start_date`, since Phase 11.6 stamps a brand-new
+    account's auto-assigned placeholder goal with its birthdate rather
+    than "today" (so the goal-editing floor for a real, later goal isn't
+    the registration date); using that here would immediately flag every
+    fresh, zero-log account as stale. `account_created_at=None` (a caller
+    that doesn't have it handy) just skips the "never logged" case
+    entirely rather than guessing, same as any other optional signal in
+    this module. Deduped on `(user_id, type, date)` like every other alert
+    with `date=today`, so dismissing it only silences *today's* firing --
+    it re-fires (and can be re-dismissed) again tomorrow if the account is
+    still stale."""
     if goal is None:
         return []
     latest_log_date = max((log.date for log in all_logs), default=None) if all_logs else None
-    anchor_date = latest_log_date if latest_log_date is not None else goal.start_date
+    anchor_date = latest_log_date if latest_log_date is not None else account_created_at
+    if anchor_date is None:
+        return []
     days_since = (today - anchor_date).days
     if days_since <= thresholds.missing_log_alert_days:
         return []
@@ -438,6 +449,7 @@ def detect_alerts(
     goal_history_count: Optional[int] = None,
     today: Optional[date_type] = None,
     all_logs: Optional[Sequence[_LogLike]] = None,
+    account_created_at: Optional[date_type] = None,
 ) -> List[Alert]:
     """Run every detector over a computed series, oldest first.
 
@@ -462,7 +474,11 @@ def detect_alerts(
     regardless of computability -- distinct from ``logs`` above, which is
     already filtered to computable weeks) feed the stale-log detector, the
     first one anchored to wall-clock "now" rather than purely comparing
-    already-logged rows against each other.
+    already-logged rows against each other -- for a zero-log account, it's
+    anchored to ``account_created_at`` instead of the active goal's own
+    `start_date` (see `_stale_log_alerts`'s docstring for why); omitting it
+    just skips that "never logged at all" case, same as every other
+    optional signal above.
     """
     thresholds = thresholds or DEFAULT_ENGINE_CONSTANTS
     today = today or date_type.today()
@@ -479,6 +495,6 @@ def detect_alerts(
         + (_recalibrate_alerts(reconciliation, thresholds) if reconciliation else [])
         + (_macro_kcal_mismatch_alerts(logs, thresholds) if logs else [])
         + (_macro_target_deviation_alerts(macro_targets, thresholds) if macro_targets else [])
-        + _stale_log_alerts(goal, thresholds, today, all_logs)
+        + _stale_log_alerts(goal, thresholds, today, all_logs, account_created_at)
     )
     return sorted(alerts, key=lambda a: a.date)
