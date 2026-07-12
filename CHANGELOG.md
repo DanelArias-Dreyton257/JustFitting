@@ -11,9 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-Two bugs reported after real-world use on a fresh account that had just
-run its first Health Connect sync (a week of daily-granularity steps/
-nutrition rows) and then went to manage its logs:
+Three bugs reported after real-world use. Two hit a fresh account that
+had just run its first Health Connect sync (a week of daily-granularity
+steps/nutrition rows) and then went to manage its logs; the third hit
+anyone backdating their first real goal's start date:
 
 - **500 error saving a weekly log with only weight.** `body_logs` has a
   `UNIQUE(user_id, date)` constraint, but the log wizard's "create" path
@@ -48,11 +49,42 @@ nutrition rows) and then went to manage its logs:
   a day's own "daily" log precedence over a merely-covering "weekly" one,
   the same "a weekly row only fills in what's still missing" rule
   `LogResampler.resample_to_weekly` already applies server-side.
+- **Backdating a real goal's start date past registration day always
+  failed.** The auto-assigned placeholder goal every account starts with
+  (Phase 5.2) had its `start_date` stamped "today" (registration day) --
+  since `GoalPlanManager.update_start_date` (Phase 8.1) requires a
+  backdated start date to fall strictly after the *previous* goal's own
+  `start_date`, once a real goal replaced the placeholder, that placeholder's
+  registration-day stamp became the enforced floor for it -- blocking the
+  exact case Phase 8.1 exists for: a user already mid-cut/mid-bulk for
+  months before finding the app, backdating their first real goal to when
+  it actually started. `UserManager.register` now stamps the placeholder's
+  `start_date` with the account's own birthdate instead -- the one date a
+  real goal never legitimately needs to precede -- so that floor is
+  effectively gone. Two smaller knock-on fixes needed to keep this
+  consistent: the `stale_log` alert's "never logged at all" case anchored
+  to the active goal's `start_date`, which would otherwise now flag every
+  brand-new zero-log account as stale (birthdate is decades in the past);
+  it's anchored to the account's own creation date instead. The Dashboard's
+  goal-trajectory chart marked every goal's `start_date` as a "Plan
+  changed" point, including the account's very first-ever goal, which
+  (now dated at birth, not registration) would otherwise always render a
+  spurious marker; the account's first-ever goal (by creation order) is
+  now excluded, since it never represents a change from a prior goal --
+  same "only a genuinely different, deliberately-chosen prior period
+  counts" rule `GoalPlanManager.active_period_start` already applies.
 
-New coverage: `Api_test.py` gained a case for the duplicate-date 400;
-`Log_test.py` gained cases for the weight-only upsert-merge (verifying
-synced steps/intake survive) and for a day's own daily log taking
-precedence over a covering weekly one. 419 server tests, 73 client tests
+New coverage: `Api_test.py` gained a case for the duplicate-date 400 and
+one for backdating past registration day now working; `Log_test.py`
+gained cases for the weight-only upsert-merge (verifying synced steps/
+intake survive) and for a day's own daily log taking precedence over a
+covering weekly one; `UserManager_test.py` gained cases for the
+placeholder's birthdate start_date and for backdating a real goal past
+registration day; `Alerts_test.py`'s stale-log cases were updated for the
+new `account_created_at` anchor, plus a new case confirming a goal
+dated at birth is never mistaken for "account created decades ago";
+`Dashboard_test.py` gained a case confirming a real goal change still
+gets its own "Plan changed" marker. 423 server tests, 74 client tests
 green.
 
 ### Changed

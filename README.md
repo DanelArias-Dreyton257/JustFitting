@@ -1580,6 +1580,52 @@ steps/nutrition rows) and then went to manage its logs:
 
 419 server tests (1 new), 73 client tests green (2 new).
 
+#### Phase 11.7 — Fix goal start-date backdating blocked by the placeholder's registration-day floor (done, v5.1.2)
+
+Problem: the account's auto-assigned placeholder goal (Phase 5.2) had its
+`start_date` stamped "today" (registration day). Since
+`GoalPlanManager.update_start_date` (Phase 8.1) requires a backdated start
+date to fall strictly after the *previous* goal's own `start_date`, once a
+real goal replaced the placeholder, that registration-day stamp became
+the enforced floor for it -- blocking the exact case Phase 8.1 exists
+for: a user already mid-cut/mid-bulk for months before finding the app,
+backdating their first real goal to when it actually started.
+
+- `UserManager.register` now stamps the placeholder's `start_date` with
+  the account's own birthdate instead of `date.today()` -- the one date a
+  real goal never legitimately needs to precede -- so that floor is
+  effectively gone. `DemoSeeder`'s explicit `goal_start_date` (matching
+  each reference series' own real start) is unaffected either way.
+- Two knock-on fixes needed to keep this consistent, both places that
+  used to lean on the placeholder's `start_date` coinciding with
+  registration day: the `stale_log` alert's "never logged at all" case
+  (Phase 11.3) anchored to the active goal's `start_date`, which would
+  otherwise now flag every brand-new zero-log account as stale (a
+  birthdate is typically decades in the past) -- it's anchored to the
+  account's own creation date (`UserProfile.created_at`) instead,
+  threaded through `AlertSyncService.sync_alerts` -> `detect_alerts` ->
+  `_stale_log_alerts`. The Dashboard's goal-trajectory chart marked every
+  goal in an account's history as a "Plan changed" point on
+  `goal.start_date`, including the very first-ever one, which (now dated
+  at birth, not registration) would otherwise always land inside the
+  chart's real-data domain and render a spurious marker -- the account's
+  first-ever goal (lowest `goal_id`, chronologically) is now excluded from
+  `goalMarkers` (`app.js`), since it never represents a change from a
+  prior goal, whether it's the auto-assigned placeholder or a real goal
+  set explicitly at signup. Both fixes mirror the same "only a genuinely
+  different, deliberately-chosen prior period counts" rule
+  `GoalPlanManager.active_period_start` already applies server-side
+  (Phase 5.3).
+
+New coverage: `UserManager_test.py` gained cases for the placeholder's
+birthdate `start_date` and for backdating a real goal past registration
+day now working; `Api_test.py` gained an end-to-end case for the same;
+`Alerts_test.py`'s stale-log cases were updated for the new
+`account_created_at` anchor, plus a case confirming a goal dated at birth
+is never mistaken for "account created decades ago"; `Dashboard_test.py`
+gained a case confirming a real goal change still gets its own "Plan
+changed" marker. 423 server tests (4 new), 74 client tests green (1 new).
+
 ## Android app
 
 JustFitting ships as an installable Android app by bundling the static
