@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-07-13
+
 ### Added
 
 Phase 12.1 (README), the first sub-phase of the goal-type-aware
@@ -169,6 +171,15 @@ real UI); `Plan_test.py` gained
   `DemoSeeder_test.py`'s hardcoded `target_bf == 0.20` assertion updated
   to `0.15`. 431 server tests green (no new tests -- a seed-data fix, not
   a new code path).
+
+### Changed
+
+- `android/app/build.gradle`'s `versionName`/`versionCode` bumped to
+  `6.0.0`/`14`, tracking this release per this project's own convention.
+  Rebuilt the debug APK (`npm run android:sync && npm run android:apk`)
+  to bundle Phase 12's client changes; confirmed the packaged manifest
+  reports `versionName="6.0.0"`/`versionCode="14"` and the built APK size
+  (~41 MB) matches the documented baseline, with no bloat regression.
 
 ## [5.1.2] - 2026-07-12
 
